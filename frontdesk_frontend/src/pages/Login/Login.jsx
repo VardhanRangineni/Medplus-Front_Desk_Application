@@ -96,8 +96,8 @@ const Login = () => {
         <form className="login-form" onSubmit={handleLogin}>
           <Input
             type="text"
-            label="Username"
-            placeholder="johnneolar@medplus.com"
+            label="Employee ID"
+            placeholder="Enter your employee ID"
             leftIcon={<MailIcon />}
             value={username}
             onChange={(e) => setUsername(e.target.value)}
