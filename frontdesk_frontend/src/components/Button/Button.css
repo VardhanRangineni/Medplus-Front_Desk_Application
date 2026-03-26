@@ -1,0 +1,38 @@
+.custom-btn {
+  width: 100%;
+  padding: 16px 24px;
+  border: none;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #d41f25 0%, #a81418 100%);
+  color: #fff;
+  box-shadow:
+    0 4px 18px rgba(194, 24, 29, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, #e02a30 0%, #c2181d 100%);
+  box-shadow:
+    0 8px 28px rgba(194, 24, 29, 0.58),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.btn-primary:active {
+  transform: translateY(1px);
+  box-shadow: 0 3px 10px rgba(194, 24, 29, 0.35);
+}

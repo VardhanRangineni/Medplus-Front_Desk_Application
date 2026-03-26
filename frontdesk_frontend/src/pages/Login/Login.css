@@ -1,0 +1,239 @@
+@keyframes slideUpFade {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Page wrapper ── */
+.login-page {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  background-size: cover;
+  background-position: left center;
+  background-repeat: no-repeat;
+  position: relative;
+  padding-right: clamp(24px, 5vw, 80px);
+  overflow: hidden;
+}
+
+.login-page::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(0, 0, 0, 0.38) 0%, rgba(30, 5, 5, 0.28) 100%);
+  z-index: 1;
+}
+
+/* ── Card ── */
+.login-card {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 630px;
+  padding: 50px 60px 42px;
+  border-radius: 24px;
+  overflow: hidden;
+
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(255, 255, 255, 0.08) 100%
+  );
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.28),
+    0 8px 32px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+
+  /* Prevent card itself from scrolling */
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  scrollbar-width: none;
+
+  animation: slideUpFade 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.login-card::-webkit-scrollbar {
+  display: none;
+}
+
+/* Red-to-green top-accent bar */
+.login-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    #C2181D 25%,
+    #32A94C 65%,
+    #C2181D 85%,
+    transparent 100%
+  );
+  border-radius: 24px 24px 0 0;
+}
+
+/* ── Header / Logo ── */
+.login-header {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 1.8px;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.logo-img {
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  object-fit: cover;
+  box-shadow: 0 4px 14px rgba(194, 24, 29, 0.4);
+  flex-shrink: 0;
+}
+
+/* Thin divider */
+.login-divider {
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.18),
+    transparent
+  );
+  margin-bottom: 32px;
+}
+
+/* ── Welcome section ── */
+.login-welcome {
+  margin-bottom: 32px;
+}
+
+.portal-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: rgba(255, 160, 163, 0.95);
+  background: rgba(194, 24, 29, 0.18);
+  border: 1px solid rgba(194, 24, 29, 0.35);
+  padding: 5px 14px;
+  border-radius: 20px;
+  margin-bottom: 16px;
+}
+
+.login-welcome h2 {
+  font-size: 32px;
+  font-weight: 600;
+  margin: 0 0 12px;
+  color: #fff;
+  line-height: 1.2;
+}
+
+.login-welcome p {
+  font-size: 14px;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.65);
+  margin: 0;
+  max-width: 440px;
+}
+
+/* ── Form ── */
+.login-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: -4px;
+  margin-bottom: 28px;
+}
+
+.forgot-password {
+  color: rgba(100, 210, 130, 0.9);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  transition: color 0.25s;
+}
+
+.forgot-password:hover {
+  color: #32A94C;
+}
+
+/* ── Sign up prompt ── */
+.signup-prompt {
+  margin-top: 24px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+  text-align: center;
+}
+
+.signup-prompt a {
+  color: rgba(100, 210, 130, 0.95);
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.25s;
+}
+
+.signup-prompt a:hover {
+  color: #32A94C;
+}
+
+/* ── Footer ── */
+.login-footer {
+  margin-top: 30px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.35);
+  text-align: center;
+  letter-spacing: 0.3px;
+}
+
+/* ── Responsive: re-centre on small screens ── */
+@media (max-width: 700px) {
+  .login-page {
+    justify-content: center;
+    padding: 20px 16px;
+    background-position: center;
+  }
+
+  .login-card {
+    padding: 36px 28px 30px;
+    max-height: calc(100vh - 40px);
+  }
+
+  .login-welcome h2 {
+    font-size: 26px;
+  }
+}
