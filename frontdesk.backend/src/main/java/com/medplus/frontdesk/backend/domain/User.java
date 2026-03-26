@@ -1,7 +1,4 @@
 package com.medplus.frontdesk.backend.domain;
-import java.util.*;
-import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

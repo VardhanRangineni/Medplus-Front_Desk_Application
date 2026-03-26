@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import Input from '../../components/Input/Input';
 import Button from '../../components/Button/Button';
 import Checkbox from '../../components/Checkbox/Checkbox';
-import bgImage from '../../assets/Medplus Front desk image 3.png';
+import bgImage from '../../assets/Medplus Front desk image 2.png';
 import medplusLogo from '../../assets/MedPlus.png';
+import { loginUser } from '../../api/authApi';
 import './Login.css';
 
 const MailIcon = () => (
@@ -28,13 +29,33 @@ const ArrowIcon = () => (
 );
 
 const Login = () => {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    console.log('Login attempt:', { email, password, rememberMe });
+    setError('');
+    setLoading(true);
+
+    try {
+      const data = await loginUser({ username, password });
+
+      // Persist token based on "Remember me" preference
+      const storage = rememberMe ? localStorage : sessionStorage;
+      storage.setItem('authToken', data.token);
+      storage.setItem('userName', data.userName);
+
+      // TODO: navigate to dashboard once routing is set up
+      // e.g. navigate('/dashboard');
+      console.log('Login successful:', data.userName);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -59,15 +80,27 @@ const Login = () => {
           </p>
         </div>
 
+        {/* Error banner */}
+        {error && (
+          <div className="login-error" role="alert">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            {error}
+          </div>
+        )}
+
         {/* Form */}
         <form className="login-form" onSubmit={handleLogin}>
           <Input
-            type="email"
-            label="Email Address"
+            type="text"
+            label="Username"
             placeholder="johnneolar@medplus.com"
             leftIcon={<MailIcon />}
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
           />
           <Input
             type="password"
@@ -78,7 +111,7 @@ const Login = () => {
             onChange={(e) => setPassword(e.target.value)}
           />
 
-          <Button type="submit" variant="primary">
+          <Button type="submit" variant="primary" loading={loading}>
             Log In <ArrowIcon />
           </Button>
         </form>
