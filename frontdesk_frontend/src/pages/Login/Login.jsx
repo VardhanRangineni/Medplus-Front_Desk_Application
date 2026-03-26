@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import Input from '../../components/Input/Input';
 import Button from '../../components/Button/Button';
 import Checkbox from '../../components/Checkbox/Checkbox';
-import bgImage from '../../assets/Medplus Front desk image 2.png';
+import bgImage from '../../assets/Medplus Front desk image 3.png';
 import medplusLogo from '../../assets/MedPlus.png';
 import { loginUser } from '../../api/authApi';
 import './Login.css';
