@@ -226,7 +226,7 @@ public class DashboardService {
     private String resolveUserLocation(String username) {
         return usersRepository.findByUsername(username)
                 .map(User::getLocation)
-                .orElseThrow(() -> new UserNotFoundException(username));
+                .orElse(null);
     }
 
     private DateRange resolveDateRange(LocalDate fromDate, LocalDate toDate) {

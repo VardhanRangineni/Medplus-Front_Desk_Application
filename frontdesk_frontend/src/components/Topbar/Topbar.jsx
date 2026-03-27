@@ -133,15 +133,19 @@ const Topbar = ({
 
           {locationOpen && (
             <div className="location-menu">
-              {locations.map(loc => (
-                <button
-                  key={loc}
-                  className={`location-option ${loc === location ? 'selected' : ''}`}
-                  onClick={() => { onLocationChange(loc); setLocationOpen(false); }}
-                >
-                  {loc === location && <span className="option-check">✓</span>}
-                  {loc}
-                </button>
+              {locations.map((loc, idx) => (
+                <React.Fragment key={loc}>
+                  <button
+                    className={`location-option ${loc === location ? 'selected' : ''}`}
+                    onClick={() => { onLocationChange(loc); setLocationOpen(false); }}
+                  >
+                    <span className="option-check" style={{ visibility: loc === location ? 'visible' : 'hidden' }}>✓</span>
+                    {loc}
+                  </button>
+                  {loc === 'All' && locations.length > 1 && (
+                    <div className="location-divider" />
+                  )}
+                </React.Fragment>
               ))}
             </div>
           )}

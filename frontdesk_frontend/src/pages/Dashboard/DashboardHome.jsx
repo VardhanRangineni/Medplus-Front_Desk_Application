@@ -1,10 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useOutletContext } from 'react-router-dom';
-import {
-  getDashboardStats,
-  getVisitorFlowChart,
-  getRecentVisitors,
-} from '../../api/dashboardApi';
+import { useOutletContext, useNavigate } from 'react-router-dom';
+import { getDashboardOverview } from '../../api/dashboardApi';
 
 // ── SVG Area Chart ────────────────────────────────────────────────────────────
 
@@ -56,6 +52,7 @@ const IconPin = () => (
 const DashboardHome = () => {
   // Shared shell state injected by the Dashboard layout via Outlet context
   const { location, dateRange } = useOutletContext();
+  const navigate = useNavigate();
 
   const [checkinFilter,  setCheckinFilter]  = useState('All');
   const [checkoutFilter, setCheckoutFilter] = useState('All');
@@ -64,20 +61,37 @@ const DashboardHome = () => {
   const [stats,          setStats]          = useState(null);
   const [chartData,      setChartData]      = useState([]);
   const [recentVisitors, setRecentVisitors] = useState([]);
+  const [apiError,       setApiError]       = useState(null);
 
-  // Re-fetch whenever location or date range changes
+  // Fetch (and re-fetch) whenever location or date range changes.
+  // Also polls every 30 s so check-out / check-in counts stay live
+  // without the user having to navigate away and back.
   useEffect(() => {
-    Promise.all([
-      getDashboardStats({ location, dateFrom: dateRange.from, dateTo: dateRange.to }),
-      getVisitorFlowChart({ location, date: dateRange.from }),
-      getRecentVisitors({ location, dateFrom: dateRange.from, dateTo: dateRange.to }),
-    ])
-      .then(([s, chart, visitors]) => {
-        setStats(s);
-        setChartData(chart);
-        setRecentVisitors(visitors);
-      })
-      .catch(console.error);
+    let cancelled = false;
+
+    const fetchOverview = () => {
+      if (cancelled) return;
+      getDashboardOverview({ dateFrom: dateRange.from, dateTo: dateRange.to })
+        .then(({ stats, chartData, recentVisitors }) => {
+          if (cancelled) return;
+          setApiError(null);
+          setStats(stats);
+          setChartData(chartData);
+          setRecentVisitors(recentVisitors);
+        })
+        .catch(err => {
+          if (cancelled) return;
+          setApiError(err);
+        });
+    };
+
+    fetchOverview();
+    const timer = setInterval(fetchOverview, 30_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, [location, dateRange]);
 
   const rawName     = localStorage.getItem('userName') || sessionStorage.getItem('userName') || 'Admin';
@@ -85,6 +99,41 @@ const DashboardHome = () => {
 
   const hour     = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
+  if (apiError) {
+    return (
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', height: '60vh', gap: '12px',
+        color: '#555', fontFamily: 'inherit',
+      }}>
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none"
+             stroke="#C2181D" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <p style={{ fontSize: '1rem', fontWeight: 600, color: '#333', margin: 0 }}>
+          {apiError.isAuthError ? 'Session expired' : 'Failed to load dashboard data'}
+        </p>
+        <p style={{ fontSize: '0.85rem', color: '#777', margin: 0 }}>
+          {apiError.isAuthError
+            ? 'Your session is no longer valid. Please log in again.'
+            : apiError.message}
+        </p>
+        <button
+          onClick={() => navigate('/login')}
+          style={{
+            marginTop: '8px', padding: '8px 24px', background: '#C2181D',
+            color: '#fff', border: 'none', borderRadius: '6px',
+            cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600,
+          }}
+        >
+          Log in again
+        </button>
+      </div>
+    );
+  }
 
   return (
     <>

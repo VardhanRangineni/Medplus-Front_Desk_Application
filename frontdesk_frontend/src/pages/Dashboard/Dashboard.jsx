@@ -19,8 +19,8 @@ const Dashboard = () => {
   const { pathname } = useLocation();
 
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [location,      setLocation]      = useState('Corporate Office');
-  const [locations,     setLocations]     = useState(['Corporate Office']);
+  const [location,      setLocation]      = useState('All');
+  const [locations,     setLocations]     = useState(['All']);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -28,7 +28,9 @@ const Dashboard = () => {
 
   // Fetch available locations once on mount (shared by Topbar dropdown)
   useEffect(() => {
-    getLocations().then(setLocations).catch(console.error);
+    getLocations()
+      .then(names => setLocations(['All', ...names]))
+      .catch(console.error);
   }, []);
 
   // Close mobile drawer when route changes

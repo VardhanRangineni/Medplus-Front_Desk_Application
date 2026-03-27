@@ -454,9 +454,17 @@ const Home = () => {
   });
 
   const counts = {
-    all:           entries.length,
-    'checked-in':  entries.filter((e) => e.status === 'Checked-in').length,
-    'checked-out': entries.filter((e) => e.status === 'Checked-out').length,
+    all: entries.reduce((sum, e) => sum + 1 + (e.members?.length ?? 0), 0),
+    'checked-in': entries.reduce((sum, e) => {
+      const headIn    = e.status === 'Checked-in' ? 1 : 0;
+      const membersIn = (e.members ?? []).filter((m) => m.status === 'Checked-in').length;
+      return sum + headIn + membersIn;
+    }, 0),
+    'checked-out': entries.reduce((sum, e) => {
+      const headOut    = e.status === 'Checked-out' ? 1 : 0;
+      const membersOut = (e.members ?? []).filter((m) => m.status === 'Checked-out').length;
+      return sum + headOut + membersOut;
+    }, 0),
   };
 
   // ── Row expand ─────────────────────────────────────────────────────────────
@@ -498,37 +506,13 @@ const Home = () => {
   const handleCheckOut = async (cardsReturned = false) => {
     if (!activeEntry) return;
     try {
-      // TODO: pass cardsReturned flag to real API → checkOutEntry(activeEntry.id, { cardsReturned })
       await checkOutEntry(activeEntry.id);
-
-      const checkOutTime = new Date().toISOString();
-
-      setEntries((prev) =>
-        prev.map((e) => {
-          if (activeParentEntry) {
-            // Member checkout — update only that member's status within the parent entry
-            if (e.id !== activeParentEntry.id) return e;
-            return {
-              ...e,
-              members: e.members.map((m) =>
-                m.id === activeEntry.id
-                  ? { ...m, status: 'Checked-out', checkOutTime }
-                  : m,
-              ),
-            };
-          } else {
-            // Main entry checkout — check out entry and all its members
-            if (e.id !== activeEntry.id) return e;
-            return {
-              ...e,
-              status: 'Checked-out',
-              checkOutTime,
-              cardsReturned,
-              members: e.members.map((m) => ({ ...m, status: 'Checked-out', checkOutTime })),
-            };
-          }
-        }),
-      );
+      // Re-fetch from the server so the Checked-out tab always reflects the DB truth
+      await getCheckInEntries({
+        location,
+        from: dateRange?.from,
+        to:   dateRange?.to,
+      }).then(setEntries);
     } catch (err) {
       setError(err.message || 'Checkout failed. Please try again.');
     } finally {

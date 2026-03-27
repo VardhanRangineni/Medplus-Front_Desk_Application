@@ -13,12 +13,27 @@ export function getAuthToken() {
 }
 
 /**
+ * Clears all stored auth data without forcing a navigation.
+ * Callers should display an error / login prompt themselves.
+ */
+export function clearAuthToken() {
+  localStorage.removeItem('authToken');
+  localStorage.removeItem('userName');
+  sessionStorage.removeItem('authToken');
+  sessionStorage.removeItem('userName');
+}
+
+/**
  * Thin wrapper around fetch that:
  *  - Prefixes BASE_URL
  *  - Injects Authorization header when a token exists
- *  - Throws a human-readable Error on non-2xx responses
+ *  - On 401 / 403: clears stored token and throws a SessionExpiredError
+ *  - On other non-2xx: throws a human-readable Error
  *
- * @param {string} path  e.g. '/api/dashboard/stats'
+ * Callers are responsible for handling SessionExpiredError (show login prompt,
+ * redirect, etc.) — this keeps navigation logic out of the API layer.
+ *
+ * @param {string} path  e.g. '/user/dashboard/overview'
  * @param {RequestInit} [options]
  * @returns {Promise<any>}
  */
@@ -33,6 +48,13 @@ export async function apiFetch(path, options = {}) {
       ...options.headers,
     },
   });
+
+  if (response.status === 401 || response.status === 403) {
+    clearAuthToken();
+    const err = new Error('Session expired. Please log in again.');
+    err.isAuthError = true;
+    throw err;
+  }
 
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));

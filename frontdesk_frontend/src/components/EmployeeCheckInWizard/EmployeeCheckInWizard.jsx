@@ -4,6 +4,7 @@ import {
   verifyEmployeeOtp,
   getStaffMembers,
   getDepartments,
+  getFormLocations,
   checkInSingle,
 } from '../../api/checkInApi';
 import './EmployeeCheckInWizard.css';
@@ -152,7 +153,7 @@ const WizardProgress = ({ step, totalSteps }) => (
 
 // ── Step 1: Employee ID + OTP + Details ────────────────────────────────────────
 
-const Step1Details = ({ form, setField, staffMembers, departments, onNext }) => {
+const Step1Details = ({ form, setField, staffMembers, departments, locations, onNext }) => {
   const [sending,   setSending]   = useState(false);
   const [otpSent,   setOtpSent]   = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -196,6 +197,7 @@ const Step1Details = ({ form, setField, staffMembers, departments, onNext }) => 
 
   const validate = () => {
     const e = {};
+    if (!form.location)              e.location = 'Please select a location.';
     if (!form.fullName.trim())       e.fullName = 'Full name is required.';
     else if (form.fullName.trim().length < 2) e.fullName = 'Name must be at least 2 characters.';
     return e;
@@ -279,6 +281,28 @@ const Step1Details = ({ form, setField, staffMembers, departments, onNext }) => 
         {verified && (
           <>
             <div className="ecw-divider-light" />
+
+            {/* Location */}
+            <div className="ecw-field">
+              <label className="ecw-label" htmlFor="ecw-location">
+                Location <span className="ecw-req">*</span>
+              </label>
+              <div className="ecw-select-wrap">
+                <span className="ecw-icon"><IconBadge /></span>
+                <select
+                  id="ecw-location"
+                  className={`ecw-select${errors.location ? ' error' : ''}`}
+                  value={form.location}
+                  onChange={e => { sf('location')(e); }}
+                >
+                  <option value="">Select a location…</option>
+                  {locations.map(l => (
+                    <option key={l.id} value={l.id}>{l.name}</option>
+                  ))}
+                </select>
+              </div>
+              {errors.location && <span className="ecw-field-error">{errors.location}</span>}
+            </div>
 
             {/* Full Name */}
             <div className="ecw-field">
@@ -531,18 +555,20 @@ const Step2Photo = ({ form, setField, onBack, onSubmit, submitting }) => {
  *   On submit: replace the mock in handleSubmit with:
  *     apiFetch('/api/checkins', { method: 'POST', body: JSON.stringify(payload) })
  */
-const EmployeeCheckInWizard = ({ onClose, onBack, onSuccess, locationId }) => {
+const EmployeeCheckInWizard = ({ onClose, onBack, onSuccess }) => {
   const TOTAL    = 2;
   const modalRef = useRef(null);
   const [step,         setStep]       = useState(1);
   const [submitting,   setSubmitting] = useState(false);
   const [staffMembers, setStaff]      = useState([]);
   const [departments,  setDepts]      = useState([]);
+  const [locations,    setLocs]       = useState([]);
 
   const [form, setForm] = useState({
     empId:          '',
     otpCode:        '',
     otpVerified:    false,
+    location:       '',
     fullName:       '',
     ownDepartment:  '',
     personToMeet:   '',
@@ -562,8 +588,8 @@ const EmployeeCheckInWizard = ({ onClose, onBack, onSuccess, locationId }) => {
   }, [onClose]);
 
   useEffect(() => {
-    Promise.all([getStaffMembers(), getDepartments()])
-      .then(([staff, depts]) => { setStaff(staff); setDepts(depts); })
+    Promise.all([getStaffMembers(), getDepartments(), getFormLocations()])
+      .then(([staff, depts, locs]) => { setStaff(staff); setDepts(depts); setLocs(locs); })
       .catch(console.error);
   }, []);
 
@@ -573,7 +599,7 @@ const EmployeeCheckInWizard = ({ onClose, onBack, onSuccess, locationId }) => {
       const entry = await checkInSingle({
         visitorType:          'EMPLOYEE',
         fullName:             form.fullName,
-        locationId:           locationId || '',
+        locationId:           form.location,
         identificationNumber: form.empId,
         govtId:               null,
         personToMeet:         form.personToMeet || null,
@@ -617,6 +643,7 @@ const EmployeeCheckInWizard = ({ onClose, onBack, onSuccess, locationId }) => {
             setField={setField}
             staffMembers={staffMembers}
             departments={departments}
+            locations={locations}
             onNext={() => setStep(2)}
           />
         )}
