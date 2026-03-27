@@ -221,8 +221,10 @@ const DashboardHome = () => {
                   <td className="td-name">{v.name}</td>
                   <td className="td-contact">{v.contactId}</td>
                   <td className="td-location">
-                    <IconPin />
-                    {v.location}
+                    <span className="td-location-wrap">
+                      <IconPin />
+                      {v.location}
+                    </span>
                   </td>
                   <td>
                     <span className={`status-pill ${v.status === 'Checked-in' ? 'pill-checkedin' : 'pill-checkedout'}`}>

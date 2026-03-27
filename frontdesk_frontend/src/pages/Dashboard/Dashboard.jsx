@@ -7,6 +7,7 @@ import { getLocations } from '../../api/dashboardApi';
 
 // ── Page name map (pathname → human-readable title for the topbar) ────────────
 const PAGE_NAMES = {
+  '/home':             'Home',
   '/location-master':  'Location Master',
   '/user-management':  'User Management',
   '/reports':          'Reports',

@@ -396,11 +396,12 @@
 .visitors-table tr:last-child td { border-bottom: none; }
 .visitors-table tr:hover td      { background: rgba(255,255,255,0.5); }
 
-.td-name     { font-weight: 600; color: #0a0a0a; }
-.td-contact  { font-family: monospace; font-size: 12.5px; color: #374151; }
-.td-location { display: flex; align-items: center; gap: 5px; color: #0f172a; }
-.td-muted    { color: #374151; }
-.td-cards    { font-weight: 600; }
+.td-name          { font-weight: 600; color: #0a0a0a; }
+.td-contact       { font-family: monospace; font-size: 12.5px; color: #374151; }
+.td-location      { color: #0f172a; }
+.td-location-wrap { display: inline-flex; align-items: center; gap: 5px; }
+.td-muted         { color: #374151; }
+.td-cards         { font-weight: 600; }
 
 /* Type badges */
 .type-badge {

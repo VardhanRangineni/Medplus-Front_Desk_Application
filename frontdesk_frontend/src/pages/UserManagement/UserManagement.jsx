@@ -249,6 +249,21 @@ const CreateUserModal = ({ onClose, onSave }) => {
               </div>
             </div>
 
+            {/* Location */}
+            <div className="um-form-row full">
+              <div className="um-field">
+                <label className="um-label" htmlFor="um-location">Location</label>
+                <input
+                  id="um-location"
+                  className="um-input"
+                  placeholder="e.g. Corporate Office"
+                  value={form.location}
+                  onChange={set('location')}
+                  autoComplete="off"
+                />
+              </div>
+            </div>
+
             {/* Email */}
             <div className="um-form-row full">
               <div className="um-field">

@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login          from './pages/Login/Login';
 import Dashboard      from './pages/Dashboard/Dashboard';
 import DashboardHome  from './pages/Dashboard/DashboardHome';
+import Home           from './pages/Home/Home';
 import LocationMaster from './pages/LocationMaster/LocationMaster';
 import UserManagement from './pages/UserManagement/UserManagement';
 
@@ -26,7 +27,7 @@ function App() {
           }
         >
           <Route path="/dashboard"        element={<DashboardHome />} />
-          <Route path="/home"             element={<DashboardHome />} />
+          <Route path="/home"             element={<Home />} />
           <Route path="/location-master"  element={<LocationMaster />} />
           <Route path="/user-management"  element={<UserManagement />} />
         </Route>
