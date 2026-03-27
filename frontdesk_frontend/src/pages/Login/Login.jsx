@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Input from '../../components/Input/Input';
 import Button from '../../components/Button/Button';
 import Checkbox from '../../components/Checkbox/Checkbox';
@@ -34,6 +35,7 @@ const Login = () => {
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const navigate = useNavigate();
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -48,9 +50,7 @@ const Login = () => {
       storage.setItem('authToken', data.token);
       storage.setItem('userName', data.userName);
 
-      // TODO: navigate to dashboard once routing is set up
-      // e.g. navigate('/dashboard');
-      console.log('Login successful:', data.userName);
+      navigate('/dashboard');
     } catch (err) {
       setError(err.message);
     } finally {
