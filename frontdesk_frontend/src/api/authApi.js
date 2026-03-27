@@ -1,4 +1,4 @@
-const BASE_URL = 'http://localhost:8080';
+import { BASE_URL } from './apiClient';
 
 /**
  * POST /auth/login
@@ -14,7 +14,6 @@ export async function loginUser({ username, password }) {
   });
 
   if (!response.ok) {
-    // Spring Security returns 401/403 for bad credentials
     if (response.status === 401 || response.status === 403) {
       throw new Error('Invalid username or password. Please try again.');
     }
