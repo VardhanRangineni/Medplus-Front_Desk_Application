@@ -3,6 +3,7 @@ import Login          from './pages/Login/Login';
 import Dashboard      from './pages/Dashboard/Dashboard';
 import DashboardHome  from './pages/Dashboard/DashboardHome';
 import LocationMaster from './pages/LocationMaster/LocationMaster';
+import UserManagement from './pages/UserManagement/UserManagement';
 
 const PrivateRoute = ({ children }) => {
   const token =
@@ -25,7 +26,9 @@ function App() {
           }
         >
           <Route path="/dashboard"        element={<DashboardHome />} />
+          <Route path="/home"             element={<DashboardHome />} />
           <Route path="/location-master"  element={<LocationMaster />} />
+          <Route path="/user-management"  element={<UserManagement />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/login" replace />} />
