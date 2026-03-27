@@ -31,7 +31,7 @@ public class AuthService {
 
         UserDetails userDetails = (UserDetails) authentication.getPrincipal();
         User user = usersRepository.findByUsername(userDetails.getUsername())
-                .orElseThrow(() -> new UserNotFoundException("User not found"));
+                .orElseThrow(() -> new UserNotFoundException("Invalid username or password"));
 
         String token = authUtil.generateAccessToken(user);
 
