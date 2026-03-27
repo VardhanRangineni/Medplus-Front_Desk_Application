@@ -456,7 +456,6 @@ const Dashboard = () => {
 
             {/* Hero card */}
             <div className="hero-card">
-              <span className="hero-tag">Today's Summary</span>
               <h2>{greeting},<br />{displayName}.</h2>
               <br></br>
               <button className="hero-cta">
