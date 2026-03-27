@@ -4,7 +4,7 @@ import {
   verifyEmployeeOtp,
   getStaffMembers,
   getDepartments,
-  getFormLocations,
+  checkInSingle,
 } from '../../api/checkInApi';
 import './EmployeeCheckInWizard.css';
 
@@ -531,7 +531,7 @@ const Step2Photo = ({ form, setField, onBack, onSubmit, submitting }) => {
  *   On submit: replace the mock in handleSubmit with:
  *     apiFetch('/api/checkins', { method: 'POST', body: JSON.stringify(payload) })
  */
-const EmployeeCheckInWizard = ({ onClose, onBack, onSuccess }) => {
+const EmployeeCheckInWizard = ({ onClose, onBack, onSuccess, locationId }) => {
   const TOTAL    = 2;
   const modalRef = useRef(null);
   const [step,         setStep]       = useState(1);
@@ -570,24 +570,16 @@ const EmployeeCheckInWizard = ({ onClose, onBack, onSuccess }) => {
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
-      // TODO: replace with real API → apiFetch('/api/checkins', { method: 'POST', body: JSON.stringify(payload) })
-      await new Promise(res => setTimeout(res, 900));
-      onSuccess({
-        id:            `e-${Date.now()}`,
-        type:          'Employee',
-        name:          form.fullName,
-        mobileOrEmpId: form.empId,
-        status:        'Checked-in',
-        personToMeet:  form.personToMeet  || null,
-        cards:         [],
-        checkInTime:   new Date().toISOString(),
-        checkOutTime:  null,
-        department:    form.hostDepartment || form.ownDepartment || null,
-        ownDepartment: form.ownDepartment  || null,
-        purpose:       form.reasonForVisit || null,
-        photo:         form.photo,
-        members:       [],
+      const entry = await checkInSingle({
+        visitorType:          'EMPLOYEE',
+        fullName:             form.fullName,
+        locationId:           locationId || '',
+        identificationNumber: form.empId,
+        govtId:               null,
+        personToMeet:         form.personToMeet || null,
+        cardNumber:           null,
       });
+      onSuccess(entry);
     } finally {
       setSubmitting(false);
     }

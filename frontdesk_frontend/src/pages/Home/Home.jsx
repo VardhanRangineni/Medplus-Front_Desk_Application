@@ -890,6 +890,7 @@ const Home = () => {
       )}
       {modal === 'add-form' && entryType === 'Employee' && (
         <EmployeeCheckInWizard
+          locationId={location}
           onClose={() => { setModal(null); setEntryType(null); }}
           onBack={() => { setModal('add'); setEntryType(null); }}
           onSuccess={(entry) => {

@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS `Locations` (
 CREATE TABLE IF NOT EXISTS `User` (
     `username` VARCHAR(100) NOT NULL,
     `password` VARCHAR(255) NOT NULL,
-    `Location` VARCHAR(50) NOT NULL,
+    `location` VARCHAR(50) NOT NULL,
     `role` ENUM('ADMIN', 'USER') NOT NULL,
     PRIMARY KEY (`username`),
     CONSTRAINT `fk_user_location`
@@ -46,4 +46,53 @@ CREATE TABLE IF NOT EXISTS `Visitor` (
     CONSTRAINT `fk_visitor_location`
         FOREIGN KEY (`locationId`) REFERENCES `Locations`(`LocationId`)
 );
+
+-- ── Column migration: add govtId if it doesn't exist yet ─────────────────────
+-- Uses information_schema + PREPARE so it is safe on MySQL (no IF NOT EXISTS).
+SET @add_govtId = (
+    SELECT IF(
+        COUNT(*) = 0,
+        'ALTER TABLE `Visitor` ADD COLUMN `govtId` VARCHAR(120) NULL AFTER `identificationNumber`',
+        'SELECT 1'
+    )
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'Visitor'
+      AND COLUMN_NAME  = 'govtId'
+);
+PREPARE stmt_add_govtId FROM @add_govtId;
+EXECUTE stmt_add_govtId;
+DEALLOCATE PREPARE stmt_add_govtId;
+
+-- ── Column migration: allow NULL for personToMeet ─────────────────────────────
+SET @alter_personToMeet = (
+    SELECT IF(
+        IS_NULLABLE = 'NO',
+        'ALTER TABLE `Visitor` MODIFY COLUMN `personToMeet` VARCHAR(150) NULL',
+        'SELECT 1'
+    )
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'Visitor'
+      AND COLUMN_NAME  = 'personToMeet'
+);
+PREPARE stmt_alter_ptm FROM @alter_personToMeet;
+EXECUTE stmt_alter_ptm;
+DEALLOCATE PREPARE stmt_alter_ptm;
+
+-- ── Column migration: allow NULL for cardNumber ───────────────────────────────
+SET @alter_cardNumber = (
+    SELECT IF(
+        IS_NULLABLE = 'NO',
+        'ALTER TABLE `Visitor` MODIFY COLUMN `cardNumber` VARCHAR(50) NULL',
+        'SELECT 1'
+    )
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'Visitor'
+      AND COLUMN_NAME  = 'cardNumber'
+);
+PREPARE stmt_alter_cn FROM @alter_cardNumber;
+EXECUTE stmt_alter_cn;
+DEALLOCATE PREPARE stmt_alter_cn;
 

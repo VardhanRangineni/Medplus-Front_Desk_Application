@@ -20,6 +20,9 @@ public class AuthUtil {
     @Value("${app.jwt.secretkey}")
     private String jwtSecretKey;
 
+    @Value("${app.jwt.expiration-ms}")
+    private long expirationMs;
+
     private SecretKey getSecretKey() {
         return Keys.hmacShaKeyFor(jwtSecretKey.getBytes(StandardCharsets.UTF_8));
     }
@@ -29,7 +32,7 @@ public class AuthUtil {
                 .subject(user.getUsername())
                 .claim("userName", user.getUsername())
                 .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + 1000*60*10))
+                .expiration(new Date(System.currentTimeMillis() + expirationMs))
                 .signWith(getSecretKey())
                 .compact();
     }

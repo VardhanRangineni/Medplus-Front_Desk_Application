@@ -5,6 +5,8 @@ import {
   getStaffMembers,
   getDepartments,
   getFormLocations,
+  checkInSingle,
+  checkInGroup,
 } from '../../api/checkInApi';
 import './VisitorCheckInWizard.css';
 
@@ -368,7 +370,7 @@ const Step2Details = ({ form, setField, staffMembers, departments, locations, on
               onChange={sf('location')}
             >
               <option value="">Select a location for this entry</option>
-              {locations.map(l => <option key={l} value={l}>{l}</option>)}
+              {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
           </div>
           {errors.location && <span className="ci-wz-field-error">{errors.location}</span>}
@@ -759,36 +761,32 @@ const VisitorCheckInWizard = ({ onClose, onBack, onSuccess }) => {
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
-      // TODO: replace with real API call — apiFetch('/api/checkins', { method: 'POST', body: JSON.stringify(form) })
-      await new Promise(res => setTimeout(res, 900));
-      onSuccess({
-        id:            `v-${Date.now()}`,
-        type:          'Visitor',
-        name:          form.fullName,
-        mobileOrEmpId: form.mobile,
-        status:        'Checked-in',
-        personToMeet:  form.personToMeet  || null,
-        cards:         form.cardNumber ? [Number(form.cardNumber)] : [],
-        checkInTime:   new Date().toISOString(),
-        checkOutTime:  null,
-        department:    form.hostDepartment || null,
-        purpose:       form.reasonForVisit || null,
-        visitType:     form.visitType,
-        members:       form.visitType === 'Group'
-          ? form.subVisitors
-              .filter(sv => sv.name.trim())
-              .map((sv, i) => ({
-                id:         `sv-${Date.now()}-${i}`,
-                name:       sv.name.trim(),
-                type:       'Member',
-                cards:      sv.cardNumber ? [Number(sv.cardNumber)] : [],
-                cardNumber: sv.cardNumber.trim() || null,
-                status:     'Checked-in',
-                checkInTime:   new Date().toISOString(),
-                checkOutTime:  null,
-              }))
-          : [],
-      });
+      const isGroup = form.visitType === 'Group' && form.subVisitors.some(sv => sv.name.trim());
+      let entry;
+
+      if (isGroup) {
+        entry = await checkInGroup({
+          fullName:             form.fullName,
+          locationId:           form.location,
+          identificationNumber: form.mobile,
+          govtId:               form.govtIdNumber || null,
+          personToMeet:         form.personToMeet || null,
+          cardNumber:           form.cardNumber   || null,
+          members:              form.subVisitors.filter(sv => sv.name.trim()),
+        });
+      } else {
+        entry = await checkInSingle({
+          visitorType:          'NONEMPLOYEE',
+          fullName:             form.fullName,
+          locationId:           form.location,
+          identificationNumber: form.mobile,
+          govtId:               form.govtIdNumber || null,
+          personToMeet:         form.personToMeet || null,
+          cardNumber:           form.cardNumber   || null,
+        });
+      }
+
+      onSuccess(entry);
     } finally {
       setSubmitting(false);
     }

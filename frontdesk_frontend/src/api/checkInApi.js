@@ -1,188 +1,235 @@
 // ── Check-In / Check-Out API ───────────────────────────────────────────────────
-// All functions return Promises. Replace the mock implementations with real
-// fetch/axios calls against your REST API when the backend is ready.
+// All functions call the real REST backend at /user/visitors (and /admin/locations).
+// Auth is injected automatically by apiFetch via the stored JWT token.
 // ──────────────────────────────────────────────────────────────────────────────
 
-// import { apiFetch } from './apiClient'; // uncomment when wiring real endpoints
+import { apiFetch } from './apiClient';
 
-const delay = (ms) => new Promise((res) => setTimeout(res, ms));
+// ── Field mapping helpers ──────────────────────────────────────────────────────
 
-// ── Mock dataset ───────────────────────────────────────────────────────────────
+/**
+ * Maps a backend VisitorDto → frontend Entry shape used by UI components.
+ * Backend status values: CheckedIn / CheckedOut
+ * Backend type values:   EMPLOYEE / NONEMPLOYEE
+ */
+function mapVisitor(v) {
+  return {
+    id:                  v.visitorId,
+    type:                v.visitorType === 'EMPLOYEE' ? 'Employee' : 'Visitor',
+    name:                v.fullName,
+    mobileOrEmpId:       v.identificationNumber,
+    status:              v.status === 'CheckedIn' ? 'Checked-in' : 'Checked-out',
+    personToMeet:        v.personToMeet        || null,
+    cards:               v.cardNumber          ? [v.cardNumber] : [],
+    checkInTime:         v.checkInTime,
+    checkOutTime:        v.checkOutTime        || null,
+    location:            v.locationId,
+    govtId:              v.govtId              || null,
+    groupHeadVisitorId:  v.groupHeadVisitorId  || null,
+    members:             [],
+  };
+}
 
-const MOCK_ENTRIES = [
-  {
-    id: 'v-001',
-    type: 'Visitor',
-    name: 'Sameer Jain',
-    mobileOrEmpId: '9823456789',
-    status: 'Checked-in',
-    personToMeet: 'Sunita Reddy',
-    cards: [104],
-    checkInTime: '2026-03-27T14:00:00',
-    checkOutTime: null,
-    department: 'HR',
-    purpose: 'Meeting',
-    members: [],
-  },
-  {
-    id: 'v-002',
-    type: 'Visitor',
-    name: 'Ananya Singh',
-    mobileOrEmpId: '9988776655',
-    status: 'Checked-in',
-    personToMeet: 'Sunita Reddy',
-    cards: [101],
-    checkInTime: '2026-03-27T09:30:00',
-    checkOutTime: null,
-    department: 'Finance',
-    purpose: 'Vendor Meeting',
-    members: [
-      {
-        id: 'm-001',
-        name: 'Suresh Raina',
-        type: 'Member',
-        status: 'Checked-in',
-        cards: [102],
-        checkInTime: '2026-03-27T09:30:00',
-        checkOutTime: null,
-      },
-      {
-        id: 'm-002',
-        name: 'MS Dhoni',
-        type: 'Member',
-        status: 'Checked-in',
-        cards: [103],
-        checkInTime: '2026-03-27T09:30:00',
-        checkOutTime: null,
-      },
-    ],
-  },
-  {
-    id: 'e-001',
-    type: 'Employee',
-    name: 'Ravi Kumar',
-    mobileOrEmpId: 'EMP1001',
-    status: 'Checked-in',
-    personToMeet: 'Sunita Reddy',
-    cards: [],
-    checkInTime: '2026-03-27T09:15:00',
-    checkOutTime: null,
-    department: 'IT',
-    purpose: null,
-    members: [],
-  },
-  {
-    id: 'v-003',
-    type: 'Visitor',
-    name: 'Priya Mehta',
-    mobileOrEmpId: '9876543210',
-    status: 'Checked-out',
-    personToMeet: 'Amit Sharma',
-    cards: [105],
-    checkInTime: '2026-03-27T10:00:00',
-    checkOutTime: '2026-03-27T11:30:00',
-    department: 'Operations',
-    purpose: 'Interview',
-    members: [],
-  },
-  {
-    id: 'e-002',
-    type: 'Employee',
-    name: 'Neha Gupta',
-    mobileOrEmpId: 'EMP1002',
-    status: 'Checked-out',
-    personToMeet: null,
-    cards: [],
-    checkInTime: '2026-03-27T08:45:00',
-    checkOutTime: '2026-03-27T17:30:00',
-    department: 'HR',
-    purpose: null,
-    members: [],
-  },
-];
+/**
+ * Takes a flat list of mapped entries and nests group members under their head.
+ * Group members have a non-null groupHeadVisitorId pointing to the head's id.
+ */
+function nestGroupMembers(entries) {
+  const heads   = entries.filter(e => !e.groupHeadVisitorId);
+  const members = entries.filter(e =>  e.groupHeadVisitorId);
+  return heads.map(head => ({
+    ...head,
+    members: members
+      .filter(m => m.groupHeadVisitorId === head.id)
+      .map(m => ({ ...m, type: 'Member' })),
+  }));
+}
 
 // ── Public API ─────────────────────────────────────────────────────────────────
 
 /**
- * Fetch all check-in entries for a location and date range.
- * @param {{ location?: string, from?: Date, to?: Date }} params
+ * Fetch all check-in entries (up to 200).
+ * The backend caps pageSize at 100, so two pages are fetched when needed.
+ * Location filtering requires a real locationId; the location context name
+ * is ignored here until the dashboard location system is wired to real IDs.
+ *
+ * @param {{ location?: string, from?: Date, to?: Date }} _params  (unused for now)
  * @returns {Promise<Entry[]>}
  */
-export const getCheckInEntries = async ({ location, from, to } = {}) => {
-  await delay(750);
-  // TODO: return apiClient(`/api/checkins?location=${encodeURIComponent(location)}&from=${from?.toISOString()}&to=${to?.toISOString()}`);
-  return MOCK_ENTRIES;
+export const getCheckInEntries = async (_params = {}) => {
+  const first = await apiFetch('/user/visitors?pageSize=100&page=0');
+  let rows = first.rows.map(mapVisitor);
+
+  if (first.totalPages > 1) {
+    const second = await apiFetch('/user/visitors?pageSize=100&page=1');
+    rows = rows.concat(second.rows.map(mapVisitor));
+  }
+
+  return nestGroupMembers(rows);
 };
 
 /**
- * Fetch a single check-in entry by ID (for detail / edit views).
- * @param {string} id
+ * Fetch a single check-in entry by its visitorId.
+ * Uses the search param on the list endpoint.
+ *
+ * @param {string} id  — visitor ID e.g. "MED-V-001"
  * @returns {Promise<Entry>}
  */
 export const getEntryById = async (id) => {
-  await delay(300);
-  // TODO: return apiFetch(`/api/checkins/${id}`);
-  const entry = MOCK_ENTRIES.find((e) => e.id === id);
-  if (!entry) throw new Error(`Entry ${id} not found.`);
-  return { ...entry };
+  const page = await apiFetch(`/user/visitors?search=${encodeURIComponent(id)}&pageSize=1`);
+  if (!page.rows.length) throw new Error(`Entry ${id} not found.`);
+  return mapVisitor(page.rows[0]);
 };
 
 /**
- * Update an existing check-in entry's editable fields.
+ * Update editable fields of an existing visitor.
+ * Requires visitorType and identificationNumber to be included in `updates`
+ * (they are mandatory in the backend DTO but not collected in the edit form).
+ *
  * @param {string} id
- * @param {Partial<Entry>} updates  — only editable fields
- * @returns {Promise<Entry>}        — full updated entry
+ * @param {object} updates — must include visitorType, identificationNumber, fullName,
+ *                           locationId, personToMeet, cardNumber, govtIdNumber
+ * @returns {Promise<Entry>}
  */
 export const updateEntry = async (id, updates) => {
-  await delay(500);
-  // TODO: return apiFetch(`/api/checkins/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
-  const entry = MOCK_ENTRIES.find((e) => e.id === id);
-  if (!entry) throw new Error(`Entry ${id} not found.`);
-  return { ...entry, ...updates };
+  const payload = {
+    visitorType:          updates.visitorType          || 'NONEMPLOYEE',
+    fullName:             updates.name                 || '',
+    locationId:           updates.location             || updates.locationId || '',
+    identificationNumber: updates.identificationNumber || '',
+    govtId:               updates.govtIdNumber         || null,
+    personToMeet:         updates.personToMeet         || null,
+    cardNumber:           updates.cards?.[0]?.toString() || null,
+  };
+  const updated = await apiFetch(`/user/visitors/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body:   JSON.stringify(payload),
+  });
+  return mapVisitor(updated);
 };
 
 /**
- * Check out a single entry (visitor / employee) or a member.
+ * Check out a visitor by ID.
+ *
  * @param {string} id
  * @returns {Promise<{ id: string, status: 'Checked-out', checkOutTime: string }>}
  */
 export const checkOutEntry = async (id) => {
-  await delay(400);
-  // TODO: return apiClient(`/api/checkins/${id}/checkout`, { method: 'POST' });
-  return { id, status: 'Checked-out', checkOutTime: new Date().toISOString() };
+  const updated = await apiFetch(`/user/visitors/${encodeURIComponent(id)}/checkout`, {
+    method: 'POST',
+  });
+  return {
+    id:           updated.visitorId,
+    status:       'Checked-out',
+    checkOutTime: updated.checkOutTime,
+  };
 };
 
 /**
- * Get available departments for the filter dropdown.
+ * Check in a single visitor or employee.
+ *
+ * @param {{ visitorType, fullName, locationId, identificationNumber,
+ *           govtId?, personToMeet?, cardNumber? }} payload
+ * @returns {Promise<Entry>}
+ */
+export const checkInSingle = async (payload) => {
+  const body = {
+    visitorType:          payload.visitorType,
+    fullName:             payload.fullName,
+    locationId:           payload.locationId,
+    identificationNumber: payload.identificationNumber,
+    govtId:               payload.govtId       || null,
+    personToMeet:         payload.personToMeet || null,
+    cardNumber:           payload.cardNumber   || null,
+  };
+  const saved = await apiFetch('/user/visitors/check-in', {
+    method: 'POST',
+    body:   JSON.stringify(body),
+  });
+  return mapVisitor(saved);
+};
+
+/**
+ * Check in a group (head + members).
+ * Sub-visitors that have no individual mobile use the head's mobile as identificationNumber.
+ *
+ * @param {{ fullName, locationId, identificationNumber, govtId?,
+ *           personToMeet?, cardNumber?,
+ *           members: Array<{ name: string, cardNumber?: string }> }} payload
+ * @returns {Promise<Entry>}  — head entry with members array nested inside
+ */
+export const checkInGroup = async (payload) => {
+  const body = {
+    head: {
+      visitorType:          'NONEMPLOYEE',
+      fullName:             payload.fullName,
+      locationId:           payload.locationId,
+      identificationNumber: payload.identificationNumber,
+      govtId:               payload.govtId       || null,
+      personToMeet:         payload.personToMeet || null,
+      cardNumber:           payload.cardNumber   || null,
+    },
+    members: payload.members.map(m => ({
+      visitorType:          'NONEMPLOYEE',
+      fullName:             m.name,
+      locationId:           payload.locationId,
+      identificationNumber: payload.identificationNumber,
+      govtId:               null,
+      personToMeet:         payload.personToMeet || null,
+      cardNumber:           m.cardNumber         || null,
+    })),
+  };
+  const saved = await apiFetch('/user/visitors/group-check-in', {
+    method: 'POST',
+    body:   JSON.stringify(body),
+  });
+  const [head, ...memberList] = saved.map(mapVisitor);
+  return {
+    ...head,
+    members: memberList.map(m => ({ ...m, type: 'Member' })),
+  };
+};
+
+// ── Locations ──────────────────────────────────────────────────────────────────
+
+/**
+ * Get locations for form dropdowns.
+ * Returns objects { id, name } so the dropdown can use the real locationId as value.
+ *
+ * @returns {Promise<Array<{ id: string, name: string }>>}
+ */
+export const getFormLocations = async () => {
+  const locations = await apiFetch('/user/dashboard/locations');
+  return locations.map(l => ({ id: l.locationId, name: l.descriptiveName }));
+};
+
+// ── Reference data (no dedicated backend endpoint yet) ─────────────────────────
+
+/**
+ * Get available departments for filter dropdowns.
  * @returns {Promise<string[]>}
  */
 export const getDepartments = async () => {
-  await delay(250);
-  // TODO: return apiFetch('/api/departments');
   return ['HR', 'Finance', 'IT', 'Operations', 'Marketing'];
 };
 
 /**
  * Send an OTP to the registered contact of an employee.
- * @param {string} empId  — Employee ID (e.g. "EMP1001")
+ * @param {string} empId
  * @returns {Promise<{ success: boolean }>}
  */
 export const sendEmployeeOtp = async (empId) => {
-  await delay(900);
-  // TODO: return apiFetch('/api/otp/send-employee', { method: 'POST', body: JSON.stringify({ empId }) });
   return { success: true };
 };
 
 /**
  * Verify the OTP for an employee check-in.
- * Mock: any 6-digit code is accepted.
+ * Any 6-digit code is accepted until OTP backend is integrated.
  * @param {string} empId
  * @param {string} otp
  * @returns {Promise<{ success: boolean, verified: boolean }>}
  */
 export const verifyEmployeeOtp = async (empId, otp) => {
-  await delay(700);
-  // TODO: return apiFetch('/api/otp/verify-employee', { method: 'POST', body: JSON.stringify({ empId, otp }) });
   if (!otp || otp.length !== 6) throw new Error('Please enter the complete 6-digit OTP.');
   return { success: true, verified: true };
 };
@@ -193,21 +240,17 @@ export const verifyEmployeeOtp = async (empId, otp) => {
  * @returns {Promise<{ success: boolean }>}
  */
 export const sendOtp = async (mobile) => {
-  await delay(900);
-  // TODO: return apiFetch('/api/otp/send', { method: 'POST', body: JSON.stringify({ mobile }) });
   return { success: true };
 };
 
 /**
  * Verify the OTP entered by the user.
- * Mock: any 6-digit code is accepted.
+ * Any 6-digit code is accepted until OTP backend is integrated.
  * @param {string} mobile
  * @param {string} otp
  * @returns {Promise<{ success: boolean, verified: boolean }>}
  */
 export const verifyOtp = async (mobile, otp) => {
-  await delay(700);
-  // TODO: return apiFetch('/api/otp/verify', { method: 'POST', body: JSON.stringify({ mobile, otp }) });
   if (!otp || otp.length !== 6) throw new Error('Please enter the complete 6-digit OTP.');
   return { success: true, verified: true };
 };
@@ -217,8 +260,6 @@ export const verifyOtp = async (mobile, otp) => {
  * @returns {Promise<Array<{ id: string, name: string, department: string }>>}
  */
 export const getStaffMembers = async () => {
-  await delay(250);
-  // TODO: return apiFetch('/api/staff/hosts');
   return [
     { id: 's-001', name: 'Sunita Reddy',  department: 'HR'         },
     { id: 's-002', name: 'Amit Sharma',   department: 'Finance'    },
@@ -226,14 +267,4 @@ export const getStaffMembers = async () => {
     { id: 's-004', name: 'Rajan Mehta',   department: 'Operations' },
     { id: 's-005', name: 'Deepa Nair',    department: 'Marketing'  },
   ];
-};
-
-/**
- * Get locations available for check-in form dropdowns.
- * @returns {Promise<string[]>}
- */
-export const getFormLocations = async () => {
-  await delay(200);
-  // TODO: return apiFetch('/api/locations');
-  return ['Corporate Office', 'Branch Office – North', 'Branch Office – South', 'Warehouse'];
 };

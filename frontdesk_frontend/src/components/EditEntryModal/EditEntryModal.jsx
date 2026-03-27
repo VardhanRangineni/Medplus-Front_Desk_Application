@@ -188,19 +188,21 @@ const EditEntryModal = ({ entry, onClose, onSave }) => {
     setSaving(true);
     setSaveError('');
     try {
-      // Construct the payload — only editable fields are sent.
-      // TODO: when wiring to the backend, updateEntry() in checkInApi.js sends
-      //       PATCH /api/checkins/:id with this payload.
       const updates = {
+        // required backend fields
+        visitorType:          entry.type === 'Employee' ? 'EMPLOYEE' : 'NONEMPLOYEE',
+        identificationNumber: entry.mobileOrEmpId || '',
+        // editable fields
         name:          form.fullName.trim(),
-        email:         form.email.trim()        || null,
-        govtIdType:    form.govtIdType          || null,
+        location:      form.location            || entry.location || '',
         govtIdNumber:  form.govtIdNumber.trim() || null,
-        location:      form.location            || null,
         personToMeet:  form.personToMeet        || null,
-        department:    form.hostDepartment      || null,
+        cards:         form.cardNumber ? [form.cardNumber.trim()] : [],
+        // kept for local UI state merging only (not sent to backend)
+        email:         form.email.trim()          || null,
+        govtIdType:    form.govtIdType            || null,
+        department:    form.hostDepartment        || null,
         purpose:       form.reasonForVisit.trim() || null,
-        cards:         form.cardNumber ? [Number(form.cardNumber)] : [],
         visitType:     form.visitType,
         members:       form.visitType === 'Group'
           ? form.subVisitors
@@ -208,7 +210,7 @@ const EditEntryModal = ({ entry, onClose, onSave }) => {
               .map((sv, i) => ({
                 id:         entry.members?.[i]?.id ?? `sv-${Date.now()}-${i}`,
                 name:       sv.name.trim(),
-                cards:      sv.cardNumber ? [Number(sv.cardNumber)] : [],
+                cards:      sv.cardNumber ? [sv.cardNumber.trim()] : [],
                 cardNumber: sv.cardNumber.trim() || null,
                 status:     entry.members?.[i]?.status ?? 'Checked-in',
                 type:       'Member',
@@ -370,7 +372,7 @@ const EditEntryModal = ({ entry, onClose, onSave }) => {
                     onChange={set('location')}
                   >
                     <option value="">Select a location</option>
-                    {locations.map(l => <option key={l} value={l}>{l}</option>)}
+                    {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
                 </div>
               </div>
