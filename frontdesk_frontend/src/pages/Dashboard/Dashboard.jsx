@@ -120,6 +120,19 @@ const IconCalendar = () => (
     <line x1="3" y1="10" x2="21" y2="10"/>
   </svg>
 );
+const IconMenu = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+    <line x1="3" y1="6"  x2="21" y2="6"/>
+    <line x1="3" y1="12" x2="21" y2="12"/>
+    <line x1="3" y1="18" x2="21" y2="18"/>
+  </svg>
+);
+const IconX = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+    <line x1="18" y1="6" x2="6" y2="18"/>
+    <line x1="6" y1="6" x2="18" y2="18"/>
+  </svg>
+);
 
 const IconChevronDown = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -153,6 +166,7 @@ const Dashboard = () => {
   const [activeNav, setActiveNav] = useState('dashboard');
   const [location,       setLocation]       = useState('Corporate Office');
   const [locationOpen,   setLocationOpen]   = useState(false);
+  const [mobileNavOpen,  setMobileNavOpen]  = useState(false);
   const [checkinFilter,  setCheckinFilter]  = useState('All');
   const [checkoutFilter, setCheckoutFilter] = useState('All');
   const [activeFilter,   setActiveFilter]   = useState('All');
@@ -221,45 +235,19 @@ const Dashboard = () => {
   return (
     <div className="dashboard">
 
-      {/* ── Sidebar ── */}
-      <aside className="dash-sidebar">
-        <div className="sidebar-logo">
-          <img src={medplusLogo} alt="MedPlus" />
-        </div>
-
-        <nav className="sidebar-nav">
-          {NAV_ITEMS.map(({ id, label, Icon }) => (
-            <button
-              key={id}
-              className={`nav-item ${activeNav === id ? 'active' : ''}`}
-              onClick={() => setActiveNav(id)}
-              title={label}
-            >
-              <Icon />
-            </button>
-          ))}
-        </nav>
-
-        <div className="sidebar-bottom">
-          <button className="nav-item" title="Settings" onClick={() => setActiveNav('settings')}>
-            <IconSettings />
+      {/* ── Topbar – full width ── */}
+      <header className="dash-topbar">
+        <div className="topbar-left">
+          <button className="mobile-menu-btn" onClick={() => setMobileNavOpen(true)} aria-label="Open menu">
+            <IconMenu />
           </button>
-          <button className="nav-item nav-logout" title="Logout" onClick={handleLogout}>
-            <IconLogout />
-          </button>
-        </div>
-      </aside>
-
-      {/* ── Main ── */}
-      <div className="dash-main">
-
-        {/* Topbar */}
-        <header className="dash-topbar">
-          <div className="topbar-left">
-            <h1>Front Desk Overview</h1>
+          <img src={medplusLogo} alt="MedPlus" className="topbar-brand-logo" />
+          <div className="topbar-title">
+            <h1>Front Desk</h1>
             <p>{todayLabel}</p>
           </div>
-          <div className="topbar-right">
+        </div>
+        <div className="topbar-right">
             {/* Location filter */}
             <div className="location-dropdown" ref={locationRef}>
               <button
@@ -348,7 +336,51 @@ const Dashboard = () => {
               <span>{displayName}</span>
             </div>
           </div>
-        </header>
+      </header>
+
+      {/* ── Body: sidebar + scrollable content ── */}
+      <div className="dash-body">
+
+        {/* ── Sidebar ── */}
+        <aside className={`dash-sidebar${mobileNavOpen ? ' sidebar-open' : ''}`}>
+
+          {/* Close button – mobile only */}
+          <div className="sidebar-mobile-header">
+            <button className="sidebar-close-btn" onClick={() => setMobileNavOpen(false)} aria-label="Close menu">
+              <IconX />
+            </button>
+          </div>
+
+          <nav className="sidebar-nav">
+            {NAV_ITEMS.map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                className={`nav-item ${activeNav === id ? 'active' : ''}`}
+                onClick={() => { setActiveNav(id); setMobileNavOpen(false); }}
+                title={label}
+              >
+                <Icon />
+                <span className="nav-label">{label}</span>
+              </button>
+            ))}
+          </nav>
+
+          <div className="sidebar-bottom">
+            <button className="nav-item" title="Settings" onClick={() => { setActiveNav('settings'); setMobileNavOpen(false); }}>
+              <IconSettings />
+              <span className="nav-label">Settings</span>
+            </button>
+            <button className="nav-item nav-logout" title="Logout" onClick={handleLogout}>
+              <IconLogout />
+              <span className="nav-label">Logout</span>
+            </button>
+          </div>
+        </aside>
+
+        {/* Mobile overlay */}
+        {mobileNavOpen && (
+          <div className="sidebar-overlay" onClick={() => setMobileNavOpen(false)} aria-hidden="true" />
+        )}
 
         {/* Scrollable content */}
         <div className="dash-content">
@@ -426,10 +458,7 @@ const Dashboard = () => {
             <div className="hero-card">
               <span className="hero-tag">Today's Summary</span>
               <h2>{greeting},<br />{displayName}.</h2>
-              <p>
-                You have <strong>8</strong> pending sign-outs and{' '}
-                <strong>3</strong> scheduled visits in the next hour.
-              </p>
+              <br></br>
               <button className="hero-cta">
                 <IconPlus /> Register Visitor
               </button>
@@ -505,7 +534,8 @@ const Dashboard = () => {
           </div>
 
         </div>{/* end dash-content */}
-      </div>{/* end dash-main */}
+
+      </div>{/* end dash-body */}
     </div>
   );
 };
