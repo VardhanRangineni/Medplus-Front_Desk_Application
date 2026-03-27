@@ -70,7 +70,7 @@ const DashboardHome = () => {
     Promise.all([
       getDashboardStats({ location, dateFrom: dateRange.from, dateTo: dateRange.to }),
       getVisitorFlowChart({ location, date: dateRange.from }),
-      getRecentVisitors({ location }),
+      getRecentVisitors({ location, dateFrom: dateRange.from, dateTo: dateRange.to }),
     ])
       .then(([s, chart, visitors]) => {
         setStats(s);

@@ -6,6 +6,7 @@ import {
   updateLocation,
   deleteLocation,
   bulkUploadLocations,
+  downloadLocationReport,
 } from '../../api/locationApi';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -22,7 +23,7 @@ const LOCATION_TYPES = [
   'Other',
 ];
 
-const ALLOWED_EXTENSIONS = ['.xlsx', '.xls', '.csv'];
+const ALLOWED_EXTENSIONS = ['.xlsx'];
 const MAX_FILE_SIZE_MB   = 10;
 
 const EMPTY_FORM = {
@@ -392,7 +393,7 @@ const LocationFormModal = ({ mode, initial, onClose, onSave }) => {
               <div className="lm-field">
                 <label className="lm-label">Status</label>
                 <div className="lm-radio-group" role="radiogroup" aria-label="Status">
-                  {['Configured', 'Inactive'].map(s => (
+                  {['Configured', 'Not Configured'].map(s => (
                     <label key={s} className="lm-radio-option">
                       <input
                         type="radio"
@@ -574,11 +575,11 @@ const BulkUploadModal = ({ onClose, onUploaded }) => {
               <p>Drag & drop your file here, or{' '}
                 <span className="lm-dropzone-browse">browse</span>
               </p>
-              <span>Supports .xlsx, .xls, .csv · Max {MAX_FILE_SIZE_MB} MB</span>
+              <span>Supports .xlsx · Max {MAX_FILE_SIZE_MB} MB</span>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".xlsx,.xls,.csv"
+                accept=".xlsx"
                 style={{ display: 'none' }}
                 onChange={(e) => pickFile(e.target.files?.[0])}
               />
@@ -675,11 +676,17 @@ const LocationMaster = () => {
   };
 
   const handleBulkUploaded = (result) => {
-    // After a real upload the server returns { created, errors }
-    // Re-fetch to get the latest data
     getMasterLocations()
       .then(setLocations)
       .catch(console.error);
+
+    if (result) {
+      const { successCount = 0, failedCount = 0, errors = [] } = result;
+      if (failedCount > 0) {
+        const detail = errors.slice(0, 3).join(' | ');
+        setError(`Bulk upload: ${successCount} added, ${failedCount} failed. ${detail}`);
+      }
+    }
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -702,9 +709,9 @@ const LocationMaster = () => {
         </button>
         <button
           className="lm-btn-icon"
-          onClick={downloadTemplate}
-          title="Download Excel template"
-          aria-label="Download Excel template"
+          onClick={() => downloadLocationReport().catch((err) => setError(err.message || 'Download failed.'))}
+          title="Export locations report (.xlsx)"
+          aria-label="Export locations report"
         >
           <IconDownload />
         </button>

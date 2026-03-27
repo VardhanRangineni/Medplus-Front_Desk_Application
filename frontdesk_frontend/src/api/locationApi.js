@@ -1,160 +1,168 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// locationApi.js
+// locationApi.js  –  Location Master  (wired to real backend)
 //
-// All exported functions return mock data right now.
-// When the backend is ready:
-//   1. Delete the _MOCK_* constants
-//   2. Uncomment the fetch blocks inside each function
-//   3. Adjust the endpoint paths / response shapes to match the real API
+// Backend base: /admin/locations   (requires ADMIN role + JWT)
+//
+//  GET  /admin/locations                  → LocationPageDto
+//  POST /admin/locations                  → LocationDto
+//  PUT  /admin/locations/{locationId}     → LocationDto
+//  POST /admin/locations/bulk-upload      → BulkUploadResultDto
+//  GET  /admin/locations/download-report  → .xlsx blob
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { apiFetch } from './apiClient';
+import { apiFetch, BASE_URL, getAuthToken } from './apiClient';
 
-// ── Mock data (DELETE when backend APIs are available) ────────────────────────
+// ── Field-mapping helpers ─────────────────────────────────────────────────────
 
-const _MOCK_LOCATIONS = [
-  {
-    id: 'ED-HYD-RO',
-    name: 'Corporate Office',
-    type: 'Head Office',
-    address: '8-2-293/82/A, Road No. 36',
-    city: 'Hyderabad',
-    state: 'Telangana',
-    pincode: '500033',
-    coordinates: '17.4295, 78.4479',
-    status: 'Configured',
-  },
-  {
-    id: 'HYD-SO',
-    name: 'Software Office',
-    type: 'Branch Office',
-    address: 'Plot 12, HITEC City',
-    city: 'Hyderabad',
-    state: 'Telangana',
-    pincode: '500081',
-    coordinates: '17.4400, 78.3489',
-    status: 'Configured',
-  },
-  {
-    id: 'WAREHOUSE',
-    name: 'Main Warehouse',
-    type: 'Warehouse',
-    address: 'Survey No. 214, Patancheru',
-    city: 'Hyderabad',
-    state: 'Telangana',
-    pincode: '502319',
-    coordinates: '17.5250, 78.2628',
-    status: 'Configured',
-  },
-  {
-    id: 'HOSTEL',
-    name: 'Company Hostel',
-    type: 'Residential',
-    address: '14-55, Begumpet',
-    city: 'Hyderabad',
-    state: 'Telangana',
-    pincode: '500016',
-    coordinates: '17.4434, 78.4704',
-    status: 'Configured',
-  },
-];
+/**
+ * Backend LocationDto  →  frontend LocationRecord
+ * Backend status values: CONFIGURED | NOTCONFIGURED
+ * Frontend status labels: 'Configured' | 'Not Configured'
+ */
+function mapFromBackend(dto) {
+  return {
+    id:          dto.locationId,
+    name:        dto.descriptiveName,
+    type:        dto.type,
+    address:     dto.address,
+    city:        dto.city,
+    state:       dto.state,
+    pincode:     dto.pincode      || '',
+    coordinates: dto.coordinates  || '',
+    status:      dto.status === 'CONFIGURED' ? 'Configured' : 'Not Configured',
+  };
+}
+
+/**
+ * Frontend form data  →  CreateLocationDto / UpdateLocationDto
+ */
+function mapToDto(form) {
+  return {
+    descriptiveName: form.name.trim(),
+    type:            form.type,
+    coordinates:     form.coordinates?.trim() || null,
+    address:         form.address.trim(),
+    city:            form.city.trim(),
+    state:           form.state.trim(),
+    pincode:         form.pincode?.trim() || '',
+    status:          form.status === 'Configured' ? 'CONFIGURED' : 'NOTCONFIGURED',
+  };
+}
 
 // ── API functions ─────────────────────────────────────────────────────────────
 
 /**
- * Fetch all master locations.
+ * Fetch all master locations (up to 100 per page, page 0).
  * @returns {Promise<Array<LocationRecord>>}
  */
 export async function getMasterLocations() {
-  return Promise.resolve(_MOCK_LOCATIONS.map(l => ({ ...l })));
-
-  // TODO: swap with real call
-  // return apiFetch('/api/locations/master');
+  const page = await apiFetch('/admin/locations?pageSize=100&page=0');
+  return page.rows.map(mapFromBackend);
 }
 
 /**
  * Create a new master location.
- * @param {Omit<LocationRecord, 'id'>} payload
+ * @param {object} payload  — frontend form shape
  * @returns {Promise<LocationRecord>}
  */
 export async function createLocation(payload) {
-  const newLocation = {
-    ...payload,
-    id: payload.id?.trim() || generateId(payload.name),
-    status: payload.status || 'Configured',
-  };
-  return Promise.resolve({ ...newLocation });
-
-  // TODO: swap with real call
-  // return apiFetch('/api/locations/master', {
-  //   method: 'POST',
-  //   body: JSON.stringify(payload),
-  // });
+  const saved = await apiFetch('/admin/locations', {
+    method: 'POST',
+    body:   JSON.stringify(mapToDto(payload)),
+  });
+  return mapFromBackend(saved);
 }
 
 /**
  * Update an existing master location.
- * @param {string} id  Location ID
- * @param {Partial<LocationRecord>} payload
+ * @param {string} id  — locationId
+ * @param {object} payload  — frontend form shape
  * @returns {Promise<LocationRecord>}
  */
 export async function updateLocation(id, payload) {
-  return Promise.resolve({ id, ...payload });
-
-  // TODO: swap with real call
-  // return apiFetch(`/api/locations/master/${encodeURIComponent(id)}`, {
-  //   method: 'PUT',
-  //   body: JSON.stringify(payload),
-  // });
+  const updated = await apiFetch(`/admin/locations/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body:   JSON.stringify(mapToDto(payload)),
+  });
+  return mapFromBackend(updated);
 }
 
 /**
- * Delete a master location by ID.
- * @param {string} id
+ * Delete a master location.
+ * NOTE: The current backend does not expose a DELETE endpoint.
+ * The UI performs an optimistic local removal; no server call is made.
+ * @param {string} _id
  * @returns {Promise<void>}
  */
-export async function deleteLocation(id) {
+export async function deleteLocation(_id) {
   return Promise.resolve();
-
-  // TODO: swap with real call
-  // return apiFetch(`/api/locations/master/${encodeURIComponent(id)}`, {
-  //   method: 'DELETE',
-  // });
 }
 
 /**
- * Upload an Excel / CSV file to bulk-create master locations.
- * The server should return an object with { created, errors }.
- *
+ * Upload an .xlsx file to bulk-create master locations.
  * @param {File} file
- * @returns {Promise<{ created: number, errors: string[] }>}
+ * @returns {Promise<{ totalRows: number, successCount: number, failedCount: number, errors: string[] }>}
  */
 export async function bulkUploadLocations(file) {
-  return Promise.resolve({ created: 0, errors: [] });
+  const formData = new FormData();
+  formData.append('file', file);
 
-  // TODO: swap with real call (multipart/form-data — do NOT set Content-Type manually)
-  // const form = new FormData();
-  // form.append('file', file);
-  // return apiFetch('/api/locations/master/bulk-upload', {
-  //   method: 'POST',
-  //   headers: {},   // let browser set multipart boundary
-  //   body: form,
-  // });
+  const token    = getAuthToken();
+  const response = await fetch(`${BASE_URL}/admin/locations/bulk-upload`, {
+    method:  'POST',
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      // Do NOT set Content-Type — browser adds the multipart boundary automatically
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message || `Upload failed (${response.status})`);
+  }
+
+  return response.json();
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * @typedef {{ id: string, name: string, type: string, address: string,
- *             city: string, state: string, pincode: string,
- *             coordinates: string, status: string }} LocationRecord
+ * Download all current locations as an Excel report (.xlsx).
+ * Triggers a browser file-save dialog.
+ * @returns {Promise<void>}
  */
+export async function downloadLocationReport() {
+  const token    = getAuthToken();
+  const response = await fetch(`${BASE_URL}/admin/locations/download-report`, {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
 
-/** Derives a short all-caps slug from a descriptive name if the user omits ID. */
-function generateId(name = '') {
-  return name
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 12);
+  if (!response.ok) {
+    throw new Error(`Download failed (${response.status})`);
+  }
+
+  const blob = await response.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'locations_report.xlsx';
+  a.click();
+  URL.revokeObjectURL(url);
 }
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+/**
+ * @typedef {{
+ *   id:          string,
+ *   name:        string,
+ *   type:        string,
+ *   address:     string,
+ *   city:        string,
+ *   state:       string,
+ *   pincode:     string,
+ *   coordinates: string,
+ *   status:      'Configured' | 'Not Configured'
+ * }} LocationRecord
+ */
