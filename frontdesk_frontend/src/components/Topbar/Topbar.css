@@ -42,19 +42,43 @@
   flex-direction: column;
 }
 
+.topbar-breadcrumb-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.2;
+}
+
 .topbar-title h1 {
   font-size: 19px;
   font-weight: 700;
   color: #0a0a0a;
-  margin: 0 0 1px;
+  margin: 0;
   letter-spacing: -0.3px;
   line-height: 1.2;
+  white-space: nowrap;
+}
+
+.topbar-breadcrumb-sep {
+  font-size: 16px;
+  font-weight: 300;
+  color: #9ca3af;
+  line-height: 1;
+  user-select: none;
+}
+
+.topbar-breadcrumb-page {
+  font-size: 15px;
+  font-weight: 600;
+  color: #C2181D;
+  letter-spacing: -0.2px;
+  white-space: nowrap;
 }
 
 .topbar-title p {
   font-size: 12px;
   color: #111827;
-  margin: 0;
+  margin: 2px 0 0;
   line-height: 1;
 }
 

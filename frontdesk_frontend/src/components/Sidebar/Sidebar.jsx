@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import './Sidebar.css';
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -9,15 +10,16 @@ const IconDashboard = () => (
     <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
   </svg>
 );
-const IconVisitors = () => (
+const IconLocations = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+    <circle cx="12" cy="9" r="2.5"/>
   </svg>
 );
-const IconStaff = () => (
+const IconUserManagement = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
-    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    <line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>
   </svg>
 );
 const IconReports = () => (
@@ -45,31 +47,36 @@ const IconX = () => (
   </svg>
 );
 
-// ── Nav items config (extend this array to add new pages) ─────────────────────
+// ── Route map: nav ID → path ──────────────────────────────────────────────────
 
 const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Dashboard', Icon: IconDashboard },
-  { id: 'visitors',  label: 'Visitors',  Icon: IconVisitors  },
-  { id: 'staff',     label: 'Staff',     Icon: IconStaff     },
-  { id: 'reports',   label: 'Reports',   Icon: IconReports   },
+  { id: 'dashboard',       label: 'Dashboard',        path: '/dashboard',       Icon: IconDashboard      },
+  { id: 'location-master', label: 'Locations Master', path: '/location-master', Icon: IconLocations      },
+  { id: 'user-management', label: 'User Management',  path: '/user-management', Icon: IconUserManagement },
+  { id: 'reports',         label: 'Reports',          path: '/reports',         Icon: IconReports        },
 ];
 
 // ── Sidebar Component ─────────────────────────────────────────────────────────
 
 /**
- * Sidebar — reusable collapsible pill navigation.
- * Expands on desktop hover; slides in as a drawer on mobile.
+ * Sidebar — reusable collapsible pill navigation driven by React Router.
  *
  * Props:
- *  isOpen      boolean   whether the mobile drawer is open
- *  onClose     fn        closes the mobile drawer
- *  activeNav   string    id of the currently active nav item
- *  onNavChange fn        called with the new nav id
- *  onLogout    fn        called when the logout button is pressed
+ *  isOpen   boolean  whether the mobile drawer is open
+ *  onClose  fn       closes the mobile drawer
+ *  onLogout fn       called when the logout button is pressed
  */
-const Sidebar = ({ isOpen, onClose, activeNav, onNavChange, onLogout }) => {
-  const handleNav = (id) => {
-    onNavChange(id);
+const Sidebar = ({ isOpen, onClose, onLogout }) => {
+  const navigate     = useNavigate();
+  const { pathname } = useLocation();
+
+  const isActive = (path) => {
+    if (path === '/dashboard') return pathname === '/dashboard';
+    return pathname.startsWith(path);
+  };
+
+  const handleNav = (path) => {
+    navigate(path);
     onClose();
   };
 
@@ -85,12 +92,13 @@ const Sidebar = ({ isOpen, onClose, activeNav, onNavChange, onLogout }) => {
         </div>
 
         <nav className="sidebar-nav">
-          {NAV_ITEMS.map(({ id, label, Icon }) => (
+          {NAV_ITEMS.map(({ id, label, path, Icon }) => (
             <button
               key={id}
-              className={`nav-item ${activeNav === id ? 'active' : ''}`}
-              onClick={() => handleNav(id)}
+              className={`nav-item ${isActive(path) ? 'active' : ''}`}
+              onClick={() => handleNav(path)}
               title={label}
+              aria-current={isActive(path) ? 'page' : undefined}
             >
               <Icon />
               <span className="nav-label">{label}</span>
@@ -100,9 +108,9 @@ const Sidebar = ({ isOpen, onClose, activeNav, onNavChange, onLogout }) => {
 
         <div className="sidebar-bottom">
           <button
-            className="nav-item"
+            className={`nav-item ${isActive('/settings') ? 'active' : ''}`}
             title="Settings"
-            onClick={() => handleNav('settings')}
+            onClick={() => handleNav('/settings')}
           >
             <IconSettings />
             <span className="nav-label">Settings</span>

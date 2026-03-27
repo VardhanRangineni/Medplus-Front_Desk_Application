@@ -42,15 +42,16 @@ const IconCalendar = () => (
  * and user display.
  *
  * Props:
- *  locations        string[]   list of location options
- *  location         string     currently selected location
- *  onLocationChange fn         called with the new location string
+ *  locations        string[]       list of location options
+ *  location         string         currently selected location
+ *  onLocationChange fn             called with the new location string
  *  dateRange        { from: Date|null, to: Date|null }
- *  onDateRangeChange fn        called with the new dateRange object
- *  displayName      string     full display name for the user pill
- *  initials         string     single-char initials for the avatar
- *  todayLabel       string     formatted date string shown under the title
- *  onMenuOpen       fn         called when the mobile hamburger is tapped
+ *  onDateRangeChange fn            called with the new dateRange object
+ *  displayName      string         full display name for the user pill
+ *  initials         string         single-char initials for the avatar
+ *  todayLabel       string         formatted date string shown under the brand title
+ *  pageName         string|null    when set, shows a "/" breadcrumb after "Front Desk"
+ *  onMenuOpen       fn             called when the mobile hamburger is tapped
  */
 const Topbar = ({
   locations = [],
@@ -61,6 +62,7 @@ const Topbar = ({
   displayName,
   initials,
   todayLabel,
+  pageName = null,
   onMenuOpen,
 }) => {
   const [locationOpen, setLocationOpen] = useState(false);
@@ -102,8 +104,16 @@ const Topbar = ({
         </button>
         <img src={medplusLogo} alt="MedPlus" className="topbar-brand-logo" />
         <div className="topbar-title">
-          <h1>Front Desk</h1>
-          <p>{todayLabel}</p>
+          <div className="topbar-breadcrumb-row">
+            <h1>Front Desk</h1>
+            {pageName && (
+              <>
+                <span className="topbar-breadcrumb-sep">/</span>
+                <span className="topbar-breadcrumb-page">{pageName}</span>
+              </>
+            )}
+          </div>
+          {!pageName && <p>{todayLabel}</p>}
         </div>
       </div>
 
