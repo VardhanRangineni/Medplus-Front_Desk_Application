@@ -257,7 +257,6 @@ const DashboardHome = () => {
                 <th>Person to Meet</th>
                 <th>Card(s)</th>
                 <th>Check-in</th>
-                <th>Check-out</th>
               </tr>
             </thead>
             <tbody>
@@ -284,7 +283,6 @@ const DashboardHome = () => {
                   <td className="td-muted">{v.personToMeet}</td>
                   <td className="td-cards">{v.cards}</td>
                   <td className="td-muted">{v.checkIn}</td>
-                  <td className="td-muted">{v.checkOut}</td>
                 </tr>
               ))}
             </tbody>

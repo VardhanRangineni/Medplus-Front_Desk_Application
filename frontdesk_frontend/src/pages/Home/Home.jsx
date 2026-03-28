@@ -133,7 +133,7 @@ const StatusBadge = ({ status, groupCount }) => {
 const SkeletonRows = () =>
   Array.from({ length: 6 }).map((_, i) => (
     <tr key={i} className="ci-skeleton-row">
-      {[20, 60, 120, 100, 90, 100, 55, 130, 130, 80].map((w, j) => (
+      {[20, 60, 120, 100, 90, 100, 55, 130, 80].map((w, j) => (
         <td key={j}><div className="ci-skeleton" style={{ width: w }} /></td>
       ))}
     </tr>
@@ -525,7 +525,7 @@ const Home = () => {
   // ── CSV export ─────────────────────────────────────────────────────────────
 
   const handleExport = () => {
-    const header = ['Type', 'Name', 'Mobile / Emp ID', 'Status', 'Person to Meet', 'Card(s)', 'Check-in Time', 'Check-out Time', 'Department'];
+    const header = ['Type', 'Name', 'Mobile / Emp ID', 'Status', 'Person to Meet', 'Card(s)', 'Check-in Time', 'Department'];
     const rows   = [header];
 
     filtered.forEach((e) => {
@@ -537,7 +537,6 @@ const Home = () => {
         e.personToMeet  ?? '',
         (e.cards ?? []).join(', '),
         formatDateTime(e.checkInTime),
-        e.checkOutTime ? formatDateTime(e.checkOutTime) : '',
         e.department ?? '',
       ]);
       (e.members ?? []).forEach((m) => {
@@ -549,7 +548,6 @@ const Home = () => {
           '',
           (m.cards ?? []).join(', '),
           formatDateTime(m.checkInTime),
-          m.checkOutTime ? formatDateTime(m.checkOutTime) : '',
           e.department ?? '',
         ]);
       });
@@ -696,7 +694,6 @@ const Home = () => {
                 <th>Person to Meet</th>
                 <th>Card(s)</th>
                 <th>Check-in</th>
-                <th>Check-out</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -705,7 +702,7 @@ const Home = () => {
                 <SkeletonRows />
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={10} style={{ padding: 0, border: 'none' }}>
+                  <td colSpan={9} style={{ padding: 0, border: 'none' }}>
                     <div className="ci-empty">
                       <IconUsers />
                       <p>No entries found</p>
@@ -778,10 +775,6 @@ const Home = () => {
 
                         <td className="ci-td-time">{formatDateTime(entry.checkInTime)}</td>
 
-                        <td className="ci-td-time ci-td-checkout">
-                          {entry.checkOutTime ? formatDateTime(entry.checkOutTime) : '—'}
-                        </td>
-
                         <td>
                           <div className="ci-actions-cell">
                             <button
@@ -835,11 +828,6 @@ const Home = () => {
                               : member.cardNumber || '—'}
                           </td>
                           <td className="ci-td-time">—</td>
-
-                          <td className="ci-td-time ci-td-checkout">
-                            {member.checkOutTime ? formatDateTime(member.checkOutTime) : '—'}
-                          </td>
-
                           <td>
                             <div className="ci-actions-cell">
                               {member.status === 'Checked-in' && (
