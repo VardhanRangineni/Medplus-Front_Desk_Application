@@ -116,6 +116,68 @@ const IconTrash = () => (
   </svg>
 );
 
+// ── Custom Select Dropdown ─────────────────────────────────────────────────────
+// Replaces native <select> to give fully custom, brand-consistent styling.
+
+const WzSelect = ({ id, icon, value, onChange, options, placeholder, hasError }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    if (open) document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  const label = options.find(o => o.value === value)?.label;
+
+  return (
+    <div className={`ci-wz-csel${open ? ' ci-wz-csel--open' : ''}${hasError ? ' ci-wz-csel--err' : ''}`} ref={ref}>
+      <button
+        id={id}
+        type="button"
+        className="ci-wz-csel__trigger"
+        onClick={() => setOpen(v => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        {icon && <span className="ci-wz-csel__icon">{icon}</span>}
+        <span className={`ci-wz-csel__val${!value ? ' ci-wz-csel__val--ph' : ''}`}>
+          {label ?? placeholder}
+        </span>
+        <svg className="ci-wz-csel__chev" width="12" height="12" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </button>
+
+      {open && (
+        <ul className="ci-wz-csel__list" role="listbox">
+          {options.map(o => (
+            <li key={o.value}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={o.value === value}
+                className={`ci-wz-csel__opt${o.value === value ? ' ci-wz-csel__opt--sel' : ''}`}
+                onClick={() => { onChange(o.value); setOpen(false); }}
+              >
+                {o.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
+
 // ── OTP Input ──────────────────────────────────────────────────────────────────
 
 const OTPInput = ({ value, onChange, disabled }) => {
@@ -361,18 +423,15 @@ const Step2Details = ({ form, setField, staffMembers, departments, locations, on
           <label className="ci-wz-label" htmlFor="wz-location">
             Location <span className="ci-wz-req">*</span>
           </label>
-          <div className="ci-wz-select-wrap">
-            <span className="ci-wz-icon"><IconMapPin /></span>
-            <select
-              id="wz-location"
-              className={`ci-wz-select${errors.location ? ' error' : ''}`}
-              value={form.location}
-              onChange={sf('location')}
-            >
-              <option value="">Select a location for this entry</option>
-              {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-            </select>
-          </div>
+          <WzSelect
+            id="wz-location"
+            icon={<IconMapPin />}
+            value={form.location}
+            onChange={(v) => sf('location')(v)}
+            options={locations.map(l => ({ value: l.id, label: l.name }))}
+            placeholder="Select a location for this entry"
+            hasError={!!errors.location}
+          />
           {errors.location && <span className="ci-wz-field-error">{errors.location}</span>}
         </div>
 
@@ -422,17 +481,13 @@ const Step2Details = ({ form, setField, staffMembers, departments, locations, on
           <label className="ci-wz-label">
             Verified Govt. ID <span className="ci-wz-opt">(Lead Only)</span>
           </label>
-          <div className="ci-wz-select-wrap">
-            <span className="ci-wz-icon"><IconIdCard /></span>
-            <select
-              className="ci-wz-select"
-              value={form.govtIdType}
-              onChange={e => { setField('govtIdType')(e.target.value); setField('govtIdNumber')(''); }}
-            >
-              <option value="">Select ID Type</option>
-              {GOVT_ID_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
+          <WzSelect
+            icon={<IconIdCard />}
+            value={form.govtIdType}
+            onChange={(v) => { setField('govtIdType')(v); setField('govtIdNumber')(''); }}
+            options={GOVT_ID_TYPES.map(t => ({ value: t, label: t }))}
+            placeholder="Select ID Type"
+          />
           {form.govtIdType && (
             <div className="ci-wz-input-wrap" style={{ marginTop: 8 }}>
               <span className="ci-wz-icon"><IconIdCard /></span>
@@ -454,36 +509,34 @@ const Step2Details = ({ form, setField, staffMembers, departments, locations, on
           <label className="ci-wz-label" htmlFor="wz-person">
             Person to Meet <span className="ci-wz-req">*</span>
           </label>
-          <div className="ci-wz-select-wrap">
-            <span className="ci-wz-icon"><IconUser /></span>
-            <select
-              id="wz-person"
-              className={`ci-wz-select${errors.personToMeet ? ' error' : ''}`}
-              value={form.personToMeet}
-              onChange={e => {
-                setField('personToMeet')(e.target.value);
-                const staff = staffMembers.find(s => s.name === e.target.value);
-                if (staff && !form.hostDepartment) setField('hostDepartment')(staff.department);
-                setErrors(prev => ({ ...prev, personToMeet: '' }));
-              }}
-            >
-              <option value="">Select a person…</option>
-              {staffMembers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-            </select>
-          </div>
+          <WzSelect
+            id="wz-person"
+            icon={<IconUser />}
+            value={form.personToMeet}
+            onChange={(v) => {
+              setField('personToMeet')(v);
+              const staff = staffMembers.find(s => s.name === v);
+              if (staff && !form.hostDepartment) setField('hostDepartment')(staff.department);
+              setErrors(prev => ({ ...prev, personToMeet: '' }));
+            }}
+            options={staffMembers.map(s => ({ value: s.name, label: s.name }))}
+            placeholder="Select a person…"
+            hasError={!!errors.personToMeet}
+          />
           {errors.personToMeet && <span className="ci-wz-field-error">{errors.personToMeet}</span>}
         </div>
 
         {/* Host Department */}
         <div className="ci-wz-field">
           <label className="ci-wz-label" htmlFor="wz-dept">Host Department</label>
-          <div className="ci-wz-select-wrap">
-            <span className="ci-wz-icon"><IconBriefcase /></span>
-            <select id="wz-dept" className="ci-wz-select" value={form.hostDepartment} onChange={sf('hostDepartment')}>
-              <option value="">Select a department</option>
-              {departments.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </div>
+          <WzSelect
+            id="wz-dept"
+            icon={<IconBriefcase />}
+            value={form.hostDepartment}
+            onChange={(v) => sf('hostDepartment')(v)}
+            options={departments.map(d => ({ value: d, label: d }))}
+            placeholder="Select a department"
+          />
         </div>
 
         {/* Reason for Visit */}
