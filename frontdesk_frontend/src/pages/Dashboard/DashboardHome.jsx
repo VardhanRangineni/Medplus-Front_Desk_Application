@@ -1,0 +1,298 @@
+import React, { useState, useEffect } from 'react';
+import { useOutletContext, useNavigate } from 'react-router-dom';
+import { getDashboardOverview } from '../../api/dashboardApi';
+
+// ── SVG Area Chart ────────────────────────────────────────────────────────────
+
+const VisitorChart = ({ data }) => {
+  const W = 400, H = 110, PAD = 8;
+  const maxVal = Math.max(...data.map(d => d.count));
+  const pts = data.map((d, i) => ({
+    x: PAD + (i / (data.length - 1)) * (W - PAD * 2),
+    y: PAD + (1 - d.count / maxVal) * (H - PAD * 2),
+  }));
+  const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const area = `${line} L ${pts[pts.length - 1].x},${H} L ${pts[0].x},${H} Z`;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="chart-svg">
+      <defs>
+        <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stopColor="#C2181D" stopOpacity="0.35" />
+          <stop offset="100%" stopColor="#C2181D" stopOpacity="0.02" />
+        </linearGradient>
+      </defs>
+      <path d={area} fill="url(#chartGrad)" />
+      <path d={line}  fill="none" stroke="#C2181D" strokeWidth="2.5"
+            strokeLinecap="round" strokeLinejoin="round" />
+      {pts.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r="3.5" fill="#C2181D"
+                stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
+      ))}
+    </svg>
+  );
+};
+
+// ── Icons ─────────────────────────────────────────────────────────────────────
+
+const IconPlus = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+  </svg>
+);
+
+const IconPin = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+  </svg>
+);
+
+// ── DashboardHome ─────────────────────────────────────────────────────────────
+
+const DashboardHome = () => {
+  // Shared shell state injected by the Dashboard layout via Outlet context
+  const { location, dateRange } = useOutletContext();
+  const navigate = useNavigate();
+
+  const [checkinFilter,  setCheckinFilter]  = useState('All');
+  const [checkoutFilter, setCheckoutFilter] = useState('All');
+  const [activeFilter,   setActiveFilter]   = useState('All');
+
+  const [stats,          setStats]          = useState(null);
+  const [chartData,      setChartData]      = useState([]);
+  const [recentVisitors, setRecentVisitors] = useState([]);
+  const [apiError,       setApiError]       = useState(null);
+
+  // Fetch (and re-fetch) whenever location or date range changes.
+  // Also polls every 30 s so check-out / check-in counts stay live
+  // without the user having to navigate away and back.
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchOverview = () => {
+      if (cancelled) return;
+      getDashboardOverview({ dateFrom: dateRange.from, dateTo: dateRange.to })
+        .then(({ stats, chartData, recentVisitors }) => {
+          if (cancelled) return;
+          setApiError(null);
+          setStats(stats);
+          setChartData(chartData);
+          setRecentVisitors(recentVisitors);
+        })
+        .catch(err => {
+          if (cancelled) return;
+          setApiError(err);
+        });
+    };
+
+    fetchOverview();
+    const timer = setInterval(fetchOverview, 30_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [location, dateRange]);
+
+  const rawName     = localStorage.getItem('userName') || sessionStorage.getItem('userName') || 'Admin';
+  const displayName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+
+  const hour     = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
+  if (apiError) {
+    return (
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', height: '60vh', gap: '12px',
+        color: '#555', fontFamily: 'inherit',
+      }}>
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none"
+             stroke="#C2181D" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <p style={{ fontSize: '1rem', fontWeight: 600, color: '#333', margin: 0 }}>
+          {apiError.isAuthError ? 'Session expired' : 'Failed to load dashboard data'}
+        </p>
+        <p style={{ fontSize: '0.85rem', color: '#777', margin: 0 }}>
+          {apiError.isAuthError
+            ? 'Your session is no longer valid. Please log in again.'
+            : apiError.message}
+        </p>
+        <button
+          onClick={() => navigate('/login')}
+          style={{
+            marginTop: '8px', padding: '8px 24px', background: '#C2181D',
+            color: '#fff', border: 'none', borderRadius: '6px',
+            cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600,
+          }}
+        >
+          Log in again
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* Row 1: KPI cards */}
+      <div className="stats-grid">
+
+        <div className="stat-card">
+          <div className="stat-top">
+            <span className="stat-label">Today Check-in's</span>
+            <div className="stat-toggle">
+              {['All', 'Emp', 'Non Emp'].map(f => (
+                <button
+                  key={f}
+                  className={`toggle-btn ${checkinFilter === f ? 'active' : ''}`}
+                  onClick={() => setCheckinFilter(f)}
+                >{f}</button>
+              ))}
+            </div>
+          </div>
+          <span className="stat-value" style={{ color: '#32A94C' }}>
+            {stats?.checkIn[checkinFilter] ?? '—'}
+          </span>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-top">
+            <span className="stat-label">Today Check-out's</span>
+            <div className="stat-toggle">
+              {['All', 'Emp', 'Non Emp'].map(f => (
+                <button
+                  key={f}
+                  className={`toggle-btn ${checkoutFilter === f ? 'active' : ''}`}
+                  onClick={() => setCheckoutFilter(f)}
+                >{f}</button>
+              ))}
+            </div>
+          </div>
+          <span className="stat-value" style={{ color: '#C2181D' }}>
+            {stats?.checkOut[checkoutFilter] ?? '—'}
+          </span>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-top">
+            <span className="stat-label">Active in Building</span>
+            <div className="stat-toggle">
+              {['All', 'Emp', 'Non Emp'].map(f => (
+                <button
+                  key={f}
+                  className={`toggle-btn ${activeFilter === f ? 'active' : ''}`}
+                  onClick={() => setActiveFilter(f)}
+                >{f}</button>
+              ))}
+            </div>
+          </div>
+          <span className="stat-value" style={{ color: '#32A94C' }}>
+            {stats?.active[activeFilter] ?? '—'}
+          </span>
+          <div className="stat-footer">
+            <span className="live-badge">
+              <span className="live-dot" />
+              Live
+            </span>
+          </div>
+        </div>
+
+      </div>
+
+      {/* Row 2: Hero + Chart */}
+      <div className="dash-row-top">
+
+        <div className="hero-card">
+          <span className="hero-badge">Greeting's</span>
+          <h2>{greeting},<br />{displayName}.</h2>
+          <br />
+          <button className="hero-cta">
+            <IconPlus /> Register Visitor
+          </button>
+        </div>
+
+        {chartData.length > 0 && (() => {
+          const peak = chartData.reduce((a, b) => b.count > a.count ? b : a, chartData[0]);
+          return (
+            <div className="chart-card">
+              <div className="chart-header">
+                <div>
+                  <p className="chart-label">Visitor Flow</p>
+                  <p className="chart-sub">Today · Peak at {peak.hour} ({peak.count} visitors)</p>
+                </div>
+                <span className="chart-live-dot" />
+              </div>
+              <div className="chart-area">
+                <VisitorChart data={chartData} />
+              </div>
+              <div className="chart-xaxis">
+                {chartData.filter((_, i) => i % 2 === 0).map(d => (
+                  <span key={d.hour}>{d.hour}</span>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
+      </div>
+
+      {/* Row 3: Recent visitors table */}
+      <div className="visitors-card">
+        <div className="visitors-header">
+          <span>Recent Visitors</span>
+          <button className="view-all-btn">View all</button>
+        </div>
+        <div className="table-scroll">
+          <table className="visitors-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Name</th>
+                <th>Mobile / Emp ID</th>
+                <th>Location</th>
+                <th>Status</th>
+                <th>Person to Meet</th>
+                <th>Card(s)</th>
+                <th>Check-in</th>
+                <th>Check-out</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentVisitors.map((v) => (
+                <tr key={v.id}>
+                  <td>
+                    <span className={`type-badge ${v.type === 'Employee' ? 'type-employee' : 'type-visitor'}`}>
+                      {v.type}
+                    </span>
+                  </td>
+                  <td className="td-name">{v.name}</td>
+                  <td className="td-contact">{v.contactId}</td>
+                  <td className="td-location">
+                    <span className="td-location-wrap">
+                      <IconPin />
+                      {v.location}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={`status-pill ${v.status === 'Checked-in' ? 'pill-checkedin' : 'pill-checkedout'}`}>
+                      {v.status}
+                    </span>
+                  </td>
+                  <td className="td-muted">{v.personToMeet}</td>
+                  <td className="td-cards">{v.cards}</td>
+                  <td className="td-muted">{v.checkIn}</td>
+                  <td className="td-muted">{v.checkOut}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+};
+
+export default DashboardHome;
