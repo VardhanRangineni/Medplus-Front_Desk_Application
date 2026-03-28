@@ -1,0 +1,483 @@
+/* ── CSS variables (shared across all dashboard components) ─────────────── */
+:root {
+  --topbar-h:   60px;
+  --pill-r:     22px;
+  --glass-bg:   rgba(255, 255, 255, 0.38);
+  --glass-blur: blur(28px);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.70);
+  --glass-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.08),
+    0 2px 8px  rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.90);
+}
+
+/* ── Dashboard shell ─────────────────────────────────────────────────────── */
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  color: #0a0a0a;
+  font-family: inherit;
+  background: linear-gradient(
+    135deg,
+    #f2c8c9 0%,
+    #e4e8f5 28%,
+    #cde6d8 58%,
+    #e2e7f5 80%,
+    #f0caca 100%
+  );
+  position: relative;
+}
+
+/* ── Body row (sidebar + content) ────────────────────────────────────────── */
+.dash-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  padding-top: 70px;
+}
+
+/* ── Scrollable content ──────────────────────────────────────────────────── */
+.dash-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  /* Reserve space for the fixed 64px sidebar pill + 12px left + 12px gap */
+  margin-left: 88px;
+  padding: 18px 24px 32px;
+  display: grid;
+  grid-auto-rows: auto;
+  align-content: start;
+  gap: 16px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.14) transparent;
+}
+.dash-content::-webkit-scrollbar       { width: 5px; }
+.dash-content::-webkit-scrollbar-track { background: transparent; }
+.dash-content::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 10px; }
+
+/* ── Row 1: KPI cards ────────────────────────────────────────────────────── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.stat-card {
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.52);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.88);
+  padding: 18px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 110px;
+  transition: box-shadow 0.22s, background 0.22s;
+}
+.stat-card:hover {
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.05), inset 0 1px 0 rgba(255,255,255,0.95);
+}
+
+.stat-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.stat-label {
+  font-size: 12.5px;
+  color: #111827;
+  font-weight: 500;
+}
+
+.stat-value {
+  font-size: 36px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -1px;
+}
+
+.stat-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+}
+
+/* ── KPI Toggle ──────────────────────────────────────────────────────────── */
+.stat-toggle {
+  display: flex;
+  gap: 3px;
+  background: rgba(240, 242, 247, 0.60);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.55);
+  border-radius: 10px;
+  padding: 3px;
+}
+
+.toggle-btn {
+  padding: 3px 9px;
+  border: none;
+  border-radius: 7px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  color: #374151;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+}
+.toggle-btn.active {
+  background: rgba(255, 255, 255, 0.88);
+  color: #C2181D;
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+
+/* ── Live badge ──────────────────────────────────────────────────────────── */
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #32A94C;
+  background: rgba(50, 169, 76, 0.10);
+  border: 1px solid rgba(50, 169, 76, 0.25);
+  border-radius: 20px;
+  padding: 3px 9px 3px 6px;
+}
+
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #32A94C;
+  animation: pulseLive 1.4s ease-in-out infinite;
+}
+
+@keyframes pulseLive {
+  0%, 100% { opacity: 1;   transform: scale(1);   }
+  50%       { opacity: 0.4; transform: scale(1.4); }
+}
+
+/* ── Row 2: Hero + Chart ─────────────────────────────────────────────────── */
+.dash-row-top {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  min-width: 0;
+}
+
+.hero-card {
+  border-radius: 18px;
+  background: linear-gradient(145deg, #3d0000 0%, #7a0c10 45%, #C2181D 100%);
+  border: 1px solid rgba(194, 24, 29, 0.35);
+  box-shadow: 0 8px 32px rgba(194, 24, 29, 0.28), 0 2px 8px rgba(0,0,0,0.15);
+  padding: 22px 24px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 220px;
+  /* stretch to match chart card height in the grid row */
+  align-self: stretch;
+}
+
+/* "TODAY'S SUMMARY" pill badge */
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  color: rgba(255, 255, 255, 0.88);
+  text-transform: uppercase;
+}
+
+.hero-card h2 {
+  font-size: 24px;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.3;
+  margin: 0;
+}
+
+/* Subtitle "You have X pending…" */
+.hero-sub {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.75);
+  margin: 0;
+  line-height: 1.55;
+  flex: 1;
+}
+.hero-sub strong {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.hero-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 20px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.30);
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: background 0.2s, box-shadow 0.2s;
+  align-self: flex-start;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.hero-cta:hover {
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.20);
+}
+
+/* ── Chart card ──────────────────────────────────────────────────────────── */
+.chart-card {
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.52);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.88);
+  padding: 18px 20px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.chart-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0a0a0a;
+  margin: 0;
+}
+
+.chart-sub {
+  font-size: 11.5px;
+  color: #111827;
+  margin: 3px 0 0;
+}
+
+.chart-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #32A94C;
+  margin-top: 4px;
+  animation: pulseLive 1.4s ease-in-out infinite;
+}
+
+.chart-area {
+  flex: 1;
+  min-height: 110px;
+  max-height: 160px;
+}
+
+.chart-svg {
+  width: 100%;
+  height: 100%;
+  min-height: 110px;
+  display: block;
+}
+
+.chart-xaxis {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 4px;
+}
+
+.chart-xaxis span {
+  font-size: 10.5px;
+  color: #374151;
+}
+
+/* ── Visitors card / table ───────────────────────────────────────────────── */
+.visitors-card {
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.52);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.88);
+  /* no overflow:hidden so all table rows are always visible */
+  min-width: 0;
+  height: max-content;
+}
+
+.visitors-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px 13px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0a0a0a;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+
+.view-all-btn {
+  font-size: 12px;
+  font-weight: 600;
+  color: #C2181D;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+  font-family: inherit;
+  transition: opacity 0.15s;
+}
+.view-all-btn:hover { opacity: 0.7; }
+
+.table-scroll {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0,0,0,0.12) transparent;
+}
+.table-scroll::-webkit-scrollbar       { height: 4px; }
+.table-scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 10px; }
+
+.visitors-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.visitors-table th {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #374151;
+  background: rgba(0,0,0,0.02);
+  white-space: nowrap;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+
+.visitors-table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+  color: #0f172a;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.visitors-table tr:last-child td { border-bottom: none; }
+.visitors-table tr:hover td      { background: rgba(255,255,255,0.5); }
+
+.td-name          { font-weight: 600; color: #0a0a0a; }
+.td-contact       { font-family: monospace; font-size: 12.5px; color: #374151; }
+.td-location      { color: #0f172a; }
+.td-location-wrap { display: inline-flex; align-items: center; gap: 5px; }
+.td-muted         { color: #374151; }
+.td-cards         { font-weight: 600; }
+
+/* Type badges */
+.type-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid;
+}
+.type-visitor  { color: #0a0a0a; border-color: #d1d5db; background: #f9fafb; }
+.type-employee { color: #32A94C; border-color: rgba(50, 169, 76, 0.35); background: rgba(50, 169, 76, 0.07); }
+
+/* Status pills */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 13px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.pill-checkedin  { color: #fff; background: #C2181D; box-shadow: 0 2px 8px rgba(194, 24, 29, 0.3); }
+.pill-checkedout { color: #0a0a0a; background: #f3f4f6; border: 1px solid #e5e7eb; }
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 1280px) {
+  .dash-content { padding: 16px 20px 28px; }
+}
+
+@media (max-width: 1024px) {
+  .hero-card   { padding: 26px 24px; }
+  .hero-card h2 { font-size: 22px; }
+}
+
+@media (max-width: 900px) {
+  .stats-grid   { grid-template-columns: repeat(2, 1fr); }
+  .dash-row-top { grid-template-columns: 1fr; }
+  .hero-card    { min-height: 200px; }
+  .chart-area   { min-height: 140px; }
+}
+
+@media (max-width: 768px) {
+  .dashboard    { overflow-x: hidden; }
+  .dash-body    { padding-top: calc(54px + 20px); }
+  .dash-content { margin-left: 0; padding: 12px 14px 28px; }
+}
+
+@media (max-width: 600px) {
+  .stats-grid   { grid-template-columns: 1fr; }
+  .dash-content { padding: 12px 14px 28px; gap: 12px; }
+
+  .stat-top {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .stat-label  { flex: 1 1 100%; }
+  .stat-toggle { flex-shrink: 0; }
+
+  .hero-card    { padding: 20px 18px; gap: 10px; }
+  .hero-card h2 { font-size: 20px; }
+  .hero-sub     { font-size: 12px; }
+
+  .chart-area { min-height: 110px; max-height: 150px; }
+  .chart-svg  { min-height: 110px; }
+
+  .visitors-table      { font-size: 12.5px; }
+  .visitors-table th,
+  .visitors-table td   { padding: 8px 10px; }
+}
+
+@media (max-width: 480px) {
+  .stat-value  { font-size: 26px; }
+  .stat-card   { padding: 12px 14px 10px; min-height: 90px; }
+  .toggle-btn  { padding: 3px 6px; font-size: 10px; }
+  .hero-cta    { font-size: 12px; padding: 9px 16px; }
+  .visitors-header { padding: 10px 12px 9px; font-size: 13px; }
+}

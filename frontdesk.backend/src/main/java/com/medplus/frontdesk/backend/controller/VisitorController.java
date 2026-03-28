@@ -1,9 +1,7 @@
 package com.medplus.frontdesk.backend.controller;
 
-import java.time.LocalDate;
 import java.util.List;
 
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -143,8 +141,6 @@ public class VisitorController {
      *                            govtId, cardNumber, personToMeet</li>
      *   <li>{@code status}     — {@code CheckedIn} | {@code CheckedOut} | {@code ALL} (default)</li>
      *   <li>{@code locationId} — filter by a specific location</li>
-     *   <li>{@code fromDate}   — ISO date (YYYY-MM-DD); defaults to today when omitted</li>
-     *   <li>{@code toDate}     — ISO date (YYYY-MM-DD); defaults to today when omitted</li>
      *   <li>{@code page}       — 0-based page index (default: 0)</li>
      *   <li>{@code pageSize}   — rows per page (default: 10, max: 100)</li>
      * </ul>
@@ -154,13 +150,10 @@ public class VisitorController {
             @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "ALL") String status,
             @RequestParam(required = false) String locationId,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int pageSize) {
 
-        VisitorPageDto result = visitorService.getVisitors(
-                search, status, locationId, fromDate, toDate, page, pageSize);
+        VisitorPageDto result = visitorService.getVisitors(search, status, locationId, page, pageSize);
         return ResponseEntity.ok(result);
     }
 

@@ -3,8 +3,6 @@ package com.medplus.frontdesk.backend.service;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 
 import org.springframework.stereotype.Service;
 
@@ -15,6 +13,7 @@ import com.medplus.frontdesk.backend.dto.dashboard.DashboardOverviewDto;
 import com.medplus.frontdesk.backend.dto.dashboard.LocationOptionDto;
 import com.medplus.frontdesk.backend.dto.dashboard.RecentVisitorDto;
 import com.medplus.frontdesk.backend.dto.dashboard.VisitorTablePageDto;
+import com.medplus.frontdesk.backend.exceptions.UserNotFoundException;
 import com.medplus.frontdesk.backend.repository.DashboardRepository;
 import com.medplus.frontdesk.backend.repository.UsersRepository;
 
@@ -182,30 +181,18 @@ public class DashboardService {
         String normType   = normalizeVisitorType(visitorType);
         String normStatus = normalizeStatus(status);
 
-        // Run COUNT and data fetch in parallel to halve the round-trip time.
-        CompletableFuture<Integer> countFuture = CompletableFuture.supplyAsync(
-                () -> dashboardRepository.countVisitorsTotal(
-                        range.start(), range.end(), locationId, normType, normStatus, search));
+        int total = dashboardRepository.countVisitorsTotal(
+                range.start(), range.end(), locationId, normType, normStatus, search);
 
-        CompletableFuture<List<RecentVisitorDto>> rowsFuture = CompletableFuture.supplyAsync(
-                () -> dashboardRepository.fetchVisitorsPaged(
-                        range.start(), range.end(),
-                        locationId, normType, normStatus, search,
-                        offset, safePageSize));
+        java.util.List<RecentVisitorDto> rows = dashboardRepository.fetchVisitorsPaged(
+                range.start(), range.end(),
+                locationId, normType, normStatus, search,
+                offset, safePageSize);
 
-        try {
-            CompletableFuture.allOf(countFuture, rowsFuture).join();
-        } catch (CompletionException ex) {
-            Throwable cause = ex.getCause();
-            if (cause instanceof RuntimeException re) throw re;
-            throw ex;
-        }
-
-        int total      = countFuture.join();
         int totalPages = total == 0 ? 1 : (int) Math.ceil((double) total / safePageSize);
 
         return new VisitorTablePageDto(
-                rowsFuture.join(), safePage, safePageSize, total, totalPages,
+                rows, safePage, safePageSize, total, totalPages,
                 locationId, normType, normStatus);
     }
 
@@ -223,27 +210,17 @@ public class DashboardService {
     private DashboardOverviewDto buildOverview(String locationId, String visitorType, DateRange range) {
         String normType = normalizeVisitorType(visitorType);
 
-        // Run all three DB calls in parallel — each takes its own connection from HikariCP pool.
-        CompletableFuture<DashboardKpiDto> kpisFuture = CompletableFuture.supplyAsync(
-                () -> dashboardRepository.fetchKpis(range.start(), range.end(), locationId));
+        DashboardKpiDto kpis = dashboardRepository.fetchKpis(range.start(), range.end(), locationId);
 
-        CompletableFuture<List<DashboardFlowPointDto>> flowFuture = CompletableFuture.supplyAsync(
-                () -> dashboardRepository.fetchVisitorFlow(range.start(), range.end(), locationId, normType));
+        List<DashboardFlowPointDto> flow = dashboardRepository.fetchVisitorFlow(
+                range.start(), range.end(), locationId, normType);
 
-        CompletableFuture<List<RecentVisitorDto>> recentFuture = CompletableFuture.supplyAsync(
-                () -> dashboardRepository.fetchRecentVisitors(range.start(), range.end(), locationId, normType, 10));
-
-        try {
-            CompletableFuture.allOf(kpisFuture, flowFuture, recentFuture).join();
-        } catch (CompletionException ex) {
-            Throwable cause = ex.getCause();
-            if (cause instanceof RuntimeException re) throw re;
-            throw ex;
-        }
+        List<RecentVisitorDto> recentVisitors = dashboardRepository.fetchRecentVisitors(
+                range.start(), range.end(), locationId, normType, 10);
 
         return new DashboardOverviewDto(
                 locationId, normType, range.fromDate(), range.toDate(),
-                kpisFuture.join(), flowFuture.join(), recentFuture.join());
+                kpis, flow, recentVisitors);
     }
 
     private String resolveUserLocation(String username) {

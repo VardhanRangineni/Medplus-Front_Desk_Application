@@ -93,6 +93,7 @@ function mapRecentVisitor(v) {
     personToMeet: v.personToMeet || '—',
     cards:        v.cardNumber   || 'N/A',
     checkIn:      formatDateTime(v.checkInTime),
+    checkOut:     formatDateTime(v.checkOutTime),   // null → '—' via formatDateTime
   };
 }
 
