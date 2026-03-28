@@ -23,9 +23,6 @@ public class JdbcDashboardRepository implements DashboardRepository {
     private static final String TYPE_EMPLOYEE     = "EMPLOYEE";
     private static final String TYPE_NON_EMPLOYEE = "NONEMPLOYEE";
 
-    private static final String STATUS_CHECKED_IN  = "CheckedIn";
-    private static final String STATUS_CHECKED_OUT = "CheckedOut";
-
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
     public JdbcDashboardRepository(
@@ -36,30 +33,68 @@ public class JdbcDashboardRepository implements DashboardRepository {
     // ── KPIs ────────────────────────────────────────────────────────────────
 
     /**
-     * Returns all nine KPI values in one call.
-     * Check-in / check-out counts are scoped to the given date window.
-     * "Active in building" is a live count (status = CheckedIn) with no
-     * date-window restriction so it reflects the real current state.
+     * Returns all nine KPI values using 3 queries instead of 9.
+     * Each query uses conditional aggregation (SUM + CASE) so a single
+     * round-trip yields all three type breakdowns at once.
      */
     @Override
     public DashboardKpiDto fetchKpis(LocalDateTime start, LocalDateTime end, String locationId) {
 
-        int checkInsAll         = countCheckIns(start, end, locationId, TYPE_ALL);
-        int checkInsEmployee    = countCheckIns(start, end, locationId, TYPE_EMPLOYEE);
-        int checkInsNonEmployee = countCheckIns(start, end, locationId, TYPE_NON_EMPLOYEE);
+        // ── Query 1: check-ins (filtered by checkInTime) ──────────────────
+        StringBuilder ciSql = new StringBuilder("""
+                SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN visitorType = 'EMPLOYEE'    THEN 1 ELSE 0 END) AS emp,
+                    SUM(CASE WHEN visitorType = 'NONEMPLOYEE' THEN 1 ELSE 0 END) AS nonEmp
+                FROM `Visitor` v
+                WHERE v.checkInTime >= :start
+                  AND v.checkInTime < :end
+                """);
+        MapSqlParameterSource ciParams = baseParams(start, end);
+        appendLocationFilter(ciSql, ciParams, locationId, "v");
 
-        int checkOutsAll         = countCheckOuts(start, end, locationId, TYPE_ALL);
-        int checkOutsEmployee    = countCheckOuts(start, end, locationId, TYPE_EMPLOYEE);
-        int checkOutsNonEmployee = countCheckOuts(start, end, locationId, TYPE_NON_EMPLOYEE);
+        int[] ci = jdbcTemplate.queryForObject(ciSql.toString(), ciParams,
+                (rs, n) -> new int[]{ rs.getInt("total"), rs.getInt("emp"), rs.getInt("nonEmp") });
+        if (ci == null) ci = new int[3];
 
-        int activeAll         = countCurrentlyActive(locationId, TYPE_ALL);
-        int activeEmployee    = countCurrentlyActive(locationId, TYPE_EMPLOYEE);
-        int activeNonEmployee = countCurrentlyActive(locationId, TYPE_NON_EMPLOYEE);
+        // ── Query 2: check-outs (filtered by checkOutTime) ────────────────
+        StringBuilder coSql = new StringBuilder("""
+                SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN visitorType = 'EMPLOYEE'    THEN 1 ELSE 0 END) AS emp,
+                    SUM(CASE WHEN visitorType = 'NONEMPLOYEE' THEN 1 ELSE 0 END) AS nonEmp
+                FROM `Visitor` v
+                WHERE v.checkOutTime >= :start
+                  AND v.checkOutTime < :end
+                  AND v.status = 'CheckedOut'
+                """);
+        MapSqlParameterSource coParams = baseParams(start, end);
+        appendLocationFilter(coSql, coParams, locationId, "v");
+
+        int[] co = jdbcTemplate.queryForObject(coSql.toString(), coParams,
+                (rs, n) -> new int[]{ rs.getInt("total"), rs.getInt("emp"), rs.getInt("nonEmp") });
+        if (co == null) co = new int[3];
+
+        // ── Query 3: live active (no date window) ─────────────────────────
+        StringBuilder actSql = new StringBuilder("""
+                SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN visitorType = 'EMPLOYEE'    THEN 1 ELSE 0 END) AS emp,
+                    SUM(CASE WHEN visitorType = 'NONEMPLOYEE' THEN 1 ELSE 0 END) AS nonEmp
+                FROM `Visitor` v
+                WHERE v.status = 'CheckedIn'
+                """);
+        MapSqlParameterSource actParams = new MapSqlParameterSource();
+        appendLocationFilter(actSql, actParams, locationId, "v");
+
+        int[] act = jdbcTemplate.queryForObject(actSql.toString(), actParams,
+                (rs, n) -> new int[]{ rs.getInt("total"), rs.getInt("emp"), rs.getInt("nonEmp") });
+        if (act == null) act = new int[3];
 
         return new DashboardKpiDto(
-                checkInsAll, checkInsEmployee, checkInsNonEmployee,
-                checkOutsAll, checkOutsEmployee, checkOutsNonEmployee,
-                activeAll, activeEmployee, activeNonEmployee);
+                ci[0],  ci[1],  ci[2],
+                co[0],  co[1],  co[2],
+                act[0], act[1], act[2]);
     }
 
     // ── Visitor Flow ─────────────────────────────────────────────────────────
@@ -214,70 +249,17 @@ public class JdbcDashboardRepository implements DashboardRepository {
 
     // ── Private helpers ──────────────────────────────────────────────────────
 
-    /** Count check-ins (by checkInTime) within the date window. */
-    private int countCheckIns(
-            LocalDateTime start, LocalDateTime end,
-            String locationId, String visitorType) {
-
-        StringBuilder sql = new StringBuilder("""
-                SELECT COUNT(*)
-                FROM `Visitor` v
-                WHERE v.checkInTime >= :start
-                  AND v.checkInTime < :end
-                """);
-
-        MapSqlParameterSource params = baseParams(start, end);
-        appendLocationAndTypeFilters(sql, params, locationId, visitorType, "v");
-
-        Integer count = jdbcTemplate.queryForObject(sql.toString(), params, Integer.class);
-        return count == null ? 0 : count;
-    }
-
-    /** Count check-outs (by checkOutTime) within the date window. */
-    private int countCheckOuts(
-            LocalDateTime start, LocalDateTime end,
-            String locationId, String visitorType) {
-
-        StringBuilder sql = new StringBuilder("""
-                SELECT COUNT(*)
-                FROM `Visitor` v
-                WHERE v.checkOutTime >= :start
-                  AND v.checkOutTime < :end
-                  AND v.status = :status
-                """);
-
-        MapSqlParameterSource params = baseParams(start, end)
-                .addValue("status", STATUS_CHECKED_OUT);
-        appendLocationAndTypeFilters(sql, params, locationId, visitorType, "v");
-
-        Integer count = jdbcTemplate.queryForObject(sql.toString(), params, Integer.class);
-        return count == null ? 0 : count;
-    }
-
-    /** Live count: currently checked-in visitors, no date window applied. */
-    private int countCurrentlyActive(String locationId, String visitorType) {
-
-        StringBuilder sql = new StringBuilder("""
-                SELECT COUNT(*)
-                FROM `Visitor` v
-                WHERE v.status = :status
-                """);
-
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("status", STATUS_CHECKED_IN);
+    /** Appends only the location filter (no visitor-type filter). */
+    private void appendLocationFilter(
+            StringBuilder sql,
+            MapSqlParameterSource params,
+            String locationId,
+            String alias) {
 
         if (locationId != null && !locationId.isBlank()) {
-            sql.append(" AND v.locationId = :locationId");
+            sql.append(" AND ").append(alias).append(".locationId = :locationId");
             params.addValue("locationId", locationId);
         }
-
-        if (!TYPE_ALL.equalsIgnoreCase(visitorType)) {
-            sql.append(" AND v.visitorType = :visitorType");
-            params.addValue("visitorType", visitorType);
-        }
-
-        Integer count = jdbcTemplate.queryForObject(sql.toString(), params, Integer.class);
-        return count == null ? 0 : count;
     }
 
     private void appendLocationAndTypeFilters(

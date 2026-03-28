@@ -2,6 +2,7 @@ package com.medplus.frontdesk.backend.repository;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -128,9 +129,10 @@ public class JdbcVisitorRepository implements VisitorRepository {
 
     @Override
     public List<VisitorDto> findAll(String search, String status, String locationId,
+                                    LocalDate fromDate, LocalDate toDate,
                                     int offset, int limit) {
         MapSqlParameterSource params = new MapSqlParameterSource();
-        String whereClause = buildWhereClause(search, status, locationId, params);
+        String whereClause = buildWhereClause(search, status, locationId, fromDate, toDate, params);
 
         String sql = """
                 SELECT visitorId, visitorType, fullName, locationId,
@@ -150,9 +152,10 @@ public class JdbcVisitorRepository implements VisitorRepository {
     }
 
     @Override
-    public int count(String search, String status, String locationId) {
+    public int count(String search, String status, String locationId,
+                     LocalDate fromDate, LocalDate toDate) {
         MapSqlParameterSource params = new MapSqlParameterSource();
-        String whereClause = buildWhereClause(search, status, locationId, params);
+        String whereClause = buildWhereClause(search, status, locationId, fromDate, toDate, params);
 
         String sql = "SELECT COUNT(*) FROM `Visitor` " + whereClause;
         Integer count = jdbcTemplate.queryForObject(sql, params, Integer.class);
@@ -174,8 +177,19 @@ public class JdbcVisitorRepository implements VisitorRepository {
      * Injects bind parameters into {@code params} as a side-effect.
      */
     private String buildWhereClause(String search, String status, String locationId,
+                                    LocalDate fromDate, LocalDate toDate,
                                     MapSqlParameterSource params) {
         StringBuilder where = new StringBuilder("WHERE 1=1 ");
+
+        if (fromDate != null) {
+            where.append("AND checkInTime >= :fromDateTime ");
+            params.addValue("fromDateTime", fromDate.atStartOfDay());
+        }
+
+        if (toDate != null) {
+            where.append("AND checkInTime < :toDateTime ");
+            params.addValue("toDateTime", toDate.plusDays(1).atStartOfDay());
+        }
 
         if (search != null && !search.isBlank()) {
             String like = "%" + search.trim() + "%";

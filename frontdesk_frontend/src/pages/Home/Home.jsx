@@ -506,13 +506,25 @@ const Home = () => {
   const handleCheckOut = async (cardsReturned = false) => {
     if (!activeEntry) return;
     try {
-      await checkOutEntry(activeEntry.id);
-      // Re-fetch from the server so the Checked-out tab always reflects the DB truth
-      await getCheckInEntries({
-        location,
-        from: dateRange?.from,
-        to:   dateRange?.to,
-      }).then(setEntries);
+      const result = await checkOutEntry(activeEntry.id);
+      const checkOutTime = result.checkOutTime || new Date().toISOString();
+
+      setEntries(prev => prev.map(e => {
+        if (e.id === activeEntry.id) {
+          return { ...e, status: 'Checked-out', checkOutTime };
+        }
+        if (activeParentEntry && e.id === activeParentEntry.id) {
+          return {
+            ...e,
+            members: (e.members || []).map(m =>
+              m.id === activeEntry.id
+                ? { ...m, status: 'Checked-out', checkOutTime }
+                : m,
+            ),
+          };
+        }
+        return e;
+      }));
     } catch (err) {
       setError(err.message || 'Checkout failed. Please try again.');
     } finally {

@@ -1,5 +1,6 @@
 package com.medplus.frontdesk.backend.service;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -119,16 +120,23 @@ public class VisitorService {
      *                   govtId, cardNumber, and personToMeet; {@code null} = no filter
      * @param status     {@code "CheckedIn"}, {@code "CheckedOut"}, or {@code "ALL"} (default)
      * @param locationId filter by location; {@code null} = all locations
+     * @param fromDate   inclusive start date on checkInTime; {@code null} = today
+     * @param toDate     inclusive end date on checkInTime; {@code null} = today
      * @param page       0-based page index
      * @param pageSize   rows per page (capped at 100)
      */
     public VisitorPageDto getVisitors(String search, String status, String locationId,
+                                      LocalDate fromDate, LocalDate toDate,
                                       int page, int pageSize) {
         pageSize = Math.min(pageSize, 100);
         int offset = page * pageSize;
 
-        List<VisitorDto> rows = visitorRepository.findAll(search, status, locationId, offset, pageSize);
-        int totalRows  = visitorRepository.count(search, status, locationId);
+        LocalDate from = fromDate != null ? fromDate : LocalDate.now();
+        LocalDate to   = toDate   != null ? toDate   : LocalDate.now();
+        if (to.isBefore(from)) to = from;
+
+        List<VisitorDto> rows = visitorRepository.findAll(search, status, locationId, from, to, offset, pageSize);
+        int totalRows  = visitorRepository.count(search, status, locationId, from, to);
         int totalPages = (int) Math.ceil((double) totalRows / pageSize);
 
         return new VisitorPageDto(rows, page, pageSize, totalRows, totalPages);

@@ -47,6 +47,73 @@ CREATE TABLE IF NOT EXISTS `Visitor` (
         FOREIGN KEY (`locationId`) REFERENCES `Locations`(`LocationId`)
 );
 
+-- ── Indexes ───────────────────────────────────────────────────────────────────
+-- Each block checks information_schema before creating so re-running on startup
+-- is safe (same pattern as the column migrations below).
+
+SET @idx1 = (
+    SELECT IF(COUNT(*) = 0,
+        'CREATE INDEX idx_visitor_location_checkin ON `Visitor` (locationId, checkInTime)',
+        'SELECT 1')
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Visitor' AND INDEX_NAME = 'idx_visitor_location_checkin'
+);
+PREPARE s1 FROM @idx1; EXECUTE s1; DEALLOCATE PREPARE s1;
+
+SET @idx2 = (
+    SELECT IF(COUNT(*) = 0,
+        'CREATE INDEX idx_visitor_checkin ON `Visitor` (checkInTime)',
+        'SELECT 1')
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Visitor' AND INDEX_NAME = 'idx_visitor_checkin'
+);
+PREPARE s2 FROM @idx2; EXECUTE s2; DEALLOCATE PREPARE s2;
+
+SET @idx3 = (
+    SELECT IF(COUNT(*) = 0,
+        'CREATE INDEX idx_visitor_location_checkout ON `Visitor` (locationId, checkOutTime, status)',
+        'SELECT 1')
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Visitor' AND INDEX_NAME = 'idx_visitor_location_checkout'
+);
+PREPARE s3 FROM @idx3; EXECUTE s3; DEALLOCATE PREPARE s3;
+
+SET @idx4 = (
+    SELECT IF(COUNT(*) = 0,
+        'CREATE INDEX idx_visitor_checkout ON `Visitor` (checkOutTime, status)',
+        'SELECT 1')
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Visitor' AND INDEX_NAME = 'idx_visitor_checkout'
+);
+PREPARE s4 FROM @idx4; EXECUTE s4; DEALLOCATE PREPARE s4;
+
+SET @idx5 = (
+    SELECT IF(COUNT(*) = 0,
+        'CREATE INDEX idx_visitor_location_status ON `Visitor` (locationId, status)',
+        'SELECT 1')
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Visitor' AND INDEX_NAME = 'idx_visitor_location_status'
+);
+PREPARE s5 FROM @idx5; EXECUTE s5; DEALLOCATE PREPARE s5;
+
+SET @idx6 = (
+    SELECT IF(COUNT(*) = 0,
+        'CREATE INDEX idx_visitor_status ON `Visitor` (status)',
+        'SELECT 1')
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Visitor' AND INDEX_NAME = 'idx_visitor_status'
+);
+PREPARE s6 FROM @idx6; EXECUTE s6; DEALLOCATE PREPARE s6;
+
+SET @idx7 = (
+    SELECT IF(COUNT(*) = 0,
+        'CREATE INDEX idx_visitor_group_head ON `Visitor` (groupHeadVisitorId)',
+        'SELECT 1')
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Visitor' AND INDEX_NAME = 'idx_visitor_group_head'
+);
+PREPARE s7 FROM @idx7; EXECUTE s7; DEALLOCATE PREPARE s7;
+
 -- ── Column migration: add govtId if it doesn't exist yet ─────────────────────
 -- Uses information_schema + PREPARE so it is safe on MySQL (no IF NOT EXISTS).
 SET @add_govtId = (

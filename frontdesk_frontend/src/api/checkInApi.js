@@ -5,6 +5,15 @@
 
 import { apiFetch } from './apiClient';
 
+/** Converts a JS Date → YYYY-MM-DD using local time (avoids UTC shift). */
+function toIsoDate(date) {
+  if (!date) return undefined;
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 // ── Field mapping helpers ──────────────────────────────────────────────────────
 
 /**
@@ -48,20 +57,23 @@ function nestGroupMembers(entries) {
 // ── Public API ─────────────────────────────────────────────────────────────────
 
 /**
- * Fetch all check-in entries (up to 200).
+ * Fetch check-in entries for the given date range (defaults to today).
  * The backend caps pageSize at 100, so two pages are fetched when needed.
- * Location filtering requires a real locationId; the location context name
- * is ignored here until the dashboard location system is wired to real IDs.
  *
- * @param {{ location?: string, from?: Date, to?: Date }} _params  (unused for now)
+ * @param {{ location?: string, from?: Date, to?: Date }} params
  * @returns {Promise<Entry[]>}
  */
-export const getCheckInEntries = async (_params = {}) => {
-  const first = await apiFetch('/user/visitors?pageSize=100&page=0');
+export const getCheckInEntries = async ({ from, to } = {}) => {
+  const today    = toIsoDate(new Date());
+  const fromDate = from ? toIsoDate(from) : today;
+  const toDate   = to   ? toIsoDate(to)   : today;
+
+  const baseParams = `pageSize=100&page=0&fromDate=${fromDate}&toDate=${toDate}`;
+  const first = await apiFetch(`/user/visitors?${baseParams}`);
   let rows = first.rows.map(mapVisitor);
 
   if (first.totalPages > 1) {
-    const second = await apiFetch('/user/visitors?pageSize=100&page=1');
+    const second = await apiFetch(`/user/visitors?pageSize=100&page=1&fromDate=${fromDate}&toDate=${toDate}`);
     rows = rows.concat(second.rows.map(mapVisitor));
   }
 

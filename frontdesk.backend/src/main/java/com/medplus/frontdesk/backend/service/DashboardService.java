@@ -4,18 +4,18 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
-import com.medplus.frontdesk.backend.domain.User;
 import com.medplus.frontdesk.backend.dto.dashboard.DashboardFlowPointDto;
 import com.medplus.frontdesk.backend.dto.dashboard.DashboardKpiDto;
 import com.medplus.frontdesk.backend.dto.dashboard.DashboardOverviewDto;
 import com.medplus.frontdesk.backend.dto.dashboard.LocationOptionDto;
 import com.medplus.frontdesk.backend.dto.dashboard.RecentVisitorDto;
 import com.medplus.frontdesk.backend.dto.dashboard.VisitorTablePageDto;
-import com.medplus.frontdesk.backend.exceptions.UserNotFoundException;
 import com.medplus.frontdesk.backend.repository.DashboardRepository;
 import com.medplus.frontdesk.backend.repository.UsersRepository;
+import com.medplus.frontdesk.backend.security.UserPrincipal;
 
 @Service
 public class DashboardService {
@@ -72,42 +72,42 @@ public class DashboardService {
     // ── User methods (location is derived from their profile) ───────────────
 
     public DashboardOverviewDto getUserOverview(
-            String username,
+            Authentication authentication,
             String visitorType,
             LocalDate fromDate,
             LocalDate toDate) {
-        String locationId = resolveUserLocation(username);
+        String locationId = resolveUserLocation(authentication);
         DateRange range = resolveDateRange(fromDate, toDate);
         return buildOverview(locationId, visitorType, range);
     }
 
     public DashboardKpiDto getUserKpis(
-            String username,
+            Authentication authentication,
             LocalDate fromDate,
             LocalDate toDate) {
-        String locationId = resolveUserLocation(username);
+        String locationId = resolveUserLocation(authentication);
         DateRange range = resolveDateRange(fromDate, toDate);
         return dashboardRepository.fetchKpis(range.start(), range.end(), locationId);
     }
 
     public List<DashboardFlowPointDto> getUserVisitorFlow(
-            String username,
+            Authentication authentication,
             String visitorType,
             LocalDate fromDate,
             LocalDate toDate) {
-        String locationId = resolveUserLocation(username);
+        String locationId = resolveUserLocation(authentication);
         DateRange range = resolveDateRange(fromDate, toDate);
         return dashboardRepository.fetchVisitorFlow(
                 range.start(), range.end(), locationId, normalizeVisitorType(visitorType));
     }
 
     public List<RecentVisitorDto> getUserRecentVisitors(
-            String username,
+            Authentication authentication,
             String visitorType,
             LocalDate fromDate,
             LocalDate toDate,
             int limit) {
-        String locationId = resolveUserLocation(username);
+        String locationId = resolveUserLocation(authentication);
         DateRange range = resolveDateRange(fromDate, toDate);
         return dashboardRepository.fetchRecentVisitors(
                 range.start(), range.end(), locationId, normalizeVisitorType(visitorType), limit);
@@ -147,10 +147,10 @@ public class DashboardService {
     }
 
     /**
-     * User view: location is resolved from the user's own profile.
+     * User view: location is resolved from the authenticated principal.
      */
     public VisitorTablePageDto getUserVisitors(
-            String username,
+            Authentication authentication,
             String visitorType,
             String status,
             String search,
@@ -159,7 +159,7 @@ public class DashboardService {
             int page,
             int pageSize) {
 
-        String locationId = resolveUserLocation(username);
+        String locationId = resolveUserLocation(authentication);
         DateRange range   = resolveDateRange(fromDate, toDate);
         return buildVisitorPage(
                 locationId, visitorType, status, search, range, page, pageSize);
@@ -223,9 +223,22 @@ public class DashboardService {
                 kpis, flow, recentVisitors);
     }
 
-    private String resolveUserLocation(String username) {
+    /**
+     * Reads the user's locationId from the Spring Security principal.
+     * Since {@link com.medplus.frontdesk.backend.security.CustomUserDetailsService}
+     * now returns a {@link UserPrincipal}, this is a zero-DB-query operation.
+     * Falls back to a DB lookup only if the principal is not a {@link UserPrincipal}
+     * (e.g. during testing or when using a different auth flow).
+     */
+    private String resolveUserLocation(Authentication authentication) {
+        if (authentication != null
+                && authentication.getPrincipal() instanceof UserPrincipal principal) {
+            return principal.getLocationId();
+        }
+        String username = authentication != null ? authentication.getName() : null;
+        if (username == null) return null;
         return usersRepository.findByUsername(username)
-                .map(User::getLocation)
+                .map(u -> u.getLocation())
                 .orElse(null);
     }
 

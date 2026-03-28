@@ -107,13 +107,13 @@ public class DashboardController {
                 dashboardService.getAdminOverview(locationId, visitorType, fromDate, toDate));
     }
 
-      @GetMapping("/user/dashboard/kpis")
+    @GetMapping("/user/dashboard/kpis")
     public ResponseEntity<DashboardKpiDto> getUserKpis(
             Authentication authentication,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate) {
         return ResponseEntity.ok(
-                dashboardService.getUserKpis(authentication.getName(), fromDate, toDate));
+                dashboardService.getUserKpis(authentication, fromDate, toDate));
     }
 
     // ── User: locations (for check-in form dropdown) ─────────────────────────
@@ -138,7 +138,7 @@ public class DashboardController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate) {
         return ResponseEntity.ok(
                 dashboardService.getUserVisitorFlow(
-                        authentication.getName(), visitorType, fromDate, toDate));
+                        authentication, visitorType, fromDate, toDate));
     }
 
     // ── User: recent visitors ─────────────────────────────────────────────────
@@ -152,7 +152,7 @@ public class DashboardController {
             @RequestParam(defaultValue = "10") int limit) {
         return ResponseEntity.ok(
                 dashboardService.getUserRecentVisitors(
-                        authentication.getName(), visitorType, fromDate, toDate, limit));
+                        authentication, visitorType, fromDate, toDate, limit));
     }
 
     // ── User: full overview ───────────────────────────────────────────────────
@@ -165,7 +165,7 @@ public class DashboardController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate) {
         return ResponseEntity.ok(
                 dashboardService.getUserOverview(
-                        authentication.getName(), visitorType, fromDate, toDate));
+                        authentication, visitorType, fromDate, toDate));
     }
 
     // ── Admin: visitors table (paginated) ─────────────────────────────────────
@@ -225,7 +225,7 @@ public class DashboardController {
 
         return ResponseEntity.ok(
                 dashboardService.getUserVisitors(
-                        authentication.getName(),
+                        authentication,
                         visitorType, status, search,
                         fromDate, toDate, page, pageSize));
     }
