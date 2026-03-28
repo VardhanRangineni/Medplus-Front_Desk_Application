@@ -1,0 +1,60 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   MedPlus Design Tokens
+   Single source of truth for colours, typography, spacing and effects.
+   Import this file in any component that needs brand-consistent tokens.
+───────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Brand colours */
+  --color-red:          #C2181D;
+  --color-red-hover:    #a51318;
+  --color-red-light:    rgba(194, 24, 29, 0.10);
+  --color-red-ring:     rgba(194, 24, 29, 0.18);
+  --color-green:        #32A94C;
+  --color-white:        #FFFFFF;
+
+  /* Neutral text */
+  --text-900: #000000;
+  --text-700: #111111;
+  --text-500: #222222;
+  --text-400: #444444;
+  --text-200: #cccccc;
+
+  /* Surface */
+  --surface-white:      rgba(255, 255, 255, 0.55);
+  --surface-white-high: rgba(255, 255, 255, 0.80);
+  --surface-dark:       rgba(10, 15, 30, 0.55);
+
+  /* Glassmorphism */
+  --glass-blur:         blur(24px) saturate(160%);
+  --glass-border:       rgba(255, 255, 255, 0.75);
+  --glass-border-top:   rgba(255, 255, 255, 0.92);
+  --glass-shadow:       0 20px 60px rgba(0, 0, 0, 0.16), 0 4px 16px rgba(0, 0, 0, 0.08);
+
+  /* Border radii */
+  --radius-xs:   6px;
+  --radius-sm:   8px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+  --radius-xl:   20px;
+  --radius-full: 9999px;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-9: 36px;
+  --space-10: 40px;
+
+  /* Typography */
+  --font-sans: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+
+  /* Transitions */
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.20s ease;
+}
