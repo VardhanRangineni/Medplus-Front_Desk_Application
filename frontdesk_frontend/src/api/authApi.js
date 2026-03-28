@@ -5,6 +5,9 @@ import { BASE_URL } from './apiClient';
  * @param {{ username: string, password: string }} credentials
  * @returns {Promise<{ token: string, userName: string }>}
  * @throws {Error} with a human-readable message on failure
+ *
+ * The client IP is NOT sent in the body — the backend reads it directly
+ * from the HTTP request (HttpServletRequest), which cannot be spoofed.
  */
 export async function loginUser({ username, password }) {
   const response = await fetch(`${BASE_URL}/auth/login`, {
@@ -14,11 +17,10 @@ export async function loginUser({ username, password }) {
   });
 
   if (!response.ok) {
-    if (response.status === 401 || response.status === 403) {
-      throw new Error('Invalid username or password. Please try again.');
-    }
     const data = await response.json().catch(() => ({}));
-    throw new Error(data.message || 'Something went wrong. Please try again.');
+    const err = new Error(data.message || 'Something went wrong. Please try again.');
+    if (data.errorCode) err.errorCode = data.errorCode;
+    throw err;
   }
 
   return response.json();

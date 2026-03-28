@@ -1,7 +1,16 @@
 /* ── Check-In / Check-Out Page ───────────────────────────────────────────────── */
 
 /* ── Page header ─────────────────────────────────────────────────────────────── */
-.ci-page-header { margin-bottom: 2px; }
+.ci-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 2px;
+  flex-wrap: wrap;
+}
+.ci-page-header-left { min-width: 0; }
+
 .ci-page-title {
   font-size: 22px;
   font-weight: 800;
@@ -266,6 +275,8 @@
     0 1px 4px rgba(0, 0, 0, 0.04),
     inset 0 1px 0 rgba(255, 255, 255, 0.88);
   min-width: 0;
+  /* no fixed height — card grows with all table rows */
+  height: max-content;
   overflow: hidden;
 }
 .ci-table-header {

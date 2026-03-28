@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import './Home.css';
+import PageFilters from '../../components/PageFilters/PageFilters';
 import {
   getCheckInEntries,
   checkOutEntry,
@@ -398,7 +399,7 @@ const AddEntryModal = ({ onClose, onSelectType }) => {
 // ── Main Home component ────────────────────────────────────────────────────────
 
 const Home = () => {
-  const { location, dateRange } = useOutletContext();
+  const { location, locations, dateRange, setLocation, setDateRange } = useOutletContext();
 
   const [entries,          setEntries]          = useState([]);
   const [loading,          setLoading]          = useState(true);
@@ -412,6 +413,25 @@ const Home = () => {
   const [activeEntry,      setActiveEntry]      = useState(null);
   const [activeParentEntry, setActiveParentEntry] = useState(null);
   const [entryType,        setEntryType]        = useState(null); // 'Visitor' | 'Employee'
+  // null = closed · 'open' = visible · 'closing' = animating out
+  const [filtersState,     setFiltersState]     = useState(null);
+  const filterToggleRef = useRef(null);
+
+  const toggleFilters = () =>
+    setFiltersState(s => s === null ? 'open' : s === 'open' ? 'closing' : 'open');
+
+  const handleFiltersAnimEnd = () =>
+    setFiltersState(s => s === 'closing' ? null : s);
+
+  // Smooth-close on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (filterToggleRef.current && !filterToggleRef.current.contains(e.target))
+        setFiltersState(s => s === 'open' ? 'closing' : s);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   // ── Data loading ───────────────────────────────────────────────────────────
 
@@ -583,8 +603,45 @@ const Home = () => {
     <>
       {/* Page header */}
       <div className="ci-page-header">
-        <h1 className="ci-page-title">Check-In / Check-Out</h1>
-        <p className="ci-page-sub">Manage visitor, member, and employee entries for today.</p>
+        <div className="ci-page-header-left">
+          <h1 className="ci-page-title">Check-In / Check-Out</h1>
+          <p className="ci-page-sub">Manage visitor, member, and employee entries for today.</p>
+        </div>
+
+        {/* Filter toggle — expands from right to left */}
+        <div className="pf-toggle-wrap" ref={filterToggleRef}>
+          {filtersState !== null && (
+            <div
+              className={`pf-inline-filters${filtersState === 'closing' ? ' closing' : ''}`}
+              onAnimationEnd={handleFiltersAnimEnd}
+            >
+              <PageFilters
+                locations={locations}
+                location={location}
+                onLocationChange={setLocation}
+                dateRange={dateRange}
+                onDateRangeChange={setDateRange}
+              />
+            </div>
+          )}
+          <button
+            className={`pf-toggle-btn${filtersState === 'open' ? ' open' : ''}${location !== 'All' ? ' active' : ''}`}
+            onClick={toggleFilters}
+            aria-expanded={filtersState === 'open'}
+            aria-label="Toggle filters"
+          >
+            <IconFilter />
+            Filters
+            {location !== 'All' && <span className="pf-filter-dot" />}
+            <svg
+              className={`pf-toggle-chevron${filtersState === 'open' ? ' rotated' : ''}`}
+              width="13" height="13" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+            >
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Toolbar */}

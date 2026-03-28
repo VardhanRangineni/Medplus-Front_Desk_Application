@@ -182,6 +182,19 @@
   animation: slideUpFade 0.3s ease;
 }
 
+/* IP-blocked variant — orange/amber tone instead of red */
+.login-error--ip {
+  background: rgba(180, 90, 0, 0.18);
+  border-color: rgba(245, 140, 0, 0.45);
+  color: rgba(255, 200, 120, 0.95);
+  align-items: flex-start;
+}
+
+.login-error--ip svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
 /* ── Form ── */
 .login-form {
   display: flex;
@@ -296,4 +309,324 @@
     padding: 26px 18px 22px;
   }
   .login-welcome h2 { font-size: 21px; }
+}
+
+/* ══════════════════════════════════════════════════
+   IP INFO BUTTON  (fixed bottom-left of page)
+══════════════════════════════════════════════════ */
+.ip-info-btn {
+  position: fixed;
+  bottom: 22px;
+  left: 22px;
+  z-index: 10;
+
+  display: flex;
+  align-items: center;
+  gap: 7px;
+
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 30px;
+  padding: 8px 14px 8px 10px;
+
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s, transform 0.15s;
+}
+
+.ip-info-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.35);
+  transform: translateY(-1px);
+}
+
+.ip-info-btn:active {
+  transform: translateY(0);
+}
+
+.ip-info-btn svg {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.ip-info-btn-label {
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ══════════════════════════════════════════════════
+   IP INFO MODAL — OVERLAY
+══════════════════════════════════════════════════ */
+.ip-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 0 0 80px 22px;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: ipOverlayIn 0.2s ease;
+}
+
+@keyframes ipOverlayIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ══════════════════════════════════════════════════
+   IP INFO MODAL — CARD
+══════════════════════════════════════════════════ */
+.ip-modal {
+  position: relative;
+  width: 340px;
+  background: linear-gradient(
+    145deg,
+    rgba(20, 20, 30, 0.92) 0%,
+    rgba(10, 10, 20, 0.96) 100%
+  );
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 20px;
+  padding: 28px 24px 24px;
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.5),
+    0 8px 24px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  color: #fff;
+  animation: ipModalIn 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes ipModalIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Close button */
+.ip-modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.ip-modal-close:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+/* Network icon bubble */
+.ip-modal-icon-wrap {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(50, 169, 76, 0.25) 0%, rgba(50, 169, 76, 0.1) 100%);
+  border: 1px solid rgba(50, 169, 76, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #32A94C;
+  margin-bottom: 16px;
+}
+
+/* Title */
+.ip-modal-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 8px;
+  letter-spacing: 0.2px;
+}
+
+/* Description */
+.ip-modal-desc {
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.55);
+  margin: 0;
+}
+
+/* Divider */
+.ip-modal-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+  margin: 20px 0;
+}
+
+/* IP address block */
+.ip-address-block {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.ip-address-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
+  margin-bottom: 10px;
+}
+
+/* Row: IP value + copy button */
+.ip-address-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ip-address-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Loading state */
+.ip-address-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.ip-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.15);
+  border-top-color: rgba(255,255,255,0.6);
+  border-radius: 50%;
+  animation: ipSpin 0.75s linear infinite;
+}
+
+@keyframes ipSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Error state */
+.ip-address-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: rgba(255, 160, 163, 0.85);
+}
+
+/* Copy button */
+.ip-copy-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(50, 169, 76, 0.15);
+  border: 1px solid rgba(50, 169, 76, 0.35);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(100, 210, 130, 0.9);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+  flex-shrink: 0;
+}
+
+.ip-copy-btn:hover {
+  background: rgba(50, 169, 76, 0.25);
+  color: #32A94C;
+  border-color: rgba(50, 169, 76, 0.5);
+}
+
+.ip-copy-btn.copied {
+  background: rgba(50, 169, 76, 0.2);
+  color: #32A94C;
+  border-color: rgba(50, 169, 76, 0.5);
+}
+
+/* Warning banner (shown when fallback to public IP) */
+.ip-modal-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(253, 211, 107, 0.9);
+  margin-bottom: 14px;
+}
+
+.ip-modal-warning svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: rgba(245, 158, 11, 0.9);
+}
+
+/* Bottom note */
+.ip-modal-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.ip-modal-note svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  opacity: 0.6;
+}
+
+/* ── Responsive: shrink modal on small screens ── */
+@media (max-width: 480px) {
+  .ip-modal-overlay {
+    align-items: flex-end;
+    justify-content: center;
+    padding: 0 16px 80px;
+  }
+  .ip-modal {
+    width: 100%;
+    max-width: 340px;
+  }
+  .ip-info-btn {
+    left: 16px;
+    bottom: 16px;
+  }
 }

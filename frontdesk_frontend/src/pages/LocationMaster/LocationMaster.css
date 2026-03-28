@@ -2,8 +2,14 @@
 
 /* Page header */
 .lm-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   margin-bottom: 2px;
+  flex-wrap: wrap;
 }
+.lm-page-header-left { min-width: 0; }
 .lm-page-title {
   font-size: 22px;
   font-weight: 800;
@@ -22,41 +28,27 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
-/* Outlined "Bulk Upload" button */
-.lm-btn-outline {
-  display: inline-flex;
+/* Fetch group: button + last-synced label side by side */
+.lm-fetch-group {
+  display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 9px 18px;
-  border-radius: 12px;
-  border: 1.5px solid rgba(0, 0, 0, 0.18);
-  background: rgba(255, 255, 255, 0.70);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  color: #0a0a0a;
-  cursor: pointer;
-  transition: background 0.18s, border-color 0.18s, box-shadow 0.18s;
-  white-space: nowrap;
-}
-.lm-btn-outline:hover {
-  background: rgba(255, 255, 255, 0.90);
-  border-color: rgba(0, 0, 0, 0.28);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-.lm-btn-outline:focus-visible {
-  outline: 2px solid var(--color-red);
-  outline-offset: 2px;
+  gap: 10px;
 }
 
-/* Filled "Create Location" button */
-.lm-btn-primary {
+/* "Last fetched" label */
+.lm-last-synced {
+  font-size: 12px;
+  color: #6b7280;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* "Fetch Locations" button */
+.lm-btn-fetch {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -73,41 +65,14 @@
   transition: background 0.18s, box-shadow 0.18s, transform 0.12s;
   white-space: nowrap;
 }
-.lm-btn-primary:hover {
-  background: #a81318;
-  box-shadow: 0 6px 20px rgba(194, 24, 29, 0.40);
-}
-.lm-btn-primary:active { transform: scale(0.97); }
-.lm-btn-primary:focus-visible {
-  outline: 2px solid var(--color-red);
-  outline-offset: 3px;
-}
+.lm-btn-fetch:hover  { background: #a81318; box-shadow: 0 6px 20px rgba(194, 24, 29, 0.40); }
+.lm-btn-fetch:active { transform: scale(0.97); }
+.lm-btn-fetch:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
+.lm-btn-fetch:focus-visible { outline: 2px solid var(--color-red); outline-offset: 3px; }
 
-/* Icon-only "Download Template" button */
-.lm-btn-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  border: 1.5px solid rgba(0, 0, 0, 0.15);
-  background: rgba(255, 255, 255, 0.70);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  color: #374151;
-  cursor: pointer;
-  transition: background 0.18s, border-color 0.18s, color 0.18s;
-  flex-shrink: 0;
-}
-.lm-btn-icon:hover {
-  background: rgba(255, 255, 255, 0.92);
-  border-color: rgba(0, 0, 0, 0.25);
-  color: #0a0a0a;
-}
-.lm-btn-icon:focus-visible {
-  outline: 2px solid var(--color-red);
-  outline-offset: 2px;
+/* Spin animation for refresh icon */
+@keyframes lmSpin {
+  to { transform: rotate(360deg); }
 }
 
 /* ── Table card (mirrors .visitors-card) ─────────────────────────────────────── */
@@ -120,6 +85,8 @@
   box-shadow: 0 4px 20px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04),
               inset 0 1px 0 rgba(255,255,255,0.88);
   min-width: 0;
+  /* no fixed height — card grows with all table rows */
+  height: max-content;
   overflow: hidden;
 }
 
@@ -540,105 +507,6 @@
 .lm-btn-danger:hover    { background: #a81318; }
 .lm-btn-danger:disabled { opacity: 0.55; cursor: not-allowed; }
 .lm-btn-danger:focus-visible { outline: 2px solid var(--color-red); outline-offset: 2px; }
-
-/* ── Bulk upload modal ───────────────────────────────────────────────────────── */
-.lm-bulk-modal {
-  background: #ffffff;
-  border-radius: 20px;
-  box-shadow: 0 24px 64px rgba(0,0,0,0.22), 0 4px 16px rgba(0,0,0,0.10);
-  width: 100%;
-  max-width: 620px;
-  max-height: calc(100vh - 64px);
-  display: flex;
-  flex-direction: column;
-  animation: lmSlideUp 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
-  overflow: hidden;
-}
-
-.lm-dropzone {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 36px 24px;
-  border: 2px dashed #d1d5db;
-  border-radius: 14px;
-  background: #f9fafb;
-  cursor: pointer;
-  transition: border-color 0.18s, background 0.18s;
-  text-align: center;
-}
-.lm-dropzone.active {
-  border-color: #C2181D;
-  background: rgba(194,24,29,0.04);
-}
-.lm-dropzone:hover {
-  border-color: #9ca3af;
-  background: #f3f4f6;
-}
-
-.lm-dropzone-icon { color: #9ca3af; }
-.lm-dropzone p    { font-size: 14px; font-weight: 600; color: #374151; margin: 0; }
-.lm-dropzone span { font-size: 12px; color: #9ca3af; }
-.lm-dropzone-browse {
-  color: #C2181D;
-  font-weight: 600;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.lm-file-chosen {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
-  border-radius: 12px;
-  background: rgba(50, 169, 76, 0.07);
-  border: 1px solid rgba(50, 169, 76, 0.25);
-}
-.lm-file-chosen svg  { color: #32A94C; flex-shrink: 0; }
-.lm-file-chosen span { font-size: 13px; font-weight: 600; color: #0a0a0a; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lm-file-remove {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #9ca3af;
-  padding: 2px;
-  display: flex;
-  align-items: center;
-  transition: color 0.15s;
-  flex-shrink: 0;
-}
-.lm-file-remove:hover { color: #C2181D; }
-
-.lm-upload-note {
-  font-size: 12px;
-  color: #9ca3af;
-  margin: 0;
-  text-align: center;
-}
-.lm-upload-note a {
-  color: #C2181D;
-  font-weight: 600;
-  text-decoration: none;
-  cursor: pointer;
-}
-.lm-upload-note a:hover { text-decoration: underline; }
-
-/* Upload error */
-.lm-upload-error {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  background: rgba(194,24,29,0.07);
-  border: 1px solid rgba(194,24,29,0.20);
-  font-size: 12.5px;
-  color: #C2181D;
-  font-weight: 500;
-}
 
 /* ── Toast / inline error banner ─────────────────────────────────────────────── */
 .lm-error-banner {

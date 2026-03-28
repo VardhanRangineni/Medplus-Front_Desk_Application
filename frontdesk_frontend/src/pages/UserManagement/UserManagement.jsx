@@ -1,19 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import './UserManagement.css';
+import PageFilters from '../../components/PageFilters/PageFilters';
 import { getUsers, createUser, updateUser, deleteUser } from '../../api/userApi';
+import CreateUserModal from './CreateUserModal';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const ROLES = ['Admin', 'Receptionist'];
 
 const USER_STATUSES = ['Active', 'Inactive'];
-
-const EMPTY_CREATE_FORM = {
-  role:     '',
-  location: '',
-  email:    '',
-  password: '',
-};
 
 const EMPTY_EDIT_FORM = {
   role:     '',
@@ -87,16 +83,6 @@ const IconUsers = () => (
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function validateCreateForm(form) {
-  const errors = {};
-  if (!form.role)                         errors.role     = 'Please select a role.';
-  if (!form.email.trim())                 errors.email    = 'Email is required.';
-  else if (!EMAIL_RE.test(form.email))    errors.email    = 'Enter a valid email address.';
-  if (!form.password)                     errors.password = 'Password is required.';
-  else if (form.password.length < 8)      errors.password = 'Password must be at least 8 characters.';
-  return errors;
-}
-
 function validateEditForm(form) {
   const errors = {};
   if (!form.role)                                              errors.role     = 'Please select a role.';
@@ -139,7 +125,7 @@ function useFocusTrap(ref, isActive) {
 const SkeletonRows = () =>
   Array.from({ length: 5 }).map((_, i) => (
     <tr key={i} className="um-skeleton-row">
-      {[100, 140, 180, 80, 60].map((w, j) => (
+      {[100, 140, 180, 110, 80, 60].map((w, j) => (
         <td key={j}><div className="um-skeleton" style={{ width: w }} /></td>
       ))}
     </tr>
@@ -161,180 +147,6 @@ const StatusBadge = ({ status }) => (
     {status}
   </span>
 );
-
-// ── Create User Modal ──────────────────────────────────────────────────────────
-
-const CreateUserModal = ({ onClose, onSave }) => {
-  const [form,     setForm]     = useState(EMPTY_CREATE_FORM);
-  const [errors,   setErrors]   = useState({});
-  const [saving,   setSaving]   = useState(false);
-  const [showPass, setShowPass] = useState(false);
-  const modalRef = useRef(null);
-
-  useFocusTrap(modalRef, true);
-
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  const set = (field) => (e) =>
-    setForm(f => ({ ...f, [field]: e.target.value }));
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    const errs = validateCreateForm(form);
-    if (Object.keys(errs).length) { setErrors(errs); return; }
-    setSaving(true);
-    try {
-      await onSave(form);
-      onClose();
-    } catch (err) {
-      setErrors({ _global: err.message || 'Something went wrong. Please try again.' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div
-      className="um-overlay"
-      role="presentation"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div
-        className="um-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="um-create-title"
-        ref={modalRef}
-      >
-        {/* Header */}
-        <div className="um-modal-head">
-          <div>
-            <h2 id="um-create-title">Create New User</h2>
-            <p>Fill in the details to create a new user account.</p>
-          </div>
-          <button className="um-modal-close" onClick={onClose} aria-label="Close">
-            <IconX />
-          </button>
-        </div>
-
-        {/* Body */}
-        <form id="um-create-form" onSubmit={handleSubmit} noValidate>
-          <div className="um-modal-body">
-            {errors._global && (
-              <div className="um-error-banner" role="alert">{errors._global}</div>
-            )}
-
-            {/* Role */}
-            <div className="um-form-row full">
-              <div className="um-field">
-                <label className="um-label" htmlFor="um-role">
-                  Role <span className="um-required">*</span>
-                </label>
-                <select
-                  id="um-role"
-                  className={`um-select${errors.role ? ' error' : ''}`}
-                  value={form.role}
-                  onChange={set('role')}
-                >
-                  <option value="">Select a role</option>
-                  {ROLES.map(r => (
-                    <option key={r} value={r}>{r}</option>
-                  ))}
-                </select>
-                {errors.role && <span className="um-field-error">{errors.role}</span>}
-              </div>
-            </div>
-
-            {/* Location */}
-            <div className="um-form-row full">
-              <div className="um-field">
-                <label className="um-label" htmlFor="um-location">Location</label>
-                <input
-                  id="um-location"
-                  className="um-input"
-                  placeholder="e.g. Corporate Office"
-                  value={form.location}
-                  onChange={set('location')}
-                  autoComplete="off"
-                />
-              </div>
-            </div>
-
-            {/* Email */}
-            <div className="um-form-row full">
-              <div className="um-field">
-                <label className="um-label" htmlFor="um-email">
-                  Email <span className="um-required">*</span>
-                </label>
-                <input
-                  id="um-email"
-                  type="email"
-                  className={`um-input${errors.email ? ' error' : ''}`}
-                  placeholder="user@example.com"
-                  value={form.email}
-                  onChange={set('email')}
-                  autoComplete="off"
-                  inputMode="email"
-                />
-                {errors.email && <span className="um-field-error">{errors.email}</span>}
-              </div>
-            </div>
-
-            {/* Password */}
-            <div className="um-form-row full">
-              <div className="um-field">
-                <label className="um-label" htmlFor="um-password">
-                  Password <span className="um-required">*</span>
-                </label>
-                <div className="um-input-wrap">
-                  <input
-                    id="um-password"
-                    type={showPass ? 'text' : 'password'}
-                    className={`um-input um-input-pw${errors.password ? ' error' : ''}`}
-                    placeholder="Min. 8 characters"
-                    value={form.password}
-                    onChange={set('password')}
-                    autoComplete="new-password"
-                  />
-                  <button
-                    type="button"
-                    className="um-pw-toggle"
-                    onClick={() => setShowPass(v => !v)}
-                    aria-label={showPass ? 'Hide password' : 'Show password'}
-                    tabIndex={-1}
-                  >
-                    {showPass ? <IconEyeOff /> : <IconEye />}
-                  </button>
-                </div>
-                {errors.password && <span className="um-field-error">{errors.password}</span>}
-              </div>
-            </div>
-
-          </div>
-        </form>
-
-        {/* Footer */}
-        <div className="um-modal-footer">
-          <button className="um-btn-cancel" type="button" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            className="um-btn-submit"
-            type="submit"
-            form="um-create-form"
-            disabled={saving}
-          >
-            {saving ? 'Creating…' : 'Create User'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // ── Edit User Modal ────────────────────────────────────────────────────────────
 
@@ -593,6 +405,26 @@ const DeleteConfirmModal = ({ user, onClose, onConfirm }) => {
 // ── Main UserManagement component ─────────────────────────────────────────────
 
 const UserManagement = () => {
+  const { location, locations, dateRange, setLocation, setDateRange } = useOutletContext();
+
+  const [filtersState, setFiltersState] = useState(null);
+  const filterToggleRef = useRef(null);
+
+  const toggleFilters = () =>
+    setFiltersState(s => s === null ? 'open' : s === 'open' ? 'closing' : 'open');
+
+  const handleFiltersAnimEnd = () =>
+    setFiltersState(s => s === 'closing' ? null : s);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (filterToggleRef.current && !filterToggleRef.current.contains(e.target))
+        setFiltersState(s => s === 'open' ? 'closing' : s);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
   const [users,        setUsers]        = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState('');
@@ -647,8 +479,45 @@ const UserManagement = () => {
     <>
       {/* Page header */}
       <div className="um-page-header">
-        <h1 className="um-page-title">User Management</h1>
-        <p className="um-page-sub">Manage system users and their access roles.</p>
+        <div className="um-page-header-left">
+          <h1 className="um-page-title">User Management</h1>
+          <p className="um-page-sub">Manage system users and their access roles.</p>
+        </div>
+        <div className="pf-toggle-wrap" ref={filterToggleRef}>
+          {filtersState !== null && (
+            <div
+              className={`pf-inline-filters${filtersState === 'closing' ? ' closing' : ''}`}
+              onAnimationEnd={handleFiltersAnimEnd}
+            >
+              <PageFilters
+                locations={locations}
+                location={location}
+                onLocationChange={setLocation}
+                dateRange={dateRange}
+                onDateRangeChange={setDateRange}
+              />
+            </div>
+          )}
+          <button
+            className={`pf-toggle-btn${filtersState === 'open' ? ' open' : ''}${location !== 'All' ? ' active' : ''}`}
+            onClick={toggleFilters}
+            aria-expanded={filtersState === 'open'}
+            aria-label="Toggle filters"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+            </svg>
+            Filters
+            {location !== 'All' && <span className="pf-filter-dot" />}
+            <svg
+              className={`pf-toggle-chevron${filtersState === 'open' ? ' rotated' : ''}`}
+              width="13" height="13" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+            >
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Toolbar */}
@@ -688,6 +557,7 @@ const UserManagement = () => {
                 <th>Role</th>
                 <th>Location</th>
                 <th>Email</th>
+                <th>IP Address</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
@@ -697,7 +567,7 @@ const UserManagement = () => {
                 <SkeletonRows />
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ padding: 0, border: 'none' }}>
+                  <td colSpan={6} style={{ padding: 0, border: 'none' }}>
                     <div className="um-empty">
                       <IconUsers />
                       <p>No users found</p>
@@ -711,6 +581,7 @@ const UserManagement = () => {
                     <td><RoleBadge role={user.role} /></td>
                     <td className="um-td-location">{user.location || '—'}</td>
                     <td className="um-td-email">{user.email}</td>
+                    <td className="um-td-ip">{user.ipAddress || '—'}</td>
                     <td><StatusBadge status={user.status} /></td>
                     <td>
                       <div className="um-actions-cell">

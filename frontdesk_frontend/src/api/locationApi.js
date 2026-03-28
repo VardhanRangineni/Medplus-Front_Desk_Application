@@ -151,6 +151,21 @@ export async function downloadLocationReport() {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Sync / refresh all master locations from the backend source of truth.
+ * Call this when the user clicks "Fetch Locations".
+ * Uses the same list endpoint — a fresh GET that returns the latest data.
+ * @returns {Promise<Array<LocationRecord>>}
+ */
+export async function syncLocations() {
+  const page = await apiFetch('/admin/locations?pageSize=100&page=0');
+  return page.rows.map(mapFromBackend);
+
+  // TODO: if the backend exposes a dedicated sync/import endpoint, swap to:
+  // const page = await apiFetch('/admin/locations/sync', { method: 'POST' });
+  // return page.rows.map(mapFromBackend);
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 /**

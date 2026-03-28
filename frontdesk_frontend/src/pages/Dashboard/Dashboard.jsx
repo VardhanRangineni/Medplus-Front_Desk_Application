@@ -5,14 +5,6 @@ import Topbar  from '../../components/Topbar/Topbar';
 import Sidebar from '../../components/Sidebar/Sidebar';
 import { getLocations } from '../../api/dashboardApi';
 
-// ── Page name map (pathname → human-readable title for the topbar) ────────────
-const PAGE_NAMES = {
-  '/home':             'Home',
-  '/location-master':  'Location Master',
-  '/user-management':  'User Management',
-  '/reports':          'Reports',
-};
-
 // ── Dashboard layout shell ────────────────────────────────────────────────────
 const Dashboard = () => {
   const navigate     = useNavigate();
@@ -46,9 +38,6 @@ const Dashboard = () => {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
 
-  // Derived page name for topbar breadcrumb (null on the dashboard home)
-  const pageName = PAGE_NAMES[pathname] ?? null;
-
   const handleLogout = () => {
     localStorage.removeItem('authToken');
     localStorage.removeItem('userName');
@@ -62,15 +51,9 @@ const Dashboard = () => {
 
       {/* ── Topbar ── */}
       <Topbar
-        locations={locations}
-        location={location}
-        onLocationChange={setLocation}
-        dateRange={dateRange}
-        onDateRangeChange={setDateRange}
         displayName={displayName}
         initials={initials}
         todayLabel={todayLabel}
-        pageName={pageName}
         onMenuOpen={() => setMobileNavOpen(true)}
       />
 
@@ -86,7 +69,7 @@ const Dashboard = () => {
 
         {/* ── Routed content via React Router Outlet ── */}
         <div className="dash-content">
-          <Outlet context={{ location, dateRange }} />
+          <Outlet context={{ location, locations, dateRange, setLocation, setDateRange }} />
         </div>
 
       </div>
