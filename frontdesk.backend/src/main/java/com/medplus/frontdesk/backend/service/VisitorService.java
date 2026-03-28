@@ -1,7 +1,11 @@
 package com.medplus.frontdesk.backend.service;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 import org.springframework.stereotype.Service;
 
@@ -119,19 +123,42 @@ public class VisitorService {
      *                   govtId, cardNumber, and personToMeet; {@code null} = no filter
      * @param status     {@code "CheckedIn"}, {@code "CheckedOut"}, or {@code "ALL"} (default)
      * @param locationId filter by location; {@code null} = all locations
+     * @param fromDate   inclusive lower bound on checkInTime; defaults to today when null
+     * @param toDate     inclusive upper bound on checkInTime; defaults to today when null
      * @param page       0-based page index
      * @param pageSize   rows per page (capped at 100)
      */
     public VisitorPageDto getVisitors(String search, String status, String locationId,
+                                      LocalDate fromDate, LocalDate toDate,
                                       int page, int pageSize) {
-        pageSize = Math.min(pageSize, 100);
-        int offset = page * pageSize;
+        final int safePageSize = Math.min(pageSize, 100);
+        final int offset       = page * safePageSize;
 
-        List<VisitorDto> rows = visitorRepository.findAll(search, status, locationId, offset, pageSize);
-        int totalRows  = visitorRepository.count(search, status, locationId);
-        int totalPages = (int) Math.ceil((double) totalRows / pageSize);
+        LocalDate from = fromDate != null ? fromDate : LocalDate.now();
+        LocalDate to   = toDate   != null ? toDate   : LocalDate.now();
+        final LocalDateTime windowStart = from.atStartOfDay();
+        final LocalDateTime windowEnd   = to.plusDays(1).atStartOfDay();
 
-        return new VisitorPageDto(rows, page, pageSize, totalRows, totalPages);
+        // Run COUNT and data fetch in parallel to halve the round-trip time.
+        CompletableFuture<List<VisitorDto>> rowsFuture = CompletableFuture.supplyAsync(
+                () -> visitorRepository.findAll(search, status, locationId,
+                        windowStart, windowEnd, offset, safePageSize));
+
+        CompletableFuture<Integer> countFuture = CompletableFuture.supplyAsync(
+                () -> visitorRepository.count(search, status, locationId, windowStart, windowEnd));
+
+        try {
+            CompletableFuture.allOf(rowsFuture, countFuture).join();
+        } catch (CompletionException ex) {
+            Throwable cause = ex.getCause();
+            if (cause instanceof RuntimeException re) throw re;
+            throw ex;
+        }
+
+        int totalRows  = countFuture.join();
+        int totalPages = totalRows == 0 ? 1 : (int) Math.ceil((double) totalRows / safePageSize);
+
+        return new VisitorPageDto(rowsFuture.join(), page, safePageSize, totalRows, totalPages);
     }
 
     // ── ID generation ─────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 package com.medplus.frontdesk.backend.repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import com.medplus.frontdesk.backend.dto.visitor.CheckInVisitorDto;
@@ -48,15 +49,18 @@ public interface VisitorRepository {
      *                   govtId, cardNumber, and personToMeet; {@code null} = no filter
      * @param status     {@code "CheckedIn"}, {@code "CheckedOut"}, or {@code "ALL"}
      * @param locationId filter by location; {@code null} = all locations
+     * @param from       inclusive lower bound on checkInTime; {@code null} = no lower bound
+     * @param to         exclusive upper bound on checkInTime; {@code null} = no upper bound
      * @param offset     number of rows to skip (for pagination)
      * @param limit      maximum rows to return
      */
-    List<VisitorDto> findAll(String search, String status, String locationId, int offset, int limit);
+    List<VisitorDto> findAll(String search, String status, String locationId,
+                             LocalDateTime from, LocalDateTime to, int offset, int limit);
 
     /**
      * Total count matching the same criteria as {@link #findAll} (used for pagination metadata).
      */
-    int count(String search, String status, String locationId);
+    int count(String search, String status, String locationId, LocalDateTime from, LocalDateTime to);
 
     /**
      * Counts existing visitors whose ID starts with {@code prefix}.

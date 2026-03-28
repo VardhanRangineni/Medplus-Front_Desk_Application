@@ -5,6 +5,26 @@
 
 import { apiFetch } from './apiClient';
 
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+/** Returns today as YYYY-MM-DD using local time (avoids UTC shift from toISOString). */
+function todayIso() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** Returns an ISO date string for a JS Date, local-time safe. */
+function toIsoDate(date) {
+  if (!date) return todayIso();
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 // ── Field mapping helpers ──────────────────────────────────────────────────────
 
 /**
@@ -48,21 +68,32 @@ function nestGroupMembers(entries) {
 // ── Public API ─────────────────────────────────────────────────────────────────
 
 /**
- * Fetch all check-in entries (up to 200).
- * The backend caps pageSize at 100, so two pages are fetched when needed.
- * Location filtering requires a real locationId; the location context name
- * is ignored here until the dashboard location system is wired to real IDs.
+ * Fetch check-in entries for the given date range (defaults to today).
+ * The backend caps pageSize at 100, so multiple pages are fetched in parallel
+ * when more than 100 records exist for the window.
  *
- * @param {{ location?: string, from?: Date, to?: Date }} _params  (unused for now)
+ * @param {{ location?: string, from?: Date, to?: Date }} params
  * @returns {Promise<Entry[]>}
  */
-export const getCheckInEntries = async (_params = {}) => {
-  const first = await apiFetch('/user/visitors?pageSize=100&page=0');
+export const getCheckInEntries = async ({ from, to } = {}) => {
+  const fromDate = toIsoDate(from);
+  const toDate   = toIsoDate(to);
+  const base     = `/user/visitors?pageSize=100&page=0&fromDate=${fromDate}&toDate=${toDate}`;
+
+  const first = await apiFetch(base);
   let rows = first.rows.map(mapVisitor);
 
   if (first.totalPages > 1) {
-    const second = await apiFetch('/user/visitors?pageSize=100&page=1');
-    rows = rows.concat(second.rows.map(mapVisitor));
+    // Fetch all remaining pages in parallel instead of sequentially.
+    const pagePromises = [];
+    for (let p = 1; p < first.totalPages; p++) {
+      pagePromises.push(
+        apiFetch(`/user/visitors?pageSize=100&page=${p}&fromDate=${fromDate}&toDate=${toDate}`)
+          .then(r => r.rows.map(mapVisitor))
+      );
+    }
+    const extraPages = await Promise.all(pagePromises);
+    extraPages.forEach(page => { rows = rows.concat(page); });
   }
 
   return nestGroupMembers(rows);

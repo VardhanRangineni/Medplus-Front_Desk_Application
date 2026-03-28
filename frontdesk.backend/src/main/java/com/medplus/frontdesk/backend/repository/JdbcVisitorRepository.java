@@ -128,9 +128,10 @@ public class JdbcVisitorRepository implements VisitorRepository {
 
     @Override
     public List<VisitorDto> findAll(String search, String status, String locationId,
+                                    LocalDateTime from, LocalDateTime to,
                                     int offset, int limit) {
         MapSqlParameterSource params = new MapSqlParameterSource();
-        String whereClause = buildWhereClause(search, status, locationId, params);
+        String whereClause = buildWhereClause(search, status, locationId, from, to, params);
 
         String sql = """
                 SELECT visitorId, visitorType, fullName, locationId,
@@ -150,9 +151,10 @@ public class JdbcVisitorRepository implements VisitorRepository {
     }
 
     @Override
-    public int count(String search, String status, String locationId) {
+    public int count(String search, String status, String locationId,
+                     LocalDateTime from, LocalDateTime to) {
         MapSqlParameterSource params = new MapSqlParameterSource();
-        String whereClause = buildWhereClause(search, status, locationId, params);
+        String whereClause = buildWhereClause(search, status, locationId, from, to, params);
 
         String sql = "SELECT COUNT(*) FROM `Visitor` " + whereClause;
         Integer count = jdbcTemplate.queryForObject(sql, params, Integer.class);
@@ -172,10 +174,21 @@ public class JdbcVisitorRepository implements VisitorRepository {
     /**
      * Builds a reusable WHERE clause for list/count queries.
      * Injects bind parameters into {@code params} as a side-effect.
+     * {@code from}/{@code to} narrow results to a checkInTime window (both optional).
      */
     private String buildWhereClause(String search, String status, String locationId,
+                                    LocalDateTime from, LocalDateTime to,
                                     MapSqlParameterSource params) {
         StringBuilder where = new StringBuilder("WHERE 1=1 ");
+
+        if (from != null) {
+            where.append("AND checkInTime >= :from ");
+            params.addValue("from", from);
+        }
+        if (to != null) {
+            where.append("AND checkInTime < :to ");
+            params.addValue("to", to);
+        }
 
         if (search != null && !search.isBlank()) {
             String like = "%" + search.trim() + "%";

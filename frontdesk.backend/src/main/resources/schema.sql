@@ -96,3 +96,60 @@ PREPARE stmt_alter_cn FROM @alter_cardNumber;
 EXECUTE stmt_alter_cn;
 DEALLOCATE PREPARE stmt_alter_cn;
 
+-- ── Performance indexes ────────────────────────────────────────────────────────
+-- idx_visitor_checkintime  — speeds up date-range queries on dashboard + home page
+SET @add_idx_ci = (
+    SELECT IF(COUNT(*) = 0,
+        'CREATE INDEX idx_visitor_checkintime ON `Visitor`(checkInTime)',
+        'SELECT 1')
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'Visitor'
+      AND INDEX_NAME   = 'idx_visitor_checkintime'
+);
+PREPARE stmt_idx_ci FROM @add_idx_ci;
+EXECUTE stmt_idx_ci;
+DEALLOCATE PREPARE stmt_idx_ci;
+
+-- idx_visitor_checkouttime — speeds up check-out KPI count
+SET @add_idx_co = (
+    SELECT IF(COUNT(*) = 0,
+        'CREATE INDEX idx_visitor_checkouttime ON `Visitor`(checkOutTime)',
+        'SELECT 1')
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'Visitor'
+      AND INDEX_NAME   = 'idx_visitor_checkouttime'
+);
+PREPARE stmt_idx_co FROM @add_idx_co;
+EXECUTE stmt_idx_co;
+DEALLOCATE PREPARE stmt_idx_co;
+
+-- idx_visitor_status       — speeds up "active in building" live count
+SET @add_idx_st = (
+    SELECT IF(COUNT(*) = 0,
+        'CREATE INDEX idx_visitor_status ON `Visitor`(status)',
+        'SELECT 1')
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'Visitor'
+      AND INDEX_NAME   = 'idx_visitor_status'
+);
+PREPARE stmt_idx_st FROM @add_idx_st;
+EXECUTE stmt_idx_st;
+DEALLOCATE PREPARE stmt_idx_st;
+
+-- idx_visitor_location_status — speeds up location-scoped KPI and active queries
+SET @add_idx_ls = (
+    SELECT IF(COUNT(*) = 0,
+        'CREATE INDEX idx_visitor_location_status ON `Visitor`(locationId, status)',
+        'SELECT 1')
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'Visitor'
+      AND INDEX_NAME   = 'idx_visitor_location_status'
+);
+PREPARE stmt_idx_ls FROM @add_idx_ls;
+EXECUTE stmt_idx_ls;
+DEALLOCATE PREPARE stmt_idx_ls;
+
