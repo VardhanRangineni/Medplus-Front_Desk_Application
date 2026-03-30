@@ -1,6 +1,7 @@
 package com.medplus.frontdesk_backend.exception;
 
 import com.medplus.frontdesk_backend.dto.ApiResponse;
+import com.medplus.frontdesk_backend.exception.ExternalApiException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -64,6 +65,13 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.joining(", "));
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error(message));
+    }
+
+    @ExceptionHandler(ExternalApiException.class)
+    public ResponseEntity<ApiResponse<Void>> handleExternalApi(ExternalApiException ex) {
+        log.error("External API error during sync: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(ApiResponse.error("External HR API is unreachable. " + ex.getMessage()));
     }
 
     @ExceptionHandler(Exception.class)

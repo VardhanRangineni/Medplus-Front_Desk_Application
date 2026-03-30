@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS `locationmaster` (
     `city`            VARCHAR(100)                       NOT NULL,
     `state`           VARCHAR(100)                       NOT NULL,
     `pincode`         VARCHAR(20)                        NOT NULL,
-    `status`          ENUM('CONFIGURED','NOTCONFIGURED') NOT NULL,
+    `status`          ENUM('ACTIVE','INACTIVE') NOT NULL,
     `createdBy`       VARCHAR(100)                       NOT NULL,
     `modifiedBy`      VARCHAR(100)                       DEFAULT NULL,
     `createdAt`       TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -31,8 +31,13 @@ CREATE TABLE IF NOT EXISTS `usermaster` (
     `workemail`    VARCHAR(120) NOT NULL  COMMENT 'Official work email address',
     `phone`        VARCHAR(120) NOT NULL  COMMENT 'Contact phone number',
     `designation`  VARCHAR(120) NOT NULL  COMMENT 'Job title / designation',
+    `role`         varchar(100) not null comment 'Role of the employee',
     `worklocation` VARCHAR(120) NOT NULL  COMMENT 'Name of the work location (descriptive)',
     `department`   VARCHAR(120) NOT NULL  COMMENT 'Department name',
+    `createdBy`       VARCHAR(100)                       NOT NULL,
+    `modifiedBy`      VARCHAR(100)                       DEFAULT NULL,
+    `createdAt`       TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `modifiedAt`      TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`employeeid`)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
@@ -48,6 +53,10 @@ CREATE TABLE IF NOT EXISTS `usermanagement` (
     `status`     ENUM('ACTIVE','INACTIVE')                         NOT NULL  COMMENT 'Account status',
     `role`       ENUM('PRIMARY_ADMIN','REGIONAL_ADMIN','RECEPTIONIST') NOT NULL COMMENT 'Access role',
     `macaddress` VARCHAR(200)                                       DEFAULT NULL COMMENT 'Registered device MAC address for device-locking',
+    `createdBy`       VARCHAR(100)                       NOT NULL,
+    `modifiedBy`      VARCHAR(100)                       DEFAULT NULL,
+    `createdAt`       TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `modifiedAt`      TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`employeeid`),
     KEY `fk_usermgmt_location` (`location`),
     CONSTRAINT `fk_usermgmt_employeeid`
