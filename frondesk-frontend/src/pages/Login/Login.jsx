@@ -5,7 +5,7 @@ import {
   IconAlertCircle, IconShield, IconInfo, IconMonitor,
 } from '../../components/Icons/Icons';
 import logo  from '../../assets/images/logo.png';
-import bgImg from '../../assets/images/background.png';
+import bgImg from '../../assets/images/background 2.png';
 
 const API_BASE_URL = 'http://localhost:8080'; // TODO: replace with production URL
 
@@ -22,7 +22,9 @@ export default function LoginPage() {
 
   /* Fetch workstation network info once on mount */
   useEffect(() => {
-    window.electronAPI?.getNetworkInfo().then(setNetworkInfo);
+    window.electronAPI?.getNetworkInfo()
+      .then(setNetworkInfo)
+      .catch(() => setNetworkInfo([]));
   }, []);
 
   /* Close info panel when clicking outside */
@@ -37,7 +39,8 @@ export default function LoginPage() {
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [showInfo]);
 
-  const primaryNetwork = networkInfo.find((n) => n.family === 'IPv4') ?? networkInfo[0] ?? null;
+  const ipv4Networks   = networkInfo.filter((n) => n.family === 'IPv4');
+  const primaryNetwork = ipv4Networks[0] ?? null;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -88,9 +91,12 @@ export default function LoginPage() {
           <div className="login-card">
 
             <header className="login-card__header">
-              <img src={logo} alt="MedPlus logo" className="login-card__logo" />
-              <h1 className="login-card__title">Sign In</h1>
-              <p className="login-card__subtitle">Enter your Employee ID and password</p>
+              <div className="login-card__brand">
+                <img src={logo} alt="MedPlus logo" className="login-card__logo" />
+                <span className="login-card__brand-name">MEDPLUS FRONT DESK</span>
+              </div>
+              <h1 className="login-card__title">Welcome back.</h1>
+              <p className="login-card__subtitle">Securely manage visitors, staff ins &amp; outs, and daily office activity with ease and reliability.</p>
             </header>
 
             <form className="login-form" onSubmit={handleSubmit} noValidate>
@@ -103,7 +109,7 @@ export default function LoginPage() {
                     id="employeeId"
                     type="text"
                     className="login-input"
-                    placeholder="e.g. EMP-00123"
+                    placeholder="Enter your employee ID"
                     value={employeeId}
                     onChange={(e) => { setEmployeeId(e.target.value); setError(''); }}
                     autoComplete="username"
@@ -149,7 +155,7 @@ export default function LoginPage() {
               <button type="submit" className="login-submit" disabled={loading}>
                 {loading
                   ? <span className="login-spinner" aria-label="Signing in…" />
-                  : 'Sign In'}
+                  : 'LOG IN →'}
               </button>
 
             </form>
@@ -168,13 +174,13 @@ export default function LoginPage() {
           <div className="login-info-panel" role="dialog" aria-label="Workstation details">
             <div className="login-info-panel__header">
               <IconMonitor size={13} />
-              <span>Workstation</span>
+              <span>Workstation · IPv4</span>
             </div>
-            {networkInfo.length === 0
-              ? <p className="login-info-panel__empty">No network interfaces found.</p>
-              : networkInfo.map((iface, i) => (
+            {ipv4Networks.length === 0
+              ? <p className="login-info-panel__empty">No IPv4 interface found.</p>
+              : ipv4Networks.map((iface, i) => (
                 <div key={i} className="login-iface">
-                  <p className="login-iface__name">{iface.interface} · {iface.family}</p>
+                  <p className="login-iface__name">{iface.interface}</p>
                   <div className="login-iface__row">
                     <span>IP</span><span>{iface.ip}</span>
                   </div>

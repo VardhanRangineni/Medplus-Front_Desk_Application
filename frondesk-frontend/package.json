@@ -1,8 +1,8 @@
 {
-  "name": "frondesk-frontend",
-  "productName": "frondesk-frontend",
+  "name": "medplus-frontdesk",
+  "productName": "MedPlus Front Desk",
   "version": "1.0.0",
-  "description": "My Electron application description",
+  "description": "MedPlus Front Desk — visitor and staff management application",
   "main": ".webpack/main",
   "private": true,
   "scripts": {
@@ -13,7 +13,7 @@
     "lint": "echo \"No linting configured\""
   },
   "keywords": [],
-  "author": "rangi",
+  "author": "MedPlus",
   "license": "MIT",
   "devDependencies": {
     "@babel/core": "^7.29.0",

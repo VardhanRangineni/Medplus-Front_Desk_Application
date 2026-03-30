@@ -82,36 +82,50 @@
 .login-card__header {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: clamp(3px, 0.4vw, 6px);
+  align-items: flex-start;
+  gap: clamp(6px, 0.7vw, 10px);
   margin-bottom: clamp(20px, 2.5vw, 36px);
-  text-align: center;
+}
+
+/* Brand row: logo icon + "MEDPLUS FRONT DESK" text */
+.login-card__brand {
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 0.9vw, 13px);
+  align-self: center;
+  margin-bottom: clamp(10px, 1.2vw, 18px);
 }
 
 .login-card__logo {
-  /* Fluid logo: 56px on 1280px → 90px on 2560px */
-  width:  clamp(56px, 6.5vw, 92px);
-  height: clamp(56px, 6.5vw, 92px);
+  width:  clamp(36px, 3.8vw, 54px);
+  height: clamp(36px, 3.8vw, 54px);
   object-fit: contain;
-  border-radius: clamp(14px, 1.5vw, 22px);
-  margin-bottom: clamp(6px, 0.8vw, 14px);
-  filter: drop-shadow(0 4px 12px rgba(194, 24, 29, 0.22));
+  border-radius: clamp(8px, 0.9vw, 13px);
+  filter: drop-shadow(0 3px 10px rgba(194, 24, 29, 0.28));
+}
+
+.login-card__brand-name {
+  font-size: clamp(0.68rem, 0.78vw, 0.84rem);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-500);
+  text-transform: uppercase;
 }
 
 .login-card__title {
-  /* Fluid title: 1.5rem → 2.4rem */
-  font-size: clamp(1.5rem, 2vw, 2.4rem);
+  font-size: clamp(1.6rem, 2.2vw, 2.6rem);
   font-weight: 700;
   color: var(--text-900);
-  letter-spacing: -0.4px;
-  line-height: 1.2;
+  letter-spacing: -0.5px;
+  line-height: 1.15;
 }
 
 .login-card__subtitle {
-  /* Fluid subtitle */
-  font-size: clamp(0.78rem, 0.95vw, 1rem);
+  font-size: clamp(0.76rem, 0.9vw, 0.96rem);
   color: var(--text-500);
   font-weight: 400;
+  line-height: 1.55;
+  max-width: 34ch;
 }
 
 /* ── Form ────────────────────────────────────────────────────────────────── */
