@@ -4,26 +4,30 @@
 --  All statements use IF NOT EXISTS — safe to run repeatedly, no data loss.
 -- =============================================================================
 
+-- ── 1. locationmaster ────────────────────────────────────────────────────────
+
 CREATE TABLE IF NOT EXISTS `locationmaster` (
-    `LocationId`      VARCHAR(50)                        NOT NULL  COMMENT 'Unique location code, e.g. HO-HO-HYD',
-    `descriptiveName` VARCHAR(150)                       NOT NULL  COMMENT 'Full display name of the location',
-    `type`            VARCHAR(150)                       NOT NULL  COMMENT 'Location type, e.g. HEAD_OFFICE, BRANCH',
-    `coordinates`     VARCHAR(100)                       DEFAULT NULL COMMENT 'Optional lat,lng coordinates',
-    `address`         VARCHAR(255)                       NOT NULL  COMMENT 'Street address',
-    `city`            VARCHAR(100)                       NOT NULL,
-    `state`           VARCHAR(100)                       NOT NULL,
-    `pincode`         VARCHAR(20)                        NOT NULL,
-    `status`          VARCHAR(20) NOT NULL DEFAULT 'NOTCONFIGURED' COMMENT 'CONFIGURED|ACTIVE = active, NOTCONFIGURED|INACTIVE = inactive',
-    `createdBy`       VARCHAR(100)                       NOT NULL,
-    `modifiedBy`      VARCHAR(100)                       DEFAULT NULL,
-    `createdAt`       TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `modifiedAt`      TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `LocationId`      VARCHAR(50)  NOT NULL  COMMENT 'Unique location code, e.g. HO-HO-HYD',
+    `descriptiveName` VARCHAR(150) NOT NULL  COMMENT 'Full display name of the location',
+    `type`            VARCHAR(150) NOT NULL  COMMENT 'Location type, e.g. HEAD_OFFICE, BRANCH',
+    `coordinates`     VARCHAR(100) DEFAULT NULL COMMENT 'Optional lat,lng coordinates',
+    `address`         VARCHAR(255) NOT NULL  COMMENT 'Street address',
+    `city`            VARCHAR(100) NOT NULL,
+    `state`           VARCHAR(100) NOT NULL,
+    `pincode`         VARCHAR(20)  NOT NULL,
+    `status`          VARCHAR(20)  NOT NULL DEFAULT 'NOTCONFIGURED' COMMENT 'CONFIGURED = active, NOTCONFIGURED = inactive',
+    `createdBy`       VARCHAR(100) NOT NULL,
+    `modifiedBy`      VARCHAR(100) DEFAULT NULL,
+    `createdAt`       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `modifiedAt`      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`LocationId`)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_0900_ai_ci
   COMMENT='Master table of all Medplus locations';
 
+
+-- ── 2. usermaster ────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS `usermaster` (
     `employeeid`   VARCHAR(100) NOT NULL  COMMENT 'Unique employee identifier (login username)',
@@ -34,16 +38,18 @@ CREATE TABLE IF NOT EXISTS `usermaster` (
     `role`         VARCHAR(100) DEFAULT NULL COMMENT 'HR display role (e.g. Front Desk Officer)',
     `worklocation` VARCHAR(120) NOT NULL  COMMENT 'Name of the work location (descriptive)',
     `department`   VARCHAR(120) NOT NULL  COMMENT 'Department name',
-    `createdBy`       VARCHAR(100)                       NOT NULL,
-    `modifiedBy`      VARCHAR(100)                       DEFAULT NULL,
-    `createdAt`       TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `modifiedAt`      TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `createdBy`    VARCHAR(100) NOT NULL,
+    `modifiedBy`   VARCHAR(100) DEFAULT NULL,
+    `createdAt`    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `modifiedAt`   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`employeeid`)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_0900_ai_ci
   COMMENT='Employee profile / HR master data';
 
+
+-- ── 3. usermanagement ────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS `usermanagement` (
     `employeeid` VARCHAR(100)                                       NOT NULL  COMMENT 'References usermaster.employeeid',
@@ -54,10 +60,10 @@ CREATE TABLE IF NOT EXISTS `usermanagement` (
     `status`     ENUM('ACTIVE','INACTIVE')                         NOT NULL  COMMENT 'Account status',
     `role`       ENUM('PRIMARY_ADMIN','REGIONAL_ADMIN','RECEPTIONIST') NOT NULL COMMENT 'Access role',
     `macaddress` VARCHAR(200)                                       DEFAULT NULL COMMENT 'Registered device MAC address for device-locking',
-    `createdBy`       VARCHAR(100)                       NOT NULL,
-    `modifiedBy`      VARCHAR(100)                       DEFAULT NULL,
-    `createdAt`       TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `modifiedAt`      TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `createdBy`  VARCHAR(100)                                       NOT NULL,
+    `modifiedBy` VARCHAR(100)                                       DEFAULT NULL,
+    `createdAt`  TIMESTAMP                                          NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `modifiedAt` TIMESTAMP                                          NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`employeeid`),
     KEY `fk_usermgmt_location` (`location`),
     CONSTRAINT `fk_usermgmt_employeeid`
@@ -68,18 +74,3 @@ CREATE TABLE IF NOT EXISTS `usermanagement` (
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_0900_ai_ci
   COMMENT='User credentials, roles, location assignments and device-lock info';
-
-
--- ── Column migrations (idempotent) ───────────────────────────────────────────
--- Add `role` to usermaster if it was created before this column was introduced.
-ALTER TABLE `usermaster`
-    ADD COLUMN IF NOT EXISTS `role` VARCHAR(100) DEFAULT NULL
-    COMMENT 'HR display role (e.g. Front Desk Officer)';
-
--- Add `fullName` to usermanagement if it was created before this column was introduced.
-ALTER TABLE `usermanagement`
-    ADD COLUMN IF NOT EXISTS `fullName` VARCHAR(150) NOT NULL DEFAULT ''
-    COMMENT 'Display name of the employee';
-
-
-

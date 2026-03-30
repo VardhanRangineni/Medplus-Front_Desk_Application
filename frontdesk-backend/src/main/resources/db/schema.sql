@@ -17,8 +17,7 @@
 --      mysql -u root -p < frontdesk-backend/src/main/resources/db/schema.sql
 --
 --  NOTE: Running this script will DROP and re-create the `frontdesk` database.
---        All existing data will be lost. Do NOT run on a production server
---        unless you intend a full reset.
+--        All existing data will be lost.
 -- =============================================================================
 
 -- ── 0. Database setup ─────────────────────────────────────────────────────────
@@ -41,19 +40,19 @@ USE `frontdesk`;
 --    NOTCONFIGURED → location added but setup is pending
 
 CREATE TABLE `locationmaster` (
-    `LocationId`      VARCHAR(50)                     NOT NULL  COMMENT 'Unique location code, e.g. HO-HO-HYD',
-    `descriptiveName` VARCHAR(150)                    NOT NULL  COMMENT 'Full display name of the location',
-    `type`            VARCHAR(150)                    NOT NULL  COMMENT 'Location type, e.g. HEAD_OFFICE, BRANCH',
-    `coordinates`     VARCHAR(100)                    DEFAULT NULL COMMENT 'Optional lat,lng coordinates',
-    `address`         VARCHAR(255)                    NOT NULL  COMMENT 'Street address',
-    `city`            VARCHAR(100)                    NOT NULL,
-    `state`           VARCHAR(100)                    NOT NULL,
-    `pincode`         VARCHAR(20)                     NOT NULL,
-    `status`          ENUM('CONFIGURED','NOTCONFIGURED') NOT NULL,
-    `createdBy`       VARCHAR(100)                    NOT NULL,
-    `modifiedBy`      VARCHAR(100)                    DEFAULT NULL,
-    `createdAt`       TIMESTAMP                       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `modifiedAt`      TIMESTAMP                       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `LocationId`      VARCHAR(50)                        NOT NULL  COMMENT 'Unique location code, e.g. HO-HO-HYD',
+    `descriptiveName` VARCHAR(150)                       NOT NULL  COMMENT 'Full display name of the location',
+    `type`            VARCHAR(150)                       NOT NULL  COMMENT 'Location type, e.g. HEAD_OFFICE, BRANCH',
+    `coordinates`     VARCHAR(100)                       DEFAULT NULL COMMENT 'Optional lat,lng coordinates',
+    `address`         VARCHAR(255)                       NOT NULL  COMMENT 'Street address',
+    `city`            VARCHAR(100)                       NOT NULL,
+    `state`           VARCHAR(100)                       NOT NULL,
+    `pincode`         VARCHAR(20)                        NOT NULL,
+    `status`          VARCHAR(20)                        NOT NULL DEFAULT 'NOTCONFIGURED' COMMENT 'CONFIGURED = active, NOTCONFIGURED = inactive',
+    `createdBy`       VARCHAR(100)                       NOT NULL,
+    `modifiedBy`      VARCHAR(100)                       DEFAULT NULL,
+    `createdAt`       TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `modifiedAt`      TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`LocationId`)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
@@ -63,7 +62,7 @@ CREATE TABLE `locationmaster` (
 
 -- ── 2. usermaster ─────────────────────────────────────────────────────────────
 --
---  Stores employee profile / HR details.
+--  Stores employee profile / HR details synced from the external HR API.
 --  Must be created BEFORE usermanagement — referenced by usermanagement.employeeid (FK).
 
 CREATE TABLE `usermaster` (
@@ -72,8 +71,13 @@ CREATE TABLE `usermaster` (
     `workemail`    VARCHAR(120) NOT NULL  COMMENT 'Official work email address',
     `phone`        VARCHAR(120) NOT NULL  COMMENT 'Contact phone number',
     `designation`  VARCHAR(120) NOT NULL  COMMENT 'Job title / designation',
+    `role`         VARCHAR(100) DEFAULT NULL COMMENT 'HR display role (e.g. Front Desk Officer)',
     `worklocation` VARCHAR(120) NOT NULL  COMMENT 'Name of the work location (descriptive)',
     `department`   VARCHAR(120) NOT NULL  COMMENT 'Department name',
+    `createdBy`    VARCHAR(100) NOT NULL,
+    `modifiedBy`   VARCHAR(100) DEFAULT NULL,
+    `createdAt`    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `modifiedAt`   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`employeeid`)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
@@ -104,13 +108,18 @@ CREATE TABLE `usermaster` (
 --    To re-register a device, an Admin/Supervisor must update this via the API.
 
 CREATE TABLE `usermanagement` (
-    `employeeid` VARCHAR(100)                      NOT NULL  COMMENT 'References usermaster.employeeid',
-    `ipaddress`  VARCHAR(120)                      NOT NULL  COMMENT 'Last known IP address of the employee',
-    `password`   VARCHAR(255)                      NOT NULL  COMMENT 'BCrypt-encoded password (cost 12)',
-    `location`   VARCHAR(50)                       NOT NULL  COMMENT 'Assigned location — references locationmaster.LocationId',
-    `status`     ENUM('ACTIVE','INACTIVE')         NOT NULL  COMMENT 'Account status',
+    `employeeid` VARCHAR(100)                                       NOT NULL  COMMENT 'References usermaster.employeeid',
+    `fullName`   VARCHAR(150)                                       NOT NULL  COMMENT 'Display name of the employee',
+    `ipaddress`  VARCHAR(120)                                       NOT NULL  COMMENT 'Last known IP address of the employee',
+    `password`   VARCHAR(255)                                       NOT NULL  COMMENT 'BCrypt-encoded password (cost 12)',
+    `location`   VARCHAR(50)                                        NOT NULL  COMMENT 'Assigned location — references locationmaster.LocationId',
+    `status`     ENUM('ACTIVE','INACTIVE')                         NOT NULL  COMMENT 'Account status',
     `role`       ENUM('PRIMARY_ADMIN','REGIONAL_ADMIN','RECEPTIONIST') NOT NULL COMMENT 'Access role',
-    `macaddress` VARCHAR(200)                      DEFAULT NULL COMMENT 'Registered device MAC address for device-locking',
+    `macaddress` VARCHAR(200)                                       DEFAULT NULL COMMENT 'Registered device MAC address for device-locking',
+    `createdBy`  VARCHAR(100)                                       NOT NULL,
+    `modifiedBy` VARCHAR(100)                                       DEFAULT NULL,
+    `createdAt`  TIMESTAMP                                          NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `modifiedAt` TIMESTAMP                                          NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`employeeid`),
     KEY `fk_usermgmt_location` (`location`),
     CONSTRAINT `fk_usermgmt_employeeid`
@@ -133,11 +142,11 @@ CREATE TABLE `usermanagement` (
 --    HO-HO-HYD | Medplus Head Office Hyderabad | Balnagar, Hyderabad, Telangana 500037
 --
 --  usermaster + usermanagement (passwords are BCrypt-encoded on first run):
---    employeeid  | password   | role
---    ------------|------------|---------------
---    Admin       | Admin      | PRIMARY_ADMIN
---    Supervisor  | supervisor | REGIONAL_ADMIN
---    OTG001      | user       | RECEPTIONIST
+--    employeeid  | fullName              | password   | role
+--    ------------|----------------------|------------|---------------
+--    Admin       | Admin User           | Admin      | PRIMARY_ADMIN
+--    Supervisor  | Supervisor           | supervisor | REGIONAL_ADMIN
+--    OTG001      | Receptionist OTG001  | user       | RECEPTIONIST
 --
 --  Login API:  POST http://localhost:8080/api/auth/login
 -- =============================================================================

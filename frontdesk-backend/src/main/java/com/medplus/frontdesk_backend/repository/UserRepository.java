@@ -54,8 +54,8 @@ public class UserRepository {
     public void insertUserManagement(String employeeId, String fullName, String encodedPassword,
                                      String locationId, String status, String role, String ipaddress) {
         String sql = """
-                INSERT INTO usermanagement (employeeid, fullName, ipaddress, password, location, status, role)
-                VALUES (:employeeId, :fullName, :ipaddress, :password, :location, :status, :role)
+                INSERT INTO usermanagement (employeeid, fullName, ipaddress, password, location, status, role, createdBy)
+                VALUES (:employeeId, :fullName, :ipaddress, :password, :location, :status, :role, 'SYSTEM')
                 """;
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("employeeId", employeeId)
