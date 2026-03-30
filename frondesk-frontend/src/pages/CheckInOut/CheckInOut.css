@@ -1,0 +1,494 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Check-In / Check-Out page
+───────────────────────────────────────────────────────────────────────────── */
+
+/* ── Page shell ──────────────────────────────────────────────────────────── */
+.ci-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 2px 20px;
+  scrollbar-width: none;
+}
+.ci-page::-webkit-scrollbar { display: none; }
+
+/* ── Page header ─────────────────────────────────────────────────────────── */
+.ci-page__header { flex-shrink: 0; }
+
+.ci-page__title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #111;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.ci-page__sub {
+  font-size: 13px;
+  color: #888;
+  margin: 4px 0 0;
+}
+
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
+.ci-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.ci-toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ── Filter tabs ─────────────────────────────────────────────────────────── */
+.ci-tabs {
+  display: flex;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.50);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.80);
+  border-radius: 10px;
+  padding: 3px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+
+.ci-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: none;
+  background: none;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #777;
+  cursor: pointer;
+  transition: background 0.14s, color 0.14s;
+  white-space: nowrap;
+}
+
+.ci-tab:hover { background: rgba(255,255,255,0.65); color: #333; }
+
+.ci-tab--active {
+  background: #fff;
+  color: #111;
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.90);
+}
+
+.ci-tab__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  background: rgba(0,0,0,0.07);
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #666;
+}
+
+.ci-tab--active .ci-tab__count {
+  background: rgba(194, 24, 29, 0.10);
+  color: #C2181D;
+}
+
+/* ── Search ──────────────────────────────────────────────────────────────── */
+.ci-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 11px;
+  background: rgba(255, 255, 255, 0.60);
+  border: 1px solid rgba(0,0,0,0.09);
+  border-radius: 8px;
+  color: #aaa;
+  width: 200px;
+  cursor: text;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.ci-search:focus-within {
+  border-color: rgba(194, 24, 29, 0.35);
+  box-shadow: 0 0 0 3px rgba(194, 24, 29, 0.08);
+}
+
+.ci-search__input {
+  flex: 1;
+  border: none;
+  background: none;
+  outline: none;
+  font-size: 12.5px;
+  color: #222;
+}
+.ci-search__input::placeholder { color: #bbb; }
+
+/* ── Icon buttons (Filter Dept / Export) ─────────────────────────────────── */
+.ci-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.60);
+  border: 1px solid rgba(0,0,0,0.09);
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #444;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.14s, border-color 0.14s;
+}
+
+.ci-icon-btn:hover { background: rgba(255,255,255,0.85); }
+.ci-icon-btn--active {
+  border-color: rgba(194, 24, 29, 0.30);
+  background: rgba(255,255,255,0.85);
+  color: #C2181D;
+}
+
+/* Filter dropdown */
+.ci-filter-wrap { position: relative; }
+
+.ci-filter-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 180px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.90);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.95);
+  overflow: hidden;
+  z-index: 50;
+  animation: ci-dropdown-in 0.15s ease;
+}
+
+@keyframes ci-dropdown-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+.ci-filter-option {
+  display: block;
+  width: 100%;
+  padding: 9px 14px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+  color: #333;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.ci-filter-option:hover { background: rgba(194,24,29,0.06); color: #C2181D; }
+
+/* ── Add Entry button ────────────────────────────────────────────────────── */
+.ci-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  background: #C2181D;
+  border: 1px solid rgba(255,100,100,0.25);
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(194,24,29,0.25);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.14s, transform 0.12s, box-shadow 0.14s;
+}
+
+.ci-add-btn:hover {
+  background: #a81217;
+  transform: translateY(-1px);
+  box-shadow: 0 5px 16px rgba(194,24,29,0.35);
+}
+
+.ci-add-btn:active { transform: translateY(0); }
+
+/* ── Glass table card ────────────────────────────────────────────────────── */
+.ci-card {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-top-color: rgba(255, 255, 255, 0.98);
+  border-radius: 16px;
+  box-shadow:
+    0 4px 20px rgba(0,0,0,0.06),
+    0 1px  4px rgba(0,0,0,0.04),
+    inset 0 1px 0 rgba(255,255,255,0.90);
+  overflow: hidden;
+}
+
+/* ── Scrollable table wrapper ────────────────────────────────────────────── */
+.ci-table-wrap {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ci-table-wrap::-webkit-scrollbar { display: none; }
+
+/* ── Table ───────────────────────────────────────────────────────────────── */
+.ci-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.ci-table thead tr {
+  background: rgba(255, 255, 255, 0.40);
+  border-bottom: 1px solid rgba(0,0,0,0.07);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.ci-table th {
+  padding: 11px 14px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: #999;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ci-table td {
+  padding: 11px 14px;
+  color: #333;
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.ci-row--main td { background: transparent; }
+.ci-row--main:hover td { background: rgba(255,255,255,0.32); }
+
+.ci-row--out td { opacity: 0.65; }
+
+.ci-row--member td {
+  background: rgba(248, 248, 252, 0.50);
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.ci-row--member:hover td { background: rgba(248,248,255,0.75); }
+
+.ci-table tbody tr:last-child td { border-bottom: none; }
+
+/* ── Expand button column ────────────────────────────────────────────────── */
+.ci-col--expand {
+  width: 28px;
+  padding: 0 4px 0 12px !important;
+}
+
+.ci-expand-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: rgba(0,0,0,0.05);
+  border-radius: 5px;
+  color: #666;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.ci-expand-btn:hover { background: rgba(0,0,0,0.10); color: #333; }
+
+/* ── Type badges ─────────────────────────────────────────────────────────── */
+.ci-type-badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ci-type-badge--visitor {
+  background: rgba(194, 24, 29, 0.08);
+  border: 1px solid rgba(194, 24, 29, 0.20);
+  color: #C2181D;
+}
+
+.ci-type-badge--employee {
+  background: rgba(40, 136, 61, 0.08);
+  border: 1px solid rgba(40, 136, 61, 0.22);
+  color: #28883d;
+}
+
+.ci-type-badge--member {
+  background: rgba(100, 100, 180, 0.07);
+  border: 1px solid rgba(100, 100, 180, 0.18);
+  color: #5a5aaa;
+  font-size: 10.5px;
+}
+
+/* ── Name column ─────────────────────────────────────────────────────────── */
+.ci-col--name {
+  font-weight: 600;
+  color: #111;
+}
+
+.ci-col--name-sub {
+  font-weight: 500;
+  color: #444;
+  padding-left: 28px !important;
+}
+
+.ci-member-count {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  background: rgba(0,0,0,0.07);
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #666;
+}
+
+/* ── Contact column ──────────────────────────────────────────────────────── */
+.ci-col--contact   { font-size: 12.5px; color: #555; }
+.ci-col--empid     { color: #3b6dd4 !important; font-weight: 600; }
+
+/* ── Status badges ───────────────────────────────────────────────────────── */
+.ci-status-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ci-status-badge--in {
+  background: #C2181D;
+  color: #fff;
+}
+
+.ci-status-badge--out {
+  background: rgba(0,0,0,0.07);
+  color: #888;
+  border: 1px solid rgba(0,0,0,0.10);
+}
+
+/* ── Other columns ───────────────────────────────────────────────────────── */
+.ci-col--person { color: #444; }
+.ci-col--card   { font-variant-numeric: tabular-nums; color: #555; font-weight: 600; }
+.ci-col--time   { color: #777; font-size: 12px; white-space: nowrap; }
+
+/* ── Action buttons ──────────────────────────────────────────────────────── */
+.ci-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ci-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.ci-action-btn--view {
+  background: rgba(100, 100, 180, 0.07);
+  border-color: rgba(100, 100, 180, 0.18);
+  color: #5a5aaa;
+}
+.ci-action-btn--view:hover {
+  background: rgba(100, 100, 180, 0.16);
+}
+
+.ci-action-btn--edit {
+  background: rgba(40, 136, 61, 0.07);
+  border-color: rgba(40, 136, 61, 0.20);
+  color: #28883d;
+}
+.ci-action-btn--edit:hover {
+  background: rgba(40, 136, 61, 0.16);
+}
+
+.ci-action-btn--checkout {
+  background: rgba(194, 24, 29, 0.08);
+  border-color: rgba(194, 24, 29, 0.22);
+  color: #C2181D;
+}
+.ci-action-btn--checkout:hover {
+  background: rgba(194, 24, 29, 0.16);
+}
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+.ci-empty {
+  text-align: center;
+  padding: 52px 16px !important;
+  color: #bbb;
+  font-size: 14px;
+}
+
+/* ── Skeleton rows ───────────────────────────────────────────────────────── */
+.ci-skeleton {
+  display: block;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: ci-shimmer 1.4s infinite;
+  min-width: 50px;
+}
+
+@keyframes ci-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+.ci-row--skeleton td { opacity: 0.55; }
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.ci-footer {
+  padding: 10px 16px;
+  font-size: 12px;
+  color: #aaa;
+  border-top: 1px solid rgba(0,0,0,0.05);
+  flex-shrink: 0;
+}
+.ci-footer strong { color: #666; }

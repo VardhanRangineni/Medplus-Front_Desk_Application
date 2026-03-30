@@ -225,6 +225,35 @@ export const IconRefreshCw = ({ size = 16, className }) => (
   </svg>
 );
 
+export const IconHome = ({ size = 16, className }) => (
+  <svg {...iconProps(size)} className={className}>
+    <path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z" />
+    <path d="M9 21V12h6v9" />
+  </svg>
+);
+
+export const IconFilter = ({ size = 16, className }) => (
+  <svg {...iconProps(size)} className={className}>
+    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+  </svg>
+);
+
+export const IconDownload = ({ size = 16, className }) => (
+  <svg {...iconProps(size)} className={className}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="7 10 12 15 17 10" />
+    <line x1="12" y1="15" x2="12" y2="3" />
+  </svg>
+);
+
+export const IconDoorOut = ({ size = 16, className }) => (
+  <svg {...iconProps(size)} className={className}>
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <polyline points="16 17 21 12 16 7" />
+    <line x1="21" y1="12" x2="9" y2="12" />
+  </svg>
+);
+
 export const IconCheckCircle = ({ size = 16, className }) => (
   <svg {...iconProps(size)} className={className}>
     <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />

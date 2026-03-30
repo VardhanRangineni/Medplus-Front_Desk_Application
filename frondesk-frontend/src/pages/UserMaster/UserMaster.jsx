@@ -2,13 +2,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import './UserMaster.css';
 import {
   IconSearch,
-  IconToggleRight,
-  IconToggleLeft,
   IconRefreshCw,
   IconCheckCircle,
   IconAlertCircle,
 } from '../../components/Icons/Icons';
-import { getUsers, syncUsersFromMaster, updateUserStatus } from './userService';
+import { getUsers, syncUsersFromMaster } from './userService';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TABLE_COLUMNS = [
@@ -20,7 +18,6 @@ const TABLE_COLUMNS = [
   { key: 'workLocation', label: 'Work Location'  },
   { key: 'email',        label: 'Work Email'     },
   { key: 'phone',        label: 'Phone'          },
-  { key: 'status',       label: 'Status'         },
 ];
 
 const SKELETON_ROW_COUNT = 6;
@@ -82,25 +79,6 @@ export default function UserMaster() {
       setSyncStatus('error');
     }
   }, [syncStatus]);
-
-  // ── Toggle status — optimistic update with rollback on failure ───────────
-  const handleToggle = useCallback(async (id) => {
-    const original = users.find((u) => u.id === id);
-    if (!original) return;
-    const next = !original.status;
-
-    setUsers((prev) =>
-      prev.map((u) => (u.id === id ? { ...u, status: next } : u))
-    );
-
-    try {
-      await updateUserStatus(id, next);
-    } catch {
-      setUsers((prev) =>
-        prev.map((u) => (u.id === id ? { ...u, status: original.status } : u))
-      );
-    }
-  }, [users]);
 
   // ── Filtered rows ────────────────────────────────────────────────────────
   const filtered = search.trim()
@@ -217,19 +195,6 @@ export default function UserMaster() {
                     <td>{user.workLocation}</td>
                     <td className="um-col--email">{user.email}</td>
                     <td className="um-col--phone">{user.phone}</td>
-                    <td>
-                      <button
-                        className="um-toggle"
-                        onClick={() => handleToggle(user.id)}
-                        aria-label={`${user.status ? 'Deactivate' : 'Activate'} ${user.name}`}
-                        aria-pressed={user.status}
-                      >
-                        {user.status
-                          ? <><IconToggleRight size={24} /><span className="um-status um-status--on">Active</span></>
-                          : <><IconToggleLeft  size={24} /><span className="um-status um-status--off">Inactive</span></>
-                        }
-                      </button>
-                    </td>
                   </tr>
                 ))
               )}

@@ -1,12 +1,12 @@
 import './AppSidebar.css';
 import {
-  IconGrid, IconUser, IconUsers, IconBarChart,
+  IconGrid, IconHome, IconUsers, IconBarChart,
   IconSettings, IconLogOut, IconUserCog, IconBuilding,
 } from '../Icons/Icons';
 
 const NAV_ITEMS = [
   { id: 'dashboard',       icon: <IconGrid size={20} />,     label: 'Dashboard'       },
-  { id: 'visitors',        icon: <IconUser size={20} />,     label: 'Visitors'        },
+  { id: 'home',            icon: <IconHome size={20} />,     label: 'Home'            },
   { id: 'staff',           icon: <IconUsers size={20} />,    label: 'Staff'           },
   { id: 'reports',         icon: <IconBarChart size={20} />, label: 'Reports'         },
   { id: 'user-master',     icon: <IconUserCog size={20} />,  label: 'User Master'     },

@@ -23,7 +23,6 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080';
  * @property {string}  workLocation - Assigned branch/office
  * @property {string}  email        - Work email address
  * @property {string}  phone        - Contact number
- * @property {boolean} status       - true = Active, false = Inactive
  */
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
@@ -70,24 +69,6 @@ export async function syncUsersFromMaster() {
   return _mockDelay(MOCK_USERS, 1200);
 }
 
-/**
- * Toggles the active/inactive status of a single user in the local DB.
- *
- * TODO: uncomment when backend is ready
- * Endpoint: PATCH /api/users/:id/status
- *
- * @param {string}  id
- * @param {boolean} status
- * @returns {Promise<User>}
- */
-export async function updateUserStatus(id, status) {
-  // return request(`/api/users/${encodeURIComponent(id)}/status`, {
-  //   method: 'PATCH',
-  //   body: JSON.stringify({ status }),
-  // });
-  return _mockDelay({ id, status }, 250);
-}
-
 // ─── Mock helpers (delete when API is live) ───────────────────────────────────
 function _mockDelay(data, ms = 400) {
   return new Promise((resolve) => setTimeout(() => resolve(data), ms));
@@ -95,11 +76,11 @@ function _mockDelay(data, ms = 400) {
 
 /** @type {User[]} */
 const MOCK_USERS = [
-  { id: 'EMP-001', name: 'Sunita Reddy',   role: 'Front Desk Officer', designation: 'Senior Officer',    dept: 'Operations', workLocation: 'Medplus Head Office',    email: 'sunita.reddy@medplus.in',   phone: '9823456789', status: true  },
-  { id: 'EMP-002', name: 'Arjun Das',      role: 'Security Admin',     designation: 'Security In-charge', dept: 'Security',   workLocation: 'Medplus Head Office',    email: 'arjun.das@medplus.in',      phone: '9912300045', status: true  },
-  { id: 'EMP-003', name: 'Kavita Rao',     role: 'Front Desk Officer', designation: 'Officer',            dept: 'Operations', workLocation: 'Branch - Banjara Hills', email: 'kavita.rao@medplus.in',     phone: '9845678901', status: true  },
-  { id: 'EMP-004', name: 'Ravi Kumar',     role: 'HR Manager',         designation: 'Manager',            dept: 'HR',         workLocation: 'Medplus Head Office',    email: 'ravi.kumar@medplus.in',     phone: '9700123456', status: false },
-  { id: 'EMP-005', name: 'Priya Sharma',   role: 'Front Desk Officer', designation: 'Officer',            dept: 'Operations', workLocation: 'Branch - Kondapur',      email: 'priya.sharma@medplus.in',   phone: '9866554433', status: true  },
-  { id: 'EMP-006', name: 'Ananya Singh',   role: 'Security Admin',     designation: 'Security Guard',     dept: 'Security',   workLocation: 'Branch - Banjara Hills', email: 'ananya.singh@medplus.in',   phone: '9988776655', status: false },
-  { id: 'EMP-007', name: 'Deepak Verma',   role: 'Front Desk Officer', designation: 'Senior Officer',    dept: 'Operations', workLocation: 'Branch - Gachibowli',    email: 'deepak.verma@medplus.in',   phone: '9876543210', status: true  },
+  { id: 'EMP-001', name: 'Sunita Reddy',  role: 'Front Desk Officer', designation: 'Senior Officer',     dept: 'Operations', workLocation: 'Medplus Head Office',    email: 'sunita.reddy@medplus.in',  phone: '9823456789' },
+  { id: 'EMP-002', name: 'Arjun Das',     role: 'Security Admin',     designation: 'Security In-charge', dept: 'Security',   workLocation: 'Medplus Head Office',    email: 'arjun.das@medplus.in',     phone: '9912300045' },
+  { id: 'EMP-003', name: 'Kavita Rao',    role: 'Front Desk Officer', designation: 'Officer',            dept: 'Operations', workLocation: 'Branch - Banjara Hills', email: 'kavita.rao@medplus.in',    phone: '9845678901' },
+  { id: 'EMP-004', name: 'Ravi Kumar',    role: 'HR Manager',         designation: 'Manager',            dept: 'HR',         workLocation: 'Medplus Head Office',    email: 'ravi.kumar@medplus.in',    phone: '9700123456' },
+  { id: 'EMP-005', name: 'Priya Sharma',  role: 'Front Desk Officer', designation: 'Officer',            dept: 'Operations', workLocation: 'Branch - Kondapur',      email: 'priya.sharma@medplus.in',  phone: '9866554433' },
+  { id: 'EMP-006', name: 'Ananya Singh',  role: 'Security Admin',     designation: 'Security Guard',     dept: 'Security',   workLocation: 'Branch - Banjara Hills', email: 'ananya.singh@medplus.in',  phone: '9988776655' },
+  { id: 'EMP-007', name: 'Deepak Verma',  role: 'Front Desk Officer', designation: 'Senior Officer',     dept: 'Operations', workLocation: 'Branch - Gachibowli',    email: 'deepak.verma@medplus.in',  phone: '9876543210' },
 ];
