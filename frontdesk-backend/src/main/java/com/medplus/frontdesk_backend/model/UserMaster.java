@@ -16,6 +16,7 @@ public class UserMaster {
     private String workemail;
     private String phone;
     private String designation;
+    private String role;
     private String worklocation;
     private String department;
 }

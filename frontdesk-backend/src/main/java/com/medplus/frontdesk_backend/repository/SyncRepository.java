@@ -73,9 +73,9 @@ public class SyncRepository {
     public void upsertUserMaster(ExternalEmployeeDto emp) {
         String sql = """
                 INSERT INTO usermaster
-                    (employeeid, fullName, workemail, phone, designation, worklocation, department, createdBy)
+                    (employeeid, fullName, workemail, phone, designation, worklocation, department, role, createdBy)
                 VALUES
-                    (:employeeId, :fullName, :workemail, :phone, :designation, :worklocation, :department, 'SYNC')
+                    (:employeeId, :fullName, :workemail, :phone, :designation, :worklocation, :department, :role, 'SYNC')
                 ON DUPLICATE KEY UPDATE
                     fullName     = VALUES(fullName),
                     workemail    = VALUES(workemail),
@@ -83,6 +83,7 @@ public class SyncRepository {
                     designation  = VALUES(designation),
                     worklocation = VALUES(worklocation),
                     department   = VALUES(department),
+                    role         = VALUES(role),
                     modifiedBy   = 'SYNC'
                 """;
 
@@ -93,7 +94,8 @@ public class SyncRepository {
                 .addValue("phone",        emp.getPhone())
                 .addValue("designation",  emp.getDesignation())
                 .addValue("worklocation", emp.getWorkLocation())
-                .addValue("department",   emp.getDepartment());
+                .addValue("department",   emp.getDepartment())
+                .addValue("role",         emp.getRole());
 
         jdbc.update(sql, params);
     }
