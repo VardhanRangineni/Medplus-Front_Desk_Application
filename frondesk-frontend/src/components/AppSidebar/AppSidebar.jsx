@@ -7,7 +7,7 @@ import {
 const NAV_ITEMS = [
   { id: 'dashboard',       icon: <IconGrid size={20} />,     label: 'Dashboard'       },
   { id: 'home',            icon: <IconHome size={20} />,     label: 'Home'            },
-  { id: 'staff',           icon: <IconUsers size={20} />,    label: 'Staff'           },
+  { id: 'user-management', icon: <IconUsers size={20} />,    label: 'User Management' },
   { id: 'reports',         icon: <IconBarChart size={20} />, label: 'Reports'         },
   { id: 'user-master',     icon: <IconUserCog size={20} />,  label: 'User Master'     },
   { id: 'location-master', icon: <IconBuilding size={20} />, label: 'Location Master' },

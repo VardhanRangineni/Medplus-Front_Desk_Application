@@ -5,6 +5,7 @@ import AppSidebar      from '../../components/AppSidebar/AppSidebar';
 import UserMaster      from '../UserMaster/UserMaster';
 import LocationMaster  from '../LocationMaster/LocationMaster';
 import CheckInOut      from '../CheckInOut/CheckInOut';
+import UserManagement  from '../UserManagement/UserManagement';
 import { IconPlus, IconMapPin } from '../../components/Icons/Icons';
 
 /* ── Mock data ───────────────────────────────────────────────────────────── */
@@ -101,6 +102,7 @@ function StatCard({ title, value, live = false }) {
 function PageContent({ activeNav, session }) {
   switch (activeNav) {
     case 'home':            return <CheckInOut />;
+    case 'user-management': return <UserManagement />;
     case 'user-master':     return <UserMaster />;
     case 'location-master': return <LocationMaster />;
     default:                return <DashboardHome session={session} />;
