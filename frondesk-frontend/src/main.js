@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
+const path = require('node:path');
 const os = require('os');
 
 if (require('electron-squirrel-startup')) {
@@ -32,6 +33,7 @@ const createWindow = () => {
     minWidth: 900,
     minHeight: 600,
     frame: true,
+    icon: path.join(app.getAppPath(), 'src/Assets/images/logo.ico'),
     webPreferences: {
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
       contextIsolation: true,
