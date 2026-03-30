@@ -1,0 +1,378 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   Dashboard page styles.
+   Layout shell (.app-root / .app-body) lives in globals.css so every
+   screen that uses AppHeader + AppSidebar shares the same structure.
+───────────────────────────────────────────────────────────────────────── */
+
+/* ── Content scroll area ─────────────────────────────────────────────────── */
+.db-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 2px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+
+  /* ── Invisible scrollbar — scrolling still works ── */
+  scrollbar-width: none;        /* Firefox */
+}
+.db-content::-webkit-scrollbar { display: none; } /* Chromium / Electron */
+
+/* Every direct child must NOT shrink so the parent scrolls instead */
+.db-content > * {
+  flex-shrink: 0;
+}
+
+/* ── Stats row ───────────────────────────────────────────────────────────── */
+.db-stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.db-stat-card {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border-radius: 14px;
+  padding: 16px 18px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-top-color: rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 4px 18px rgba(0, 0, 0, 0.06),
+    0 1px  4px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.90);
+}
+
+.db-stat-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.db-stat-card__title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #888;
+}
+
+.db-stat-card__tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.db-stat-tab {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #888;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.db-stat-tab:hover { background: #f5f5f5; color: #444; }
+.db-stat-tab--active {
+  background: #fff3f3;
+  border-color: #f5c0c0;
+  color: #C2181D;
+}
+
+.db-stat-card__bottom {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.db-stat-card__value {
+  font-size: 36px;
+  font-weight: 700;
+  color: #32A94C;
+  line-height: 1;
+}
+
+/* Live badge */
+.db-stat-live {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #32A94C;
+  background: #edfbf1;
+  border: 1px solid #b8efca;
+  padding: 3px 8px;
+  border-radius: 20px;
+}
+
+.db-stat-live__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #32A94C;
+  animation: livePulse 1.6s ease-in-out infinite;
+}
+
+@keyframes livePulse {
+  0%, 100% { opacity: 1;   transform: scale(1);   }
+  50%       { opacity: 0.5; transform: scale(0.8); }
+}
+
+/* ── Middle row ──────────────────────────────────────────────────────────── */
+.db-mid-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  min-height: 200px;
+}
+
+/* ── Summary banner ──────────────────────────────────────────────────────── */
+.db-summary {
+  border-radius: 14px;
+  background: linear-gradient(135deg, #2a0405 0%, #4a0809 40%, #3d0607 100%);
+  padding: 20px 24px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  overflow: hidden;
+}
+
+.db-summary__progress {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #C2181D 0%, #ff4444 60%, transparent 100%);
+  border-radius: 14px 14px 0 0;
+}
+
+.db-summary::after {
+  content: '';
+  position: absolute;
+  top: -30px; right: -30px;
+  width: 160px; height: 160px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(194, 24, 29, 0.25) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.db-summary__badge {
+  display: inline-flex;
+  align-self: flex-start;
+  background: rgba(194, 24, 29, 0.50);
+  border: 1px solid rgba(194, 24, 29, 0.70);
+  color: #ffaaaa;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 3px 10px;
+  border-radius: 20px;
+  text-transform: uppercase;
+}
+
+.db-summary__greeting {
+  font-size: 26px;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.db-summary__sub {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.62);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.db-summary__sub strong { color: rgba(255, 255, 255, 0.92); }
+
+.db-summary__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  align-self: flex-start;
+  padding: 8px 16px;
+  background: #C2181D;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.12s;
+}
+.db-summary__btn:hover { background: #e02020; transform: translateY(-1px); }
+
+/* ── Visitor flow chart card ─────────────────────────────────────────────── */
+.db-chart-card {
+  background: rgba(255, 255, 255, 0.70);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-top-color: rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 4px 18px rgba(0, 0, 0, 0.06),
+    0 1px  4px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.90);
+  padding: 18px 18px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.db-chart-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.db-chart-card__title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #111;
+  margin: 0 0 3px;
+}
+
+.db-chart-card__sub {
+  font-size: 11px;
+  color: #aaa;
+  margin: 0;
+}
+
+.db-chart-live {
+  display: flex;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.db-chart-live__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #32A94C;
+  animation: livePulse 1.6s ease-in-out infinite;
+}
+
+.db-chart-area {
+  flex: 1;
+  min-height: 0;
+  height: 130px;
+}
+
+/* ── Recent Visitors table ───────────────────────────────────────────────── */
+.db-table-card {
+  background: rgba(255, 255, 255, 0.52);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-top-color: rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 4px 18px rgba(0, 0, 0, 0.06),
+    0 1px  4px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.90);
+  overflow: hidden;       /* keeps border-radius on table rows */
+  border-radius: 14px;
+}
+
+.db-table-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.db-table-card__title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #111;
+}
+
+.db-table-card__viewall {
+  font-size: 13px;
+  font-weight: 600;
+  color: #32A94C;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.db-table-card__viewall:hover { text-decoration: underline; }
+
+.db-table-wrap { overflow-x: auto; }
+
+.db-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.db-table thead tr { background: #fafafa; }
+
+.db-table th {
+  padding: 10px 16px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: #aaa;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.db-table td {
+  padding: 12px 16px;
+  color: #333;
+  border-bottom: 1px solid #f8f8f8;
+  white-space: nowrap;
+}
+
+.db-table tbody tr:last-child td { border-bottom: none; }
+.db-table tbody tr:hover td      { background: #fafbff; }
+
+/* Type badge */
+.db-type-badge {
+  display: inline-block;
+  padding: 3px 9px;
+  background: #f3f4f6;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #555;
+}
+
+.db-table__name { font-weight: 600; color: #111; }
+
+/* Location */
+.db-loc {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #666;
+}
+.db-loc svg { color: #aaa; flex-shrink: 0; }
+
+/* Status pills */
+.db-status {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.db-status--in  { background: #fff0f0; color: #C2181D; }
+.db-status--out { background: #f0faf3; color: #28883d; }
+
+.db-table__checkin { color: #888; font-size: 12px; }
