@@ -7,9 +7,8 @@ import {
 import logo  from '../../assets/images/logo.png';
 import bgImg from '../../assets/images/background 2.png';
 
-const API_BASE_URL = 'http://localhost:8080'; // TODO: replace with production URL
 
-export default function LoginPage() {
+export default function LoginPage({ onLoginSuccess }) {
   const [employeeId, setEmployeeId]   = useState('');
   const [password,   setPassword]     = useState('');
   const [showPass,   setShowPass]     = useState(false);
@@ -52,24 +51,30 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          employeeId: employeeId.trim(),
-          password,
-          ipAddress:  primaryNetwork?.ip  ?? '',
-          macAddress: primaryNetwork?.mac ?? '',
-        }),
+      const result = await window.electronAPI.apiPost('/api/auth/login', {
+        employeeId: employeeId.trim(),
+        password,
+        ipAddress:  primaryNetwork?.ip  ?? '',
+        macAddress: primaryNetwork?.mac ?? '',
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        // TODO: persist auth token and navigate to Dashboard
-        console.log('Login successful:', data);
+      if (result.ok && result.body?.success) {
+        const session = result.body.data;
+        await window.electronAPI.storeAuthSession(session);
+        onLoginSuccess(session);
+      } else if (result.error) {
+        setError('Cannot reach the server. Check your network connection.');
       } else {
-        const body = await response.json().catch(() => ({}));
-        setError(body.message ?? 'Invalid credentials. Please try again.');
+        const msg = result.body?.message ?? '';
+        if (msg.toLowerCase().includes('device') || msg.toLowerCase().includes('mac')) {
+          setError('This device is not authorised for your account. Contact your administrator.');
+        } else if (msg.toLowerCase().includes('inactive')) {
+          setError('Your account is inactive. Please contact your administrator.');
+        } else if (msg.toLowerCase().includes('invalid') || result.status === 401) {
+          setError('Invalid Employee ID or password. Please try again.');
+        } else {
+          setError(msg || 'Login failed. Please try again.');
+        }
       }
     } catch {
       setError('Cannot reach the server. Check your network connection.');

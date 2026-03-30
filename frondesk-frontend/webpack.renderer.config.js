@@ -15,11 +15,21 @@ rules.push({
   ],
 });
 
+const DEV_CSP = [
+  "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:",
+  "connect-src 'self' http://localhost:8080 ws://localhost:3000 ws://localhost:9000",
+].join('; ');
+
 module.exports = {
   module: {
     rules,
   },
   resolve: {
     extensions: ['.js', '.jsx'],
+  },
+  devServer: {
+    headers: {
+      'Content-Security-Policy': DEV_CSP,
+    },
   },
 };

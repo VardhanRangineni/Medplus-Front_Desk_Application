@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, net } = require('electron');
 const path = require('node:path');
 const os = require('os');
 
@@ -48,8 +48,52 @@ const createWindow = () => {
   }
 };
 
-ipcMain.handle('get-network-info', () => {
-  return getNetworkInfo();
+/* ── API proxy — all HTTP calls go through main process (no renderer CSP) ── */
+const API_BASE_URL = 'http://localhost:8080';
+
+ipcMain.handle('api-post', (_, { path, body }) => {
+  return new Promise((resolve) => {
+    const request = net.request({
+      method: 'POST',
+      url: `${API_BASE_URL}${path}`,
+    });
+    request.setHeader('Content-Type', 'application/json');
+
+    let raw = '';
+    request.on('response', (response) => {
+      response.on('data', (chunk) => { raw += chunk; });
+      response.on('end', () => {
+        try {
+          resolve({ ok: response.statusCode >= 200 && response.statusCode < 300, status: response.statusCode, body: JSON.parse(raw) });
+        } catch {
+          resolve({ ok: false, status: response.statusCode, body: {} });
+        }
+      });
+    });
+    request.on('error', (err) => {
+      resolve({ ok: false, status: 0, error: err.message });
+    });
+
+    request.write(JSON.stringify(body));
+    request.end();
+  });
+});
+
+/* ── Auth session — stored in main process memory, cleared on app quit ── */
+let authSession = null;
+
+ipcMain.handle('get-network-info', () => getNetworkInfo());
+
+ipcMain.handle('store-auth-session', (_, session) => {
+  authSession = session;
+  return true;
+});
+
+ipcMain.handle('get-auth-session', () => authSession);
+
+ipcMain.handle('clear-auth-session', () => {
+  authSession = null;
+  return true;
 });
 
 app.whenReady().then(() => {
