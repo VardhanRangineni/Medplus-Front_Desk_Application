@@ -19,11 +19,27 @@ export default function LoginPage({ onLoginSuccess }) {
 
   const infoPanelRef = useRef(null);
 
-  /* Fetch workstation network info once on mount */
+  /* Fetch network info and keep it current via events — no polling */
   useEffect(() => {
-    window.electronAPI?.getNetworkInfo()
-      .then(setNetworkInfo)
-      .catch(() => setNetworkInfo([]));
+    const refresh = () =>
+      window.electronAPI?.getNetworkInfo()
+        .then(setNetworkInfo)
+        .catch(() => setNetworkInfo([]));
+
+    refresh();
+
+    /* Re-fetch when the network comes back online or goes offline */
+    window.addEventListener('online',  refresh);
+    window.addEventListener('offline', refresh);
+    /* Re-fetch when the user switches back to this window
+       (covers VPN connect/disconnect, Wi-Fi switch, etc.) */
+    window.addEventListener('focus', refresh);
+
+    return () => {
+      window.removeEventListener('online',  refresh);
+      window.removeEventListener('offline', refresh);
+      window.removeEventListener('focus',   refresh);
+    };
   }, []);
 
   /* Close info panel when clicking outside */
@@ -51,11 +67,21 @@ export default function LoginPage({ onLoginSuccess }) {
     setLoading(true);
 
     try {
+      /* Always fetch fresh network info at submit time — never use cached state */
+      const freshNetwork = await window.electronAPI?.getNetworkInfo()
+        .then((list) => list.filter((n) => n.family === 'IPv4')[0] ?? null)
+        .catch(() => null);
+
+      /* Also update the info panel to reflect the current network */
+      window.electronAPI?.getNetworkInfo()
+        .then(setNetworkInfo)
+        .catch(() => {});
+
       const result = await window.electronAPI.apiPost('/api/auth/login', {
         employeeId: employeeId.trim(),
         password,
-        ipAddress:  primaryNetwork?.ip  ?? '',
-        macAddress: primaryNetwork?.mac ?? '',
+        ipAddress:  freshNetwork?.ip  ?? '',
+        macAddress: freshNetwork?.mac ?? '',
       });
 
       if (result.ok && result.body?.success) {

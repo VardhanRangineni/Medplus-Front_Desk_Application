@@ -33,3 +33,36 @@ button {
 input, textarea, select {
   font-family: inherit;
 }
+
+/* ── Shared app layout shell ─────────────────────────────────────────────
+   Every screen that uses AppHeader + AppSidebar wraps its content in
+   .app-root (column) → .app-body (row: sidebar + content).
+──────────────────────────────────────────────────────────────────────── */
+.app-root {
+  position: relative;         /* anchor for the absolutely-positioned header */
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+
+  /* ── Gradient backdrop — makes glass panels shimmer ── */
+  background:
+    radial-gradient(ellipse 70% 60% at  8%  10%, rgba(194, 24,  29, 0.28) 0%, transparent 65%),
+    radial-gradient(ellipse 65% 55% at 92%  92%, rgba(110, 60, 200, 0.20) 0%, transparent 65%),
+    radial-gradient(ellipse 50% 45% at 88%   8%, rgba(240, 80, 120, 0.16) 0%, transparent 60%),
+    radial-gradient(ellipse 55% 40% at 50%  55%, rgba(255,180,  50, 0.10) 0%, transparent 55%),
+    linear-gradient(145deg, #c9d4ec 0%, #dce3f5 40%, #d4d9f0 70%, #cdd5ee 100%);
+}
+
+/* ── Body row — starts from the very top of .app-root ───────────────────────
+   padding-top pushes sidebar + content below the floating glass header.
+   Header (58px) + 12px above + 12px gap below = 82px.
+──────────────────────────────────────────────────────────────────────────── */
+.app-body {
+  position: absolute;         /* fill the entire .app-root canvas */
+  inset: 0;
+  display: flex;
+  overflow: hidden;
+  padding: 82px 16px 12px 16px;
+  gap: 12px;
+}
