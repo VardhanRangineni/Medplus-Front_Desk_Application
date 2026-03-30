@@ -45,25 +45,33 @@ public class AuthService {
             throw new InvalidCredentialsException("Invalid employee ID or password");
         }
 
-        // ── Step 2: MAC address locking ───────────────────────────────────────
-        String storedMac = user.getMacaddress();
-        String incomingMac = request.getMacAddress();
+        // ── Step 2: IP address validation ─────────────────────────────────────
+        String storedIp    = user.getIpaddress();
+        String incomingIp  = request.getIpAddress();
 
-        if (!StringUtils.hasText(storedMac)) {
-            // First-time login: register this device's MAC address
-            log.info("First-time device registration for employeeId: {}, MAC: {}", user.getEmployeeid(), incomingMac);
-        } else if (!storedMac.equalsIgnoreCase(incomingMac)) {
-            // MAC mismatch: device not part of the registered Medplus network
-            log.warn("MAC mismatch for employeeId: {}. Registered: {}, Provided: {}",
-                    user.getEmployeeid(), storedMac, incomingMac);
+        if (StringUtils.hasText(storedIp) && !storedIp.equals(incomingIp)) {
+            log.warn("IP mismatch for employeeId: {}. Registered: {}, Provided: {}",
+                    user.getEmployeeid(), storedIp, incomingIp);
             throw new DeviceNotAuthorizedException(
-                    "Access denied. This device is not authorized for your account. " +
-                    "Only registered Medplus network devices are allowed.");
+                    "Access denied. This IP address is not registered for your account.");
         }
 
-        // ── Step 3: Persist current IP + MAC (update on every valid login) ────
-        userRepository.updateIpAndMac(user.getEmployeeid(), request.getIpAddress(), incomingMac);
-        log.debug("Updated IP/MAC for employeeId: {}, IP: {}", user.getEmployeeid(), request.getIpAddress());
+        // ── Step 3: MAC address validation ────────────────────────────────────
+        String storedMac   = user.getMacaddress();
+        String incomingMac = request.getMacAddress();
+
+        if (StringUtils.hasText(storedMac)) {
+            if (!storedMac.equalsIgnoreCase(incomingMac)) {
+                log.warn("MAC mismatch for employeeId: {}. Registered: {}, Provided: {}",
+                        user.getEmployeeid(), storedMac, incomingMac);
+                throw new DeviceNotAuthorizedException(
+                        "Access denied. This device is not authorized for your account. " +
+                        "Only registered Medplus network devices are allowed.");
+            }
+        } else {
+            log.info("First-time device registration for employeeId: {}, MAC: {}", user.getEmployeeid(), incomingMac);
+            userRepository.updateMacAddress(user.getEmployeeid(), incomingMac);
+        }
 
         // ── Step 4: Generate token and build response ─────────────────────────
         String token = jwtTokenProvider.generateToken(user.getEmployeeid(), user.getRole());
@@ -75,7 +83,7 @@ public class AuthService {
                 .orElse(user.getLocation());
 
         log.info("Successful login — employeeId: {}, role: {}, IP: {}, MAC: {}",
-                user.getEmployeeid(), user.getRole(), request.getIpAddress(), incomingMac);
+                user.getEmployeeid(), user.getRole(), incomingIp, incomingMac);
 
         return LoginResponseDto.builder()
                 .token(token)
