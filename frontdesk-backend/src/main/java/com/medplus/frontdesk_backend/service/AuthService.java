@@ -6,7 +6,6 @@ import com.medplus.frontdesk_backend.exception.AccountInactiveException;
 import com.medplus.frontdesk_backend.exception.DeviceNotAuthorizedException;
 import com.medplus.frontdesk_backend.exception.InvalidCredentialsException;
 import com.medplus.frontdesk_backend.model.UserManagement;
-import com.medplus.frontdesk_backend.model.UserMaster;
 import com.medplus.frontdesk_backend.repository.UserRepository;
 import com.medplus.frontdesk_backend.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
@@ -76,9 +75,6 @@ public class AuthService {
         // ── Step 4: Generate token and build response ─────────────────────────
         String token = jwtTokenProvider.generateToken(user.getEmployeeid(), user.getRole());
 
-        UserMaster userMaster = userRepository.findUserMasterByEmployeeId(user.getEmployeeid())
-                .orElse(null);
-
         String locationName = userRepository.findLocationName(user.getLocation())
                 .orElse(user.getLocation());
 
@@ -90,7 +86,7 @@ public class AuthService {
                 .tokenType("Bearer")
                 .employeeId(user.getEmployeeid())
                 .role(user.getRole())
-                .fullName(userMaster != null ? userMaster.getFullName() : user.getEmployeeid())
+                .fullName(user.getFullName())
                 .locationId(user.getLocation())
                 .locationName(locationName)
                 .expiresIn(jwtExpirationMs / 1000)

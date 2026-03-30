@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 public class UserManagement {
 
     private String employeeid;
+    private String fullName;
     private String ipaddress;
     private String password;
     private String location;

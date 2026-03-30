@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS `locationmaster` (
     `city`            VARCHAR(100)                       NOT NULL,
     `state`           VARCHAR(100)                       NOT NULL,
     `pincode`         VARCHAR(20)                        NOT NULL,
-    `status`          ENUM('ACTIVE','INACTIVE') NOT NULL,
+    `status`          VARCHAR(20) NOT NULL DEFAULT 'NOTCONFIGURED' COMMENT 'CONFIGURED|ACTIVE = active, NOTCONFIGURED|INACTIVE = inactive',
     `createdBy`       VARCHAR(100)                       NOT NULL,
     `modifiedBy`      VARCHAR(100)                       DEFAULT NULL,
     `createdAt`       TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS `usermaster` (
     `workemail`    VARCHAR(120) NOT NULL  COMMENT 'Official work email address',
     `phone`        VARCHAR(120) NOT NULL  COMMENT 'Contact phone number',
     `designation`  VARCHAR(120) NOT NULL  COMMENT 'Job title / designation',
-    `role`         varchar(100) not null comment 'Role of the employee',
+    `role`         VARCHAR(100) DEFAULT NULL COMMENT 'HR display role (e.g. Front Desk Officer)',
     `worklocation` VARCHAR(120) NOT NULL  COMMENT 'Name of the work location (descriptive)',
     `department`   VARCHAR(120) NOT NULL  COMMENT 'Department name',
     `createdBy`       VARCHAR(100)                       NOT NULL,
@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS `usermaster` (
 
 CREATE TABLE IF NOT EXISTS `usermanagement` (
     `employeeid` VARCHAR(100)                                       NOT NULL  COMMENT 'References usermaster.employeeid',
+    `fullName`   VARCHAR(150)                                       NOT NULL  COMMENT 'Display name of the employee',
     `ipaddress`  VARCHAR(120)                                       NOT NULL  COMMENT 'Last known IP address of the employee',
     `password`   VARCHAR(255)                                       NOT NULL  COMMENT 'BCrypt-encoded password (cost 12)',
     `location`   VARCHAR(50)                                        NOT NULL  COMMENT 'Assigned location — references locationmaster.LocationId',
@@ -67,3 +68,18 @@ CREATE TABLE IF NOT EXISTS `usermanagement` (
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_0900_ai_ci
   COMMENT='User credentials, roles, location assignments and device-lock info';
+
+
+-- ── Column migrations (idempotent) ───────────────────────────────────────────
+-- Add `role` to usermaster if it was created before this column was introduced.
+ALTER TABLE `usermaster`
+    ADD COLUMN IF NOT EXISTS `role` VARCHAR(100) DEFAULT NULL
+    COMMENT 'HR display role (e.g. Front Desk Officer)';
+
+-- Add `fullName` to usermanagement if it was created before this column was introduced.
+ALTER TABLE `usermanagement`
+    ADD COLUMN IF NOT EXISTS `fullName` VARCHAR(150) NOT NULL DEFAULT ''
+    COMMENT 'Display name of the employee';
+
+
+
