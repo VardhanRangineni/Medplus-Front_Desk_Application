@@ -1,0 +1,420 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   User Management page
+───────────────────────────────────────────────────────────────────────────── */
+
+/* ── Page shell ──────────────────────────────────────────────────────────── */
+.umg-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 2px 20px;
+  scrollbar-width: none;
+}
+.umg-page::-webkit-scrollbar { display: none; }
+
+/* ── Page header ─────────────────────────────────────────────────────────── */
+.umg-page__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.umg-page__title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #111;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.umg-page__sub {
+  font-size: 13px;
+  color: #888;
+  margin: 4px 0 0;
+}
+
+/* ── Add User button ─────────────────────────────────────────────────────── */
+.umg-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 18px;
+  flex-shrink: 0;
+  background: #C2181D;
+  border: 1px solid rgba(255, 100, 100, 0.25);
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(194, 24, 29, 0.25);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.12s, box-shadow 0.15s;
+}
+.umg-add-btn:hover {
+  background: #a81217;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(194, 24, 29, 0.35);
+}
+.umg-add-btn:active { transform: translateY(0); }
+
+/* ── Glass table card ────────────────────────────────────────────────────── */
+.umg-card {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-top-color: rgba(255, 255, 255, 0.98);
+  border-radius: 16px;
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.06),
+    0 1px  4px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.90);
+  overflow: hidden;
+}
+
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
+.umg-toolbar {
+  display: flex;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
+}
+
+/* ── Search ──────────────────────────────────────────────────────────────── */
+.umg-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.60);
+  border: 1px solid rgba(0, 0, 0, 0.09);
+  border-radius: 8px;
+  color: #aaa;
+  width: 320px;
+  cursor: text;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.umg-search:focus-within {
+  border-color: rgba(194, 24, 29, 0.35);
+  box-shadow: 0 0 0 3px rgba(194, 24, 29, 0.08);
+}
+
+.umg-search__input {
+  flex: 1;
+  border: none;
+  background: none;
+  outline: none;
+  font-size: 13px;
+  color: #222;
+}
+.umg-search__input::placeholder { color: #bbb; }
+
+/* ── Table wrapper ───────────────────────────────────────────────────────── */
+.umg-table-wrap {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.umg-table-wrap::-webkit-scrollbar { display: none; }
+
+/* ── Table ───────────────────────────────────────────────────────────────── */
+.umg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.umg-table thead tr {
+  background: rgba(255, 255, 255, 0.40);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.umg-table th {
+  padding: 11px 16px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: #999;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.umg-table td {
+  padding: 13px 16px;
+  color: #333;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.045);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.umg-table tbody tr:last-child td { border-bottom: none; }
+.umg-table tbody tr:hover td      { background: rgba(255, 255, 255, 0.32); }
+
+/* ── Column variants ─────────────────────────────────────────────────────── */
+.umg-col--id   { font-family: 'Courier New', monospace; font-size: 12px; color: #888; }
+.umg-col--name { font-weight: 600; color: #111; }
+.umg-col--mono { font-family: 'Courier New', monospace; font-size: 12px; color: #555; letter-spacing: 0.03em; }
+
+/* ── Status toggle ───────────────────────────────────────────────────────── */
+.umg-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+
+.umg-status {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.umg-status--on  { color: #28883d; }
+.umg-status--off { color: #bbb; }
+
+/* ── Edit action button ──────────────────────────────────────────────────── */
+.umg-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 12px;
+  background: rgba(40, 136, 61, 0.07);
+  border: 1px solid rgba(40, 136, 61, 0.22);
+  border-radius: 7px;
+  color: #28883d;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.13s;
+}
+.umg-action-btn:hover { background: rgba(40, 136, 61, 0.15); }
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+.umg-empty {
+  text-align: center;
+  padding: 52px 16px !important;
+  color: #bbb;
+  font-size: 14px;
+}
+
+/* ── Skeleton rows ───────────────────────────────────────────────────────── */
+.umg-skeleton {
+  display: block;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: umg-shimmer 1.4s infinite;
+  min-width: 60px;
+}
+
+@keyframes umg-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+.umg-row--skeleton td { opacity: 0.6; }
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.umg-footer {
+  padding: 10px 16px;
+  font-size: 12px;
+  color: #aaa;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  flex-shrink: 0;
+}
+.umg-footer strong { color: #666; }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Modal
+───────────────────────────────────────────────────────────────────────────── */
+.umg-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+  animation: umg-fade-in 0.18s ease;
+}
+
+@keyframes umg-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.umg-modal {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  border-radius: 18px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255,255,255,0.95);
+  width: 500px;
+  max-width: calc(100vw - 32px);
+  animation: umg-modal-in 0.20s cubic-bezier(0.34, 1.3, 0.64, 1);
+}
+
+@keyframes umg-modal-in {
+  from { opacity: 0; transform: scale(0.95) translateY(8px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);   }
+}
+
+.umg-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+}
+
+.umg-modal__title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #111;
+  margin: 0;
+}
+
+.umg-modal__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 50%;
+  color: #666;
+  cursor: pointer;
+  transition: background 0.13s;
+}
+.umg-modal__close:hover { background: rgba(0, 0, 0, 0.12); color: #333; }
+
+.umg-modal__body {
+  padding: 20px 24px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ── Form fields ─────────────────────────────────────────────────────────── */
+.umg-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.umg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.umg-field--inline {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.umg-field__label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #555;
+}
+
+.umg-field__error {
+  font-size: 11.5px;
+  color: #C2181D;
+  margin-top: 2px;
+}
+
+.umg-input {
+  height: 38px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.70);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 9px;
+  font-size: 13px;
+  color: #222;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.umg-input:focus {
+  border-color: rgba(194, 24, 29, 0.45);
+  box-shadow: 0 0 0 3px rgba(194, 24, 29, 0.08);
+}
+.umg-input:disabled { opacity: 0.50; cursor: not-allowed; background: rgba(0,0,0,0.03); }
+.umg-input--error   { border-color: #C2181D !important; }
+.umg-input--mono    { font-family: 'Courier New', monospace; font-size: 12.5px; letter-spacing: 0.03em; }
+
+/* ── Modal footer ────────────────────────────────────────────────────────── */
+.umg-modal__footer {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 18px 24px 20px;
+  margin-top: 4px;
+  border-top: 1px solid rgba(0, 0, 0, 0.07);
+}
+
+/* ── Shared buttons ──────────────────────────────────────────────────────── */
+.umg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 20px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s, transform 0.12s;
+  border: none;
+  font-family: inherit;
+}
+
+.umg-btn--primary {
+  background: #C2181D;
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(194, 24, 29, 0.28);
+}
+.umg-btn--primary:hover:not(:disabled) {
+  background: #a51318;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(194, 24, 29, 0.38);
+}
+.umg-btn--primary:disabled { opacity: 0.65; cursor: not-allowed; }
+
+.umg-btn--ghost {
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  color: #555;
+}
+.umg-btn--ghost:hover { background: rgba(255, 255, 255, 0.85); }
