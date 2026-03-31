@@ -1,31 +1,8 @@
 /* ─────────────────────────────────────────────────────────────────────────────
-   EditEmployeeModal — loading state additions.
-   All other styles are inherited from AddVisitorModal.css and
-   AddEmployeeModal.css (avm-* / aem-* classes).
+   EditEmployeeModal — overrides for the single-page edit form.
+   All base styles come from AddVisitorModal.css and AddEmployeeModal.css.
 ───────────────────────────────────────────────────────────────────────────── */
 
-.eem-loading {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  padding: 48px 24px;
-  color: #aaa;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.eem-loading__spinner {
-  width: 30px;
-  height: 30px;
-  border: 3px solid #e8eaed;
-  border-top-color: #C2181D;
-  border-radius: 50%;
-  animation: eem-spin 0.7s linear infinite;
-}
-
-@keyframes eem-spin {
-  to { transform: rotate(360deg); }
+.eem-dialog {
+  max-height: min(90vh, 620px);
 }

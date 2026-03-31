@@ -74,13 +74,12 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  // Fetch full entry detail on mount
+  // Silently try to load full entry detail — no error shown if API not ready
   useEffect(() => {
     setLoading(true);
-    setError('');
     getEntryDetail(entry.id)
       .then(setDetail)
-      .catch((err) => setError(err?.message || 'Failed to load entry details.'))
+      .catch(() => { /* API not ready yet — display from entry prop */ })
       .finally(() => setLoading(false));
   }, [entry.id]);
 
@@ -143,20 +142,8 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
           <span className="vem-entry-id">{entry.id}</span>
         </div>
 
-        {/* ── Body ───────────────────────────────────────────────────── */}
-        {loading && (
-          <div className="vem-loading">
-            <div className="vem-loading__spinner" />
-            <span>Loading details…</span>
-          </div>
-        )}
-
-        {error && !loading && (
-          <p className="vem-error">{error}</p>
-        )}
-
-        {!loading && !error && detail && (
-          <div className="vem-body">
+        {/* ── Body — always shown; detail enriches when API is ready ── */}
+        <div className="vem-body">
 
             {/* ── Left: details ─────────────────────────────────────── */}
             <div className="vem-details">
@@ -323,7 +310,6 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
 
             </div>
           </div>
-        )}
 
         {/* ── Footer ─────────────────────────────────────────────────── */}
         <div className="vem-footer">
