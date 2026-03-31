@@ -108,12 +108,15 @@ function makeApiRequest(method, url, body) {
   });
 }
 
+/* ── IPC handlers — removeHandler guards against HMR double-registration ── */
+
 /**
  * Generic authenticated request handler.
  * Renderer calls: window.electronAPI.apiRequest(method, path, body?)
  *
  * path may include a query string, e.g. '/api/managed-users/search?q=foo'
  */
+ipcMain.removeHandler('api-request');
 ipcMain.handle('api-request', (_, { method, path, body }) =>
   makeApiRequest(method, `${API_BASE_URL}${path}`, body)
 );
@@ -122,19 +125,24 @@ ipcMain.handle('api-request', (_, { method, path, body }) =>
  * Legacy unauthenticated POST handler — kept for backward compatibility
  * with the login flow which must work before a session exists.
  */
+ipcMain.removeHandler('api-post');
 ipcMain.handle('api-post', (_, { path, body }) =>
   makeApiRequest('POST', `${API_BASE_URL}${path}`, body)
 );
 
+ipcMain.removeHandler('get-network-info');
 ipcMain.handle('get-network-info', () => getNetworkInfo());
 
+ipcMain.removeHandler('store-auth-session');
 ipcMain.handle('store-auth-session', (_, session) => {
   authSession = session;
   return true;
 });
 
+ipcMain.removeHandler('get-auth-session');
 ipcMain.handle('get-auth-session', () => authSession);
 
+ipcMain.removeHandler('clear-auth-session');
 ipcMain.handle('clear-auth-session', () => {
   authSession = null;
   return true;

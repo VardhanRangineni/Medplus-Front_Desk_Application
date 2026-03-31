@@ -446,6 +446,8 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
   const [locations,    setLocations]    = useState([]);
   const [persons,      setPersons]      = useState([]);
   const [departments,  setDepartments]  = useState([]);
+  const [refLoading,   setRefLoading]   = useState(true);
+  const [refError,     setRefError]     = useState('');
 
   // Camera refs
   const videoRef  = useRef(null);
@@ -458,13 +460,21 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
 
   // ── Load reference data ──────────────────────────────────────────────────
   useEffect(() => {
+    setRefLoading(true);
+    setRefError('');
     Promise.all([getLocations(), getPersonsToMeet(), getDepartments()])
       .then(([locs, pers, depts]) => {
         setLocations(locs);
         setPersons(pers);
         setDepartments(depts);
+        if (pers.length === 0) {
+          setRefError('No employees found at your location. Contact your administrator.');
+        }
       })
-      .catch(() => {});
+      .catch((err) => {
+        setRefError(err?.message || 'Failed to load form data. Please close and reopen this modal.');
+      })
+      .finally(() => setRefLoading(false));
   }, []);
 
   // ── Keyboard / cleanup ───────────────────────────────────────────────────
@@ -617,7 +627,9 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
 
   // ── Step guards ──────────────────────────────────────────────────────────
   const step1Valid  = formState.otpVerified;
-  const step2Valid  = formState.fullName.trim() !== '' && formState.personToMeet !== '';
+  const step2Valid  = !refLoading
+                   && formState.fullName.trim() !== ''
+                   && formState.personToMeet !== '';
   const step3Ready  = photo !== null || photoSkipped;
 
   // ── Submit ───────────────────────────────────────────────────────────────
@@ -692,11 +704,21 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
           {step === 1 && <Step1 state={formState} dispatch={dispatch} />}
 
           {step === 2 && (
-            <Step2
-              state={formState}
-              dispatch={dispatch}
-              refData={{ locations, persons, departments }}
-            />
+            <>
+              {refLoading && (
+                <p className="avm-hint" style={{ textAlign: 'center', padding: '8px 0' }}>
+                  Loading form data…
+                </p>
+              )}
+              {!refLoading && refError && (
+                <p className="avm-error" style={{ marginBottom: '12px' }}>{refError}</p>
+              )}
+              <Step2
+                state={formState}
+                dispatch={dispatch}
+                refData={{ locations, persons, departments }}
+              />
+            </>
           )}
 
           {step === 3 && (

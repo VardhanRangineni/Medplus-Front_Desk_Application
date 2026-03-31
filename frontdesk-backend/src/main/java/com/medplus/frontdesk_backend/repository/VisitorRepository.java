@@ -301,6 +301,44 @@ public class VisitorRepository {
     }
 
     /**
+     * Returns ALL employees at the given location (no search filter).
+     * Used by the "Person to Meet" dropdown to populate the full list.
+     */
+    public List<PersonToMeetDto> findAllPersonsAtLocation(String locationId) {
+        String sql = """
+                SELECT um.employeeid, um.fullName, um.phone, um.department, um.designation
+                FROM usermaster um
+                JOIN locationmaster lm ON lm.descriptiveName = um.worklocation
+                WHERE lm.LocationId = :locationId
+                ORDER BY um.fullName
+                """;
+        return jdbc.query(sql, new MapSqlParameterSource("locationId", locationId),
+                (rs, rowNum) -> PersonToMeetDto.builder()
+                        .id(rs.getString("employeeid"))
+                        .name(rs.getString("fullName"))
+                        .phone(rs.getString("phone"))
+                        .department(rs.getString("department"))
+                        .designation(rs.getString("designation"))
+                        .build()
+        );
+    }
+
+    /**
+     * Returns distinct department names from usermaster at the given location.
+     * Used to populate the "Host Department" dropdown.
+     */
+    public List<String> findDistinctDepartmentsAtLocation(String locationId) {
+        String sql = """
+                SELECT DISTINCT um.department
+                FROM usermaster um
+                JOIN locationmaster lm ON lm.descriptiveName = um.worklocation
+                WHERE lm.LocationId = :locationId
+                ORDER BY um.department
+                """;
+        return jdbc.queryForList(sql, new MapSqlParameterSource("locationId", locationId), String.class);
+    }
+
+    /**
      * Finds a single employee by ID in usermaster (used to denormalise personName + department).
      */
     public Optional<PersonToMeetDto> findPersonById(String employeeId) {

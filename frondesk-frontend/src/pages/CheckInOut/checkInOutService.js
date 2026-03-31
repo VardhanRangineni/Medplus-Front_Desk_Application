@@ -2,12 +2,13 @@
  * checkInOutService.js
  *
  * All backend communication for the Check-In / Check-Out screen.
- * When the API is ready:
- *   1. Set VITE_API_BASE_URL in your .env file.
- *   2. Uncomment the real fetch() calls and delete the mock helpers.
+ * Uses window.electronAPI.apiRequest() — token injected automatically by main process.
+ *
+ * Endpoints:
+ *   GET    /api/visitors?date=YYYY-MM-DD
+ *   PATCH  /api/visitors/:id/checkout
+ *   PATCH  /api/visitors/:id/members/:memberId/checkout
  */
-
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080';
 
 // ─── Types (JSDoc) ────────────────────────────────────────────────────────────
 /**
@@ -21,66 +22,73 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080';
  * @property {EntryStatus} status
  *
  * @typedef {Object} Entry
- * @property {string}      id
- * @property {EntryType}   type
+ * @property {string}      id             - e.g. "MED-V-0001" or "MED-GV-0001"
+ * @property {EntryType}   type           - "VISITOR" or "EMPLOYEE"
  * @property {string}      name
- * @property {string|null} mobile       - VISITOR only
- * @property {string|null} empId        - EMPLOYEE only
+ * @property {string|null} mobile
+ * @property {string|null} empId
  * @property {EntryStatus} status
- * @property {string}      personToMeet
+ * @property {string}      personToMeet   - full name of person being visited
  * @property {number|null} card
  * @property {Date|null}   checkIn
  * @property {Date|null}   checkOut
- * @property {Member[]}    members      - sub-visitors (VISITOR only)
+ * @property {Member[]}    members
  */
 
-// ─── API helpers ──────────────────────────────────────────────────────────────
-async function request(path, options = {}) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    ...options,
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(body || `Request failed: ${res.status} ${res.statusText}`);
+// ─── Private helper ───────────────────────────────────────────────────────────
+
+async function api(method, path, body) {
+  const result = await window.electronAPI.apiRequest(method, path, body);
+  if (!result.ok) {
+    const msg = result.body?.message || `Request failed: ${result.status}`;
+    throw new Error(msg);
   }
-  return res.json();
+  return result.body?.data ?? result.body;
+}
+
+/** Maps a raw API response entry to a UI-ready Entry (ISO strings → Date objects). */
+function normalise(raw) {
+  return {
+    ...raw,
+    checkIn:  raw.checkIn  ? new Date(raw.checkIn)  : null,
+    checkOut: raw.checkOut ? new Date(raw.checkOut) : null,
+    members:  (raw.members ?? []).map((m) => ({ ...m })),
+  };
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Fetches all check-in/check-out entries for the given date.
+ * Fetches all check-in/check-out entries for the caller's location on the given date.
+ * Defaults to today on the backend when date is omitted.
  *
- * TODO: uncomment when backend is ready
  * Endpoint: GET /api/visitors?date=YYYY-MM-DD
  *
- * @param {string} date - ISO date string (e.g. "2026-03-28")
+ * @param {string} [date] - ISO date string (e.g. "2026-03-28")
  * @returns {Promise<Entry[]>}
  */
 export async function getEntries(date) {
-  // return request(`/api/visitors?date=${encodeURIComponent(date)}`);
-  return _mockDelay(MOCK_ENTRIES);
+  const query = date ? `?date=${encodeURIComponent(date)}` : '';
+  const data  = await api('GET', `/api/visitors${query}`);
+  return Array.isArray(data) ? data.map(normalise) : [];
 }
 
 /**
  * Checks out a main entry (visitor or employee).
  *
- * TODO: uncomment when backend is ready
  * Endpoint: PATCH /api/visitors/:id/checkout
  *
  * @param {string} id
  * @returns {Promise<Entry>}
  */
 export async function checkOutEntry(id) {
-  // return request(`/api/visitors/${encodeURIComponent(id)}/checkout`, { method: 'PATCH' });
-  return _mockDelay({ id, status: 'checked-out', checkOut: new Date().toISOString() }, 300);
+  const data = await api('PATCH', `/api/visitors/${encodeURIComponent(id)}/checkout`);
+  return normalise(data);
 }
 
 /**
- * Checks out a single member within a visitor group.
+ * Checks out a single member within a group visit.
  *
- * TODO: uncomment when backend is ready
  * Endpoint: PATCH /api/visitors/:entryId/members/:memberId/checkout
  *
  * @param {string} entryId
@@ -88,91 +96,8 @@ export async function checkOutEntry(id) {
  * @returns {Promise<Member>}
  */
 export async function checkOutMember(entryId, memberId) {
-  // return request(
-  //   `/api/visitors/${encodeURIComponent(entryId)}/members/${encodeURIComponent(memberId)}/checkout`,
-  //   { method: 'PATCH' }
-  // );
-  return _mockDelay({ id: memberId, status: 'checked-out' }, 300);
+  return api(
+    'PATCH',
+    `/api/visitors/${encodeURIComponent(entryId)}/members/${encodeURIComponent(memberId)}/checkout`
+  );
 }
-
-// ─── Mock helpers (delete when API is live) ───────────────────────────────────
-function _mockDelay(data, ms = 450) {
-  return new Promise((resolve) => setTimeout(() => resolve(data), ms));
-}
-
-/** @type {Entry[]} */
-export const MOCK_ENTRIES = [
-  {
-    id: 'V001',
-    type: 'VISITOR',
-    name: 'Prabhas',
-    mobile: '1234567890',
-    empId: null,
-    status: 'checked-in',
-    personToMeet: 'Amit Sharma',
-    card: 77,
-    checkIn: new Date('2026-03-28T10:43:00'),
-    checkOut: null,
-    members: [
-      { id: 'M001a', name: 'Ram Charan', card: 78, status: 'checked-out' },
-    ],
-  },
-  {
-    id: 'E001',
-    type: 'EMPLOYEE',
-    name: 'Vardhan R',
-    mobile: null,
-    empId: 'EHP1001',
-    status: 'checked-in',
-    personToMeet: 'Priya Verma',
-    card: null,
-    checkIn: new Date('2026-03-28T10:37:00'),
-    checkOut: null,
-    members: [],
-  },
-  {
-    id: 'V002',
-    type: 'VISITOR',
-    name: 'Rohit',
-    mobile: '9949592611',
-    empId: null,
-    status: 'checked-in',
-    personToMeet: 'Sunita Reddy',
-    card: 44,
-    checkIn: new Date('2026-03-28T10:38:00'),
-    checkOut: null,
-    members: [
-      { id: 'M002a', name: 'Virat Kohli',   card: 45, status: 'checked-in' },
-      { id: 'M002b', name: 'Rohit Sharma',  card: 46, status: 'checked-in' },
-    ],
-  },
-  {
-    id: 'E002',
-    type: 'EMPLOYEE',
-    name: 'Prabhas',
-    mobile: null,
-    empId: 'EMP1001',
-    status: 'checked-out',
-    personToMeet: 'Amit Sharma',
-    card: null,
-    checkIn: new Date('2026-03-27T18:29:00'),
-    checkOut: new Date('2026-03-27T20:00:00'),
-    members: [],
-  },
-  {
-    id: 'V003',
-    type: 'VISITOR',
-    name: 'Vardhan',
-    mobile: '9949592611',
-    empId: null,
-    status: 'checked-out',
-    personToMeet: 'Sunita Reddy',
-    card: 12,
-    checkIn: new Date('2026-03-27T16:58:00'),
-    checkOut: new Date('2026-03-27T18:30:00'),
-    members: [
-      { id: 'M003a', name: 'Ananya Singh', card: 13, status: 'checked-out' },
-      { id: 'M003b', name: 'Deepak Nair',  card: 14, status: 'checked-out' },
-    ],
-  },
-];

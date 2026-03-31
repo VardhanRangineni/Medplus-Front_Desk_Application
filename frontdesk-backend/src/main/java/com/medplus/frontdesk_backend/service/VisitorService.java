@@ -1,5 +1,6 @@
 package com.medplus.frontdesk_backend.service;
 
+import com.medplus.frontdesk_backend.dto.EmployeeLookupResponseDto;
 import com.medplus.frontdesk_backend.dto.PersonToMeetDto;
 import com.medplus.frontdesk_backend.dto.VisitorMemberDto;
 import com.medplus.frontdesk_backend.dto.VisitorMemberRequestDto;
@@ -217,15 +218,62 @@ public class VisitorService {
     // ── Person-to-meet search ─────────────────────────────────────────────────
 
     /**
+     * Returns ALL employees at the caller's location (no filter).
+     * Used to populate the "Person to Meet" dropdown on modal open.
+     */
+    public List<PersonToMeetDto> getPersonsAtLocation(String callerEmployeeId) {
+        String locationId = getUserLocation(callerEmployeeId);
+        return visitorRepository.findAllPersonsAtLocation(locationId);
+    }
+
+    /**
      * Searches employees at the caller's location by name, employee ID, or phone.
+     * Returns all if query is blank (same as getPersonsAtLocation).
      */
     public List<PersonToMeetDto> searchPersonsToMeet(String callerEmployeeId, String query) {
-        if (query == null || query.isBlank()) return List.of();
         String locationId = getUserLocation(callerEmployeeId);
+        if (query == null || query.isBlank()) {
+            return visitorRepository.findAllPersonsAtLocation(locationId);
+        }
         return visitorRepository.searchPersonsToMeet(locationId, query);
     }
 
+    /**
+     * Returns distinct department names at the caller's location.
+     * Used to populate the "Host Department" dropdown.
+     */
+    public List<String> getDepartmentsAtLocation(String callerEmployeeId) {
+        String locationId = getUserLocation(callerEmployeeId);
+        return visitorRepository.findDistinctDepartmentsAtLocation(locationId);
+    }
+
+    /**
+     * Looks up an employee by ID and returns their name, department, and masked phone.
+     * Used by the employee check-in flow (Step 1 — Employee ID lookup).
+     */
+    public EmployeeLookupResponseDto lookupEmployee(String empId) {
+        return visitorRepository.findPersonById(empId)
+                .map(p -> EmployeeLookupResponseDto.builder()
+                        .found(true)
+                        .employee(EmployeeLookupResponseDto.EmployeeInfo.builder()
+                                .id(p.getId())
+                                .name(p.getName())
+                                .department(p.getDepartment())
+                                .maskedPhone(maskPhone(p.getPhone()))
+                                .build())
+                        .build())
+                .orElse(EmployeeLookupResponseDto.builder()
+                        .found(false)
+                        .message("Employee ID not found. Please check and try again.")
+                        .build());
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    private static String maskPhone(String phone) {
+        if (phone == null || phone.length() < 4) return "****";
+        return phone.substring(0, 2) + "****" + phone.substring(phone.length() - 2);
+    }
 
     private String getUserLocation(String employeeId) {
         return userRepository.findByEmployeeId(employeeId)

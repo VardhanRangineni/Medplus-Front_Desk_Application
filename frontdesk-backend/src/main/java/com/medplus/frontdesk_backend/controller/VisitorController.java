@@ -1,6 +1,7 @@
 package com.medplus.frontdesk_backend.controller;
 
 import com.medplus.frontdesk_backend.dto.ApiResponse;
+import com.medplus.frontdesk_backend.dto.EmployeeLookupResponseDto;
 import com.medplus.frontdesk_backend.dto.PersonToMeetDto;
 import com.medplus.frontdesk_backend.dto.VisitorMemberDto;
 import com.medplus.frontdesk_backend.dto.VisitorRequestDto;
@@ -166,10 +167,7 @@ public class VisitorController {
     /**
      * Type-ahead search for "person to meet" at the caller's location.
      * Searches by employee name, employee ID, or phone number.
-     * Only returns employees working at the same location as the receptionist.
-     *
-     * Query params:
-     *   q — search term (min 1 char; empty → [])
+     * Returns all employees at the location when q is omitted.
      */
     @GetMapping("/person-search")
     public ResponseEntity<ApiResponse<List<PersonToMeetDto>>> searchPersonsToMeet(
@@ -178,5 +176,53 @@ public class VisitorController {
 
         List<PersonToMeetDto> results = visitorService.searchPersonsToMeet(auth.getName(), q);
         return ResponseEntity.ok(ApiResponse.success("Person search results.", results));
+    }
+
+    // ── GET /api/visitors/persons-at-location ─────────────────────────────────
+
+    /**
+     * Returns the full list of employees at the caller's location.
+     * Used to populate the "Person to Meet" dropdown on modal open.
+     */
+    @GetMapping("/persons-at-location")
+    public ResponseEntity<ApiResponse<List<PersonToMeetDto>>> getPersonsAtLocation(
+            Authentication auth) {
+
+        List<PersonToMeetDto> results = visitorService.getPersonsAtLocation(auth.getName());
+        return ResponseEntity.ok(ApiResponse.success("Persons at location.", results));
+    }
+
+    // ── GET /api/visitors/departments ────────────────────────────────────────
+
+    /**
+     * Returns distinct department names at the caller's location.
+     * Used to populate the "Host Department" dropdown on check-in modals.
+     * Response: ["Operations", "HR", "IT", ...]
+     */
+    @GetMapping("/departments")
+    public ResponseEntity<ApiResponse<List<String>>> getDepartments(Authentication auth) {
+        List<String> depts = visitorService.getDepartmentsAtLocation(auth.getName());
+        return ResponseEntity.ok(ApiResponse.success("Departments.", depts));
+    }
+
+    // ── GET /api/visitors/employee-lookup/{empId} ─────────────────────────────
+
+    /**
+     * Looks up an employee by their Employee ID.
+     * Returns their name, department, and masked phone number (for OTP hint).
+     *
+     * Response when found:
+     * { "found": true, "employee": { "id", "name", "department", "maskedPhone" } }
+     *
+     * Response when not found:
+     * { "found": false, "message": "Employee ID not found..." }
+     */
+    @GetMapping("/employee-lookup/{empId}")
+    public ResponseEntity<ApiResponse<EmployeeLookupResponseDto>> lookupEmployee(
+            @PathVariable String empId) {
+
+        EmployeeLookupResponseDto result = visitorService.lookupEmployee(empId);
+        String msg = result.isFound() ? "Employee found." : result.getMessage();
+        return ResponseEntity.ok(ApiResponse.success(msg, result));
     }
 }
