@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -27,6 +28,23 @@ import java.util.List;
 public class LocationController {
 
     private final LocationService locationService;
+
+    /**
+     * GET /api/locations/search?q=
+     *
+     * Type-ahead search over locationmaster by descriptiveName or LocationId.
+     * Used by the Add / Edit User modal when the operator types in the Location field.
+     *
+     * Query param: q  — search term (empty → [])
+     * Returns up to 20 matches: [ { code, name, address, city, state, status } ]
+     */
+    @GetMapping("/search")
+    public ResponseEntity<ApiResponse<List<LocationDto>>> searchLocations(
+            @RequestParam(defaultValue = "") String q) {
+
+        List<LocationDto> results = locationService.searchLocations(q);
+        return ResponseEntity.ok(ApiResponse.success("Search results.", results));
+    }
 
     /**
      * GET /api/locations

@@ -1,6 +1,8 @@
 package com.medplus.frontdesk_backend.repository;
 
+import com.medplus.frontdesk_backend.dto.ManagedUserDto;
 import com.medplus.frontdesk_backend.dto.UserDto;
+import com.medplus.frontdesk_backend.dto.UserLookupDto;
 import com.medplus.frontdesk_backend.model.UserManagement;
 import com.medplus.frontdesk_backend.model.UserMaster;
 import lombok.RequiredArgsConstructor;
@@ -179,6 +181,155 @@ public class UserRepository {
                 .addValue("department", department)
                 .addValue("role", role);
         namedParameterJdbcTemplate.update(sql, params);
+    }
+
+    // ── Search / Lookup ───────────────────────────────────────────────────────
+
+    /**
+     * Searches usermaster by employeeid OR fullName using a case-insensitive
+     * prefix/contains LIKE.  Returns up to 20 matches ordered by employeeid.
+     *
+     * Used by: GET /api/managed-users/search?q=
+     */
+    public List<UserLookupDto> searchUserMaster(String query) {
+        String like = "%" + query.trim().toLowerCase() + "%";
+        String sql = """
+                SELECT employeeid, fullName, worklocation, designation, department, workemail, phone
+                FROM usermaster
+                WHERE LOWER(employeeid) LIKE :like
+                   OR LOWER(fullName)   LIKE :like
+                ORDER BY employeeid
+                LIMIT 20
+                """;
+        return namedParameterJdbcTemplate.query(sql, new MapSqlParameterSource("like", like),
+                (rs, rowNum) -> UserLookupDto.builder()
+                        .id(rs.getString("employeeid"))
+                        .name(rs.getString("fullName"))
+                        .location(rs.getString("worklocation"))
+                        .designation(rs.getString("designation"))
+                        .department(rs.getString("department"))
+                        .email(rs.getString("workemail"))
+                        .phone(rs.getString("phone"))
+                        .build()
+        );
+    }
+
+    // ── Managed Users (usermanagement CRUD) ──────────────────────────────────
+
+    /**
+     * Returns all rows from usermanagement joined with locationmaster
+     * to resolve the FK into a human-readable location name.
+     */
+    public List<ManagedUserDto> findAllManagedUsers() {
+        String sql = """
+                SELECT um.employeeid,
+                       um.fullName,
+                       COALESCE(lm.descriptiveName, um.location) AS location,
+                       um.ipaddress,
+                       um.macaddress,
+                       um.status
+                FROM usermanagement um
+                LEFT JOIN locationmaster lm ON um.location = lm.LocationId
+                ORDER BY um.fullName
+                """;
+        return namedParameterJdbcTemplate.query(sql, new MapSqlParameterSource(),
+                (rs, rowNum) -> ManagedUserDto.builder()
+                        .id(rs.getString("employeeid"))
+                        .name(rs.getString("fullName"))
+                        .location(rs.getString("location"))
+                        .ipAddress(rs.getString("ipaddress"))
+                        .macAddress(rs.getString("macaddress"))
+                        .status("ACTIVE".equalsIgnoreCase(rs.getString("status")))
+                        .build()
+        );
+    }
+
+    /**
+     * Returns a single managed user by employeeId, with location resolved to descriptiveName.
+     */
+    public Optional<ManagedUserDto> findManagedUserById(String employeeId) {
+        String sql = """
+                SELECT um.employeeid,
+                       um.fullName,
+                       COALESCE(lm.descriptiveName, um.location) AS location,
+                       um.ipaddress,
+                       um.macaddress,
+                       um.status
+                FROM usermanagement um
+                LEFT JOIN locationmaster lm ON um.location = lm.LocationId
+                WHERE um.employeeid = :employeeId
+                """;
+        List<ManagedUserDto> results = namedParameterJdbcTemplate.query(
+                sql, new MapSqlParameterSource("employeeId", employeeId),
+                (rs, rowNum) -> ManagedUserDto.builder()
+                        .id(rs.getString("employeeid"))
+                        .name(rs.getString("fullName"))
+                        .location(rs.getString("location"))
+                        .ipAddress(rs.getString("ipaddress"))
+                        .macAddress(rs.getString("macaddress"))
+                        .status("ACTIVE".equalsIgnoreCase(rs.getString("status")))
+                        .build()
+        );
+        return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    }
+
+    /**
+     * Resolves a location name or code to a LocationId (PK in locationmaster).
+     * Tries exact match on LocationId first, then descriptiveName.
+     */
+    public Optional<String> findLocationIdByNameOrCode(String nameOrCode) {
+        String sql = """
+                SELECT LocationId FROM locationmaster
+                WHERE LocationId = :val OR descriptiveName = :val
+                LIMIT 1
+                """;
+        try {
+            String id = namedParameterJdbcTemplate.queryForObject(
+                    sql, new MapSqlParameterSource("val", nameOrCode), String.class);
+            return Optional.ofNullable(id);
+        } catch (EmptyResultDataAccessException e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Updates an existing usermanagement record (name, location FK, ip, mac, status).
+     */
+    public void updateUserManagement(String employeeId, String fullName, String locationId,
+                                     String ipAddress, String macAddress, String status) {
+        String sql = """
+                UPDATE usermanagement
+                SET fullName    = :fullName,
+                    location    = :locationId,
+                    ipaddress   = :ipAddress,
+                    macaddress  = :macAddress,
+                    status      = :status,
+                    modifiedBy  = 'APP'
+                WHERE employeeid = :employeeId
+                """;
+        namedParameterJdbcTemplate.update(sql, new MapSqlParameterSource()
+                .addValue("employeeId",  employeeId)
+                .addValue("fullName",    fullName)
+                .addValue("locationId",  locationId)
+                .addValue("ipAddress",   ipAddress)
+                .addValue("macAddress",  macAddress)
+                .addValue("status",      status)
+        );
+    }
+
+    /**
+     * Updates only the status of a usermanagement record.
+     */
+    public void updateUserManagementStatus(String employeeId, String status) {
+        String sql = """
+                UPDATE usermanagement
+                SET status = :status, modifiedBy = 'APP'
+                WHERE employeeid = :employeeId
+                """;
+        namedParameterJdbcTemplate.update(sql, new MapSqlParameterSource()
+                .addValue("employeeId", employeeId)
+                .addValue("status",     status)
+        );
     }
 
     // ── LocationMaster ────────────────────────────────────────────────────────

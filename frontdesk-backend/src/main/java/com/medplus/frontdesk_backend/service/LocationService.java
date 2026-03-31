@@ -38,6 +38,17 @@ public class LocationService {
     }
 
     /**
+     * Type-ahead search over locationmaster by descriptiveName or LocationId.
+     * Returns an empty list if the query is blank.
+     */
+    public List<LocationDto> searchLocations(String query) {
+        if (query == null || query.isBlank()) return List.of();
+        return locationRepository.searchByQuery(query).stream()
+                .map(this::toDto)
+                .toList();
+    }
+
+    /**
      * Toggles the active/inactive status of a location.
      *
      * @param locationId the LocationId of the location

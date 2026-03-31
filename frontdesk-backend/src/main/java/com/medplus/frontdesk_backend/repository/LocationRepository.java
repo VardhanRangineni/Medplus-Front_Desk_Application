@@ -34,6 +34,36 @@ public class LocationRepository {
         );
     }
 
+    /**
+     * Searches locationmaster by descriptiveName OR LocationId using a
+     * case-insensitive LIKE.  Returns up to 20 matches ordered by descriptiveName.
+     *
+     * Used by: GET /api/locations/search?q=
+     */
+    public List<Location> searchByQuery(String query) {
+        String like = "%" + query.trim().toLowerCase() + "%";
+        String sql = """
+                SELECT LocationId, descriptiveName, type, coordinates, address, city, state, pincode, status
+                FROM locationmaster
+                WHERE LOWER(descriptiveName) LIKE :like
+                   OR LOWER(LocationId)      LIKE :like
+                ORDER BY descriptiveName
+                LIMIT 20
+                """;
+        return jdbc.query(sql, new MapSqlParameterSource("like", like), (rs, rowNum) -> Location.builder()
+                .locationId(rs.getString("LocationId"))
+                .descriptiveName(rs.getString("descriptiveName"))
+                .type(rs.getString("type"))
+                .coordinates(rs.getString("coordinates"))
+                .address(rs.getString("address"))
+                .city(rs.getString("city"))
+                .state(rs.getString("state"))
+                .pincode(rs.getString("pincode"))
+                .status(rs.getString("status"))
+                .build()
+        );
+    }
+
     public int updateStatus(String locationId, String status) {
         String sql = """
                 UPDATE locationmaster
