@@ -149,6 +149,9 @@ function EntryRow({ entry, expanded, onToggleExpand, onCheckOut, onMemberCheckOu
         {/* Check-in time */}
         <td className="ci-col--time">{formatDateTime(entry.checkIn)}</td>
 
+        {/* Check-out time */}
+        <td className="ci-col--time">{entry.checkOut ? formatDateTime(entry.checkOut) : '—'}</td>
+
         {/* Actions */}
         <td>
           <div className="ci-actions">
@@ -516,6 +519,7 @@ export default function CheckInOut() {
                 <th scope="col">Person to Meet</th>
                 <th scope="col">Card(s)</th>
                 <th scope="col">Check-in</th>
+                <th scope="col">Check-out</th>
                 <th scope="col">Actions</th>
               </tr>
             </thead>
@@ -523,7 +527,7 @@ export default function CheckInOut() {
               {initLoading ? (
                 Array.from({ length: 5 }, (_, i) => (
                   <tr key={i} className="ci-row--skeleton">
-                    {Array.from({ length: 9 }, (_, j) => (
+                    {Array.from({ length: 10 }, (_, j) => (
                       <td key={j}><span className="ci-skeleton" /></td>
                     ))}
                   </tr>
