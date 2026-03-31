@@ -46,7 +46,7 @@ public class SyncController {
      * }
      */
     @PostMapping("/pull")
-    @PreAuthorize("hasAnyAuthority('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
+    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
     public ResponseEntity<ApiResponse<SyncResultDto>> pull(
             @AuthenticationPrincipal UserDetails principal) {
 

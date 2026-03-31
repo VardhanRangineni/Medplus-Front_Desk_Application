@@ -13,18 +13,10 @@
   justify-content: space-between;
   padding: 0 20px;
 
-  /* ── Glassmorphism ── */
-  background: rgba(255, 255, 255, 0.62);
-  backdrop-filter: blur(28px) saturate(200%);
-  -webkit-backdrop-filter: blur(28px) saturate(200%);
-  border: 1px solid rgba(255, 255, 255, 0.85);
-  border-top-color: rgba(255, 255, 255, 1);
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
   border-radius: 16px;
-  box-shadow:
-    0 6px 28px rgba(0, 0, 0, 0.08),
-    0 1px  5px rgba(0, 0, 0, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    inset 1px 0 0 rgba(255, 255, 255, 0.55);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.07);
 }
 
 /* ── Left ── */
@@ -72,10 +64,8 @@
   gap: 5px;
   padding: 6px 12px;
 
-  background: rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.78);
+  background: #f5f6f8;
+  border: 1px solid #e0e2e7;
   border-radius: 9px;
 
   font-size: 13px;
@@ -84,11 +74,11 @@
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.15s, box-shadow 0.15s;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.05), inset 0 1px 0 rgba(255,255,255,0.90);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 .app-header__pill:hover {
-  background: rgba(255, 255, 255, 0.75);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.95);
+  background: #ececf0;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.07);
 }
 .app-header__pill svg { color: #999; flex-shrink: 0; }
 
@@ -99,14 +89,10 @@
   gap: 6px;
   padding: 6px 14px;
 
-  background: rgba(194, 24, 29, 0.88);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: #C2181D;
   border: 1px solid rgba(255, 100, 100, 0.30);
   border-radius: 9px;
-  box-shadow:
-    0 2px 10px rgba(194, 24, 29, 0.28),
-    inset 0 1px 0 rgba(255, 180, 180, 0.30);
+  box-shadow: 0 2px 8px rgba(194, 24, 29, 0.25);
 
   font-size: 12px;
   font-weight: 600;
@@ -128,12 +114,10 @@
   gap: 8px;
   padding: 4px 10px 4px 4px;
 
-  background: rgba(255, 255, 255, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.72);
+  background: #f5f6f8;
+  border: 1px solid #e0e2e7;
   border-radius: 24px;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.85);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
   cursor: default;
 }
 

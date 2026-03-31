@@ -35,6 +35,7 @@ export default function UserMaster() {
   const [users,       setUsers]       = useState([]);
   const [search,      setSearch]      = useState('');
   const [initLoading, setInitLoading] = useState(true);
+  const [loadError,   setLoadError]   = useState(null);
 
   /** @type {[SyncStatus, Function]} */
   const [syncStatus, setSyncStatus] = useState('idle');
@@ -47,10 +48,11 @@ export default function UserMaster() {
   // ── Load from local DB on mount ─────────────────────────────────────────
   useEffect(() => {
     let active = true;
+    setLoadError(null);
     getUsers()
-      .then((data) => { if (active) setUsers(data); })
-      .catch(() => {})
-      .finally(() => { if (active) setInitLoading(false); });
+      .then((data)  => { if (active) setUsers(data ?? []); })
+      .catch((err)  => { if (active) setLoadError(err.message ?? 'Failed to load users.'); })
+      .finally(()   => { if (active) setInitLoading(false); });
     return () => { active = false; };
   }, []);
 
@@ -85,12 +87,12 @@ export default function UserMaster() {
     ? users.filter((u) => {
         const q = search.toLowerCase();
         return (
-          u.id.toLowerCase().includes(q)           ||
-          u.name.toLowerCase().includes(q)         ||
-          u.role.toLowerCase().includes(q)         ||
-          u.dept.toLowerCase().includes(q)         ||
-          u.workLocation.toLowerCase().includes(q) ||
-          u.email.toLowerCase().includes(q)
+          (u.id           ?? '').toLowerCase().includes(q) ||
+          (u.name         ?? '').toLowerCase().includes(q) ||
+          (u.role         ?? '').toLowerCase().includes(q) ||
+          (u.dept         ?? '').toLowerCase().includes(q) ||
+          (u.workLocation ?? '').toLowerCase().includes(q) ||
+          (u.email        ?? '').toLowerCase().includes(q)
         );
       })
     : users;
@@ -112,6 +114,14 @@ export default function UserMaster() {
           )}
         </p>
       </header>
+
+      {/* ── Load error banner ───────────────────────────────────────────── */}
+      {loadError && (
+        <div className="um-banner um-banner--error" role="alert" aria-live="assertive">
+          <IconAlertCircle size={15} />
+          <span>{loadError}</span>
+        </div>
+      )}
 
       {/* ── Feedback banner ─────────────────────────────────────────────── */}
       {syncStatus === 'success' && (

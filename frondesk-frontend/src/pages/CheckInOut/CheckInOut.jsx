@@ -10,8 +10,13 @@ import {
   IconDoorOut,
   IconChevronRight,
   IconChevronDown,
+  IconX,
+  IconUser,
+  IconBuilding,
 } from '../../components/Icons/Icons';
 import { getEntries, checkOutEntry, checkOutMember } from './checkInOutService';
+import AddVisitorModal  from './AddVisitorModal/AddVisitorModal';
+import AddEmployeeModal from './AddEmployeeModal/AddEmployeeModal';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TAB_ALL        = 'all';
@@ -187,14 +192,78 @@ function EntryRow({ entry, expanded, onToggleExpand, onCheckOut, onMemberCheckOu
   );
 }
 
+// ─── Entry Type Selection Modal ───────────────────────────────────────────────
+function EntryTypeModal({ onClose, onSelect }) {
+  // Close on overlay click
+  const handleOverlayClick = (e) => {
+    if (e.target === e.currentTarget) onClose();
+  };
+
+  // Close on Escape key
+  useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <div
+      className="etm-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="etm-title"
+      onClick={handleOverlayClick}
+    >
+      <div className="etm-dialog">
+        {/* Header */}
+        <div className="etm-header">
+          <div>
+            <h2 className="etm-title" id="etm-title">Select Entry Type</h2>
+            <p className="etm-subtitle">Are you adding a visitor or an employee?</p>
+          </div>
+          <button className="etm-close" onClick={onClose} aria-label="Close">
+            <IconX size={16} />
+          </button>
+        </div>
+
+        {/* Option cards */}
+        <div className="etm-options">
+          <button
+            className="etm-option-card"
+            onClick={() => onSelect('visitor')}
+          >
+            <span className="etm-option-icon etm-option-icon--visitor">
+              <IconUser size={28} />
+            </span>
+            <span className="etm-option-label">Visitor</span>
+          </button>
+
+          <button
+            className="etm-option-card"
+            onClick={() => onSelect('employee')}
+          >
+            <span className="etm-option-icon etm-option-icon--employee">
+              <IconBuilding size={28} />
+            </span>
+            <span className="etm-option-label">Employee</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function CheckInOut() {
-  const [entries,     setEntries]     = useState([]);
-  const [initLoading, setInitLoading] = useState(true);
-  const [activeTab,   setActiveTab]   = useState(TAB_ALL);
-  const [search,      setSearch]      = useState('');
-  const [expandedRows,setExpandedRows]= useState(new Set());
-  const [filterOpen,  setFilterOpen]  = useState(false);
+  const [entries,             setEntries]             = useState([]);
+  const [initLoading,         setInitLoading]         = useState(true);
+  const [activeTab,           setActiveTab]           = useState(TAB_ALL);
+  const [search,              setSearch]              = useState('');
+  const [expandedRows,        setExpandedRows]        = useState(new Set());
+  const [filterOpen,          setFilterOpen]          = useState(false);
+  const [entryTypeModalOpen,  setEntryTypeModalOpen]  = useState(false);
+  const [addVisitorOpen,      setAddVisitorOpen]      = useState(false);
+  const [addEmployeeOpen,     setAddEmployeeOpen]     = useState(false);
   const filterRef = useRef(null);
 
   // ── Load entries on mount ───────────────────────────────────────────────
@@ -260,6 +329,33 @@ export default function CheckInOut() {
       );
     }
   }, [entries]);
+
+  // ── Entry type modal handlers ────────────────────────────────────────────
+  const handleEntryTypeSelect = useCallback((type) => {
+    setEntryTypeModalOpen(false);
+    if (type === 'visitor')  setAddVisitorOpen(true);
+    if (type === 'employee') setAddEmployeeOpen(true);
+  }, []);
+
+  // Visitor modal
+  const handleCloseAddVisitor  = useCallback(() => setAddVisitorOpen(false), []);
+  const handleVisitorSuccess   = useCallback(() => {
+    setAddVisitorOpen(false);
+    const today = new Date().toISOString().split('T')[0];
+    getEntries(today).then(setEntries).catch(() => {});
+  }, []);
+
+  // Employee modal
+  const handleCloseAddEmployee = useCallback(() => setAddEmployeeOpen(false), []);
+  const handleEmployeeBack     = useCallback(() => {
+    setAddEmployeeOpen(false);
+    setEntryTypeModalOpen(true);   // go back to type-selection
+  }, []);
+  const handleEmployeeSuccess  = useCallback(() => {
+    setAddEmployeeOpen(false);
+    const today = new Date().toISOString().split('T')[0];
+    getEntries(today).then(setEntries).catch(() => {});
+  }, []);
 
   // ── Toggle expand row ────────────────────────────────────────────────────
   const toggleExpand = useCallback((id) => {
@@ -372,7 +468,10 @@ export default function CheckInOut() {
             <span>Export</span>
           </button>
 
-          <button className="ci-add-btn">
+          <button
+            className="ci-add-btn"
+            onClick={() => setEntryTypeModalOpen(true)}
+          >
             <IconPlus size={14} />
             <span>Add Entry</span>
           </button>
@@ -438,6 +537,31 @@ export default function CheckInOut() {
           </div>
         )}
       </div>
+
+      {/* ── Entry Type Modal ───────────────────────────────────────────── */}
+      {entryTypeModalOpen && (
+        <EntryTypeModal
+          onClose={() => setEntryTypeModalOpen(false)}
+          onSelect={handleEntryTypeSelect}
+        />
+      )}
+
+      {/* ── Add Visitor (3-step) Modal ─────────────────────────────────── */}
+      {addVisitorOpen && (
+        <AddVisitorModal
+          onClose={handleCloseAddVisitor}
+          onSuccess={handleVisitorSuccess}
+        />
+      )}
+
+      {/* ── Add Employee (3-step) Modal ────────────────────────────────── */}
+      {addEmployeeOpen && (
+        <AddEmployeeModal
+          onClose={handleCloseAddEmployee}
+          onBack={handleEmployeeBack}
+          onSuccess={handleEmployeeSuccess}
+        />
+      )}
 
     </div>
   );

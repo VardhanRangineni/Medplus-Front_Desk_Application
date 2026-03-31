@@ -293,6 +293,22 @@ public class UserRepository {
     }
 
     /**
+     * Updates only the BCrypt-encoded password of an existing usermanagement record.
+     * Called when the admin explicitly changes a user's password via the Edit User form.
+     */
+    public void updatePassword(String employeeId, String encodedPassword) {
+        String sql = """
+                UPDATE usermanagement
+                SET password = :password, modifiedBy = 'APP'
+                WHERE employeeid = :employeeId
+                """;
+        namedParameterJdbcTemplate.update(sql, new MapSqlParameterSource()
+                .addValue("employeeId", employeeId)
+                .addValue("password",   encodedPassword)
+        );
+    }
+
+    /**
      * Updates an existing usermanagement record (name, location FK, ip, mac, status).
      */
     public void updateUserManagement(String employeeId, String fullName, String locationId,

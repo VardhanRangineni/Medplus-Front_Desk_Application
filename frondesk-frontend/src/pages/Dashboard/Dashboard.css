@@ -36,17 +36,11 @@
 }
 
 .db-stat-card {
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(16px) saturate(160%);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  background: #ffffff;
   border-radius: 14px;
   padding: 16px 18px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.85);
-  border-top-color: rgba(255, 255, 255, 0.98);
-  box-shadow:
-    0 4px 18px rgba(0, 0, 0, 0.06),
-    0 1px  4px rgba(0, 0, 0, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.90);
+  border: 1px solid #e8eaed;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .db-stat-card__top {
@@ -214,16 +208,10 @@
 
 /* ── Visitor flow chart card ─────────────────────────────────────────────── */
 .db-chart-card {
-  background: rgba(255, 255, 255, 0.70);
-  backdrop-filter: blur(16px) saturate(160%);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  background: #ffffff;
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.85);
-  border-top-color: rgba(255, 255, 255, 0.98);
-  box-shadow:
-    0 4px 18px rgba(0, 0, 0, 0.06),
-    0 1px  4px rgba(0, 0, 0, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.90);
+  border: 1px solid #e8eaed;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
   padding: 18px 18px 12px;
   display: flex;
   flex-direction: column;
@@ -271,18 +259,11 @@
 
 /* ── Recent Visitors table ───────────────────────────────────────────────── */
 .db-table-card {
-  background: rgba(255, 255, 255, 0.52);
-  backdrop-filter: blur(16px) saturate(160%);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  background: #ffffff;
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.85);
-  border-top-color: rgba(255, 255, 255, 0.98);
-  box-shadow:
-    0 4px 18px rgba(0, 0, 0, 0.06),
-    0 1px  4px rgba(0, 0, 0, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.90);
-  overflow: hidden;       /* keeps border-radius on table rows */
-  border-radius: 14px;
+  border: 1px solid #e8eaed;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
 }
 
 .db-table-card__header {

@@ -41,6 +41,17 @@ const createWindow = () => {
     },
   });
 
+  // Allow camera/microphone access for visitor selfie capture
+  mainWindow.webContents.session.setPermissionRequestHandler(
+    (_webContents, permission, callback) => {
+      callback(permission === 'media');
+    }
+  );
+
+  mainWindow.webContents.session.setPermissionCheckHandler(
+    (_webContents, permission) => permission === 'media'
+  );
+
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
 
   if (process.env.NODE_ENV === 'development') {
@@ -48,39 +59,72 @@ const createWindow = () => {
   }
 };
 
+/* ── Auth session — stored in main process memory, cleared on app quit ── */
+let authSession = null;
+
 /* ── API proxy — all HTTP calls go through main process (no renderer CSP) ── */
 const API_BASE_URL = 'http://localhost:8080';
 
-ipcMain.handle('api-post', (_, { path, body }) => {
+/**
+ * Shared helper: makes an HTTP request through Electron's net module.
+ * Automatically attaches the stored JWT Bearer token when available.
+ *
+ * @param {'GET'|'POST'|'PUT'|'PATCH'|'DELETE'} method
+ * @param {string} url     - Full URL including query string if any
+ * @param {*}      [body]  - Request body (will be JSON-serialised); omit for GET
+ * @returns {Promise<{ ok: boolean, status: number, body: *, error?: string }>}
+ */
+function makeApiRequest(method, url, body) {
   return new Promise((resolve) => {
-    const request = net.request({
-      method: 'POST',
-      url: `${API_BASE_URL}${path}`,
-    });
-    request.setHeader('Content-Type', 'application/json');
+    const req = net.request({ method: method.toUpperCase(), url });
+
+    req.setHeader('Content-Type', 'application/json');
+    if (authSession?.token) {
+      req.setHeader('Authorization', `${authSession.tokenType ?? 'Bearer'} ${authSession.token}`);
+    }
 
     let raw = '';
-    request.on('response', (response) => {
+    req.on('response', (response) => {
       response.on('data', (chunk) => { raw += chunk; });
       response.on('end', () => {
         try {
-          resolve({ ok: response.statusCode >= 200 && response.statusCode < 300, status: response.statusCode, body: JSON.parse(raw) });
+          resolve({
+            ok:     response.statusCode >= 200 && response.statusCode < 300,
+            status: response.statusCode,
+            body:   JSON.parse(raw),
+          });
         } catch {
-          resolve({ ok: false, status: response.statusCode, body: {} });
+          resolve({ ok: false, status: response.statusCode, body: null });
         }
       });
     });
-    request.on('error', (err) => {
-      resolve({ ok: false, status: 0, error: err.message });
-    });
 
-    request.write(JSON.stringify(body));
-    request.end();
+    req.on('error', (err) => resolve({ ok: false, status: 0, error: err.message }));
+
+    if (body !== undefined && body !== null) {
+      req.write(JSON.stringify(body));
+    }
+    req.end();
   });
-});
+}
 
-/* ── Auth session — stored in main process memory, cleared on app quit ── */
-let authSession = null;
+/**
+ * Generic authenticated request handler.
+ * Renderer calls: window.electronAPI.apiRequest(method, path, body?)
+ *
+ * path may include a query string, e.g. '/api/managed-users/search?q=foo'
+ */
+ipcMain.handle('api-request', (_, { method, path, body }) =>
+  makeApiRequest(method, `${API_BASE_URL}${path}`, body)
+);
+
+/**
+ * Legacy unauthenticated POST handler — kept for backward compatibility
+ * with the login flow which must work before a session exists.
+ */
+ipcMain.handle('api-post', (_, { path, body }) =>
+  makeApiRequest('POST', `${API_BASE_URL}${path}`, body)
+);
 
 ipcMain.handle('get-network-info', () => getNetworkInfo());
 

@@ -75,7 +75,11 @@ public class UserManagementService {
             );
         }
 
-        String encoded = passwordEncoder.encode(employeeId);
+        // Use the admin-supplied password if provided; otherwise default to the employee ID.
+        String rawPassword = (dto.getPassword() != null && !dto.getPassword().isBlank())
+                ? dto.getPassword()
+                : employeeId;
+        String encoded = passwordEncoder.encode(rawPassword);
         String status  = dto.isStatus() ? "ACTIVE" : "INACTIVE";
 
         userRepository.insertUserManagement(
@@ -119,6 +123,13 @@ public class UserManagementService {
                 dto.getMacAddress() != null ? dto.getMacAddress().trim()  : null,
                 status
         );
+
+        // Only update the password if the admin explicitly supplied a new one.
+        if (dto.getPassword() != null && !dto.getPassword().isBlank()) {
+            String encoded = passwordEncoder.encode(dto.getPassword());
+            userRepository.updatePassword(employeeId, encoded);
+            log.info("[UserManagement] Password changed for: {}", employeeId);
+        }
 
         log.info("[UserManagement] Updated: {}", employeeId);
 

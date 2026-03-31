@@ -7,13 +7,19 @@ import {
   IconToggleRight,
   IconToggleLeft,
   IconX,
+  IconAlertCircle,
+  IconLock,
+  IconEye,
+  IconEyeOff,
 } from '../../components/Icons/Icons';
 import {
   getManagedUsers,
   createManagedUser,
   updateManagedUser,
   updateManagedUserStatus,
+  searchUsers,
 } from './userManagementService';
+import { searchLocations } from '../LocationMaster/locationService';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const EMPTY_FORM = {
@@ -23,15 +29,81 @@ const EMPTY_FORM = {
   ipAddress:  '',
   macAddress: '',
   status:     true,
+  password:   '',
 };
 
 const SKELETON_ROW_COUNT = 6;
 
 // ─── Add / Edit Modal ─────────────────────────────────────────────────────────
-function UserModal({ user, onClose, onSave, saving }) {
-  const [form,   setForm]   = useState(user ?? EMPTY_FORM);
-  const [errors, setErrors] = useState({});
+function UserModal({ user, onClose, onSave, saving, saveError }) {
+  const [form,         setForm]        = useState(() => user ? {
+    id:         user.id         ?? '',
+    name:       user.name       ?? '',
+    location:   user.location   ?? '',
+    ipAddress:  user.ipAddress  ?? '',
+    macAddress: user.macAddress ?? '',
+    status:     user.status     ?? true,
+    password:   '',   // never pre-populated — backend never returns it
+  } : EMPTY_FORM);
+  const [errors,       setErrors]      = useState({});
+  const [showPassword, setShowPassword] = useState(false);
   const isEdit = !!user;
+
+  // ── Typeahead state ──────────────────────────────────────────────────────
+  const [userSuggestions, setUserSuggestions] = useState([]);
+  const [activeUserField, setActiveUserField] = useState(null); // 'id' | 'name' | null
+  const [locSuggestions,  setLocSuggestions]  = useState([]);
+  const [showLocDropdown, setShowLocDropdown] = useState(false);
+  const userTimer = useRef(null);
+  const locTimer  = useRef(null);
+
+  // Clear timers on unmount
+  useEffect(() => () => {
+    clearTimeout(userTimer.current);
+    clearTimeout(locTimer.current);
+  }, []);
+
+  const triggerUserSearch = (q) => {
+    clearTimeout(userTimer.current);
+    if (!q.trim()) { setUserSuggestions([]); return; }
+    userTimer.current = setTimeout(async () => {
+      try {
+        const res = await searchUsers(q.trim());
+        setUserSuggestions(res ?? []);
+      } catch { setUserSuggestions([]); }
+    }, 280);
+  };
+
+  const pickUser = (u) => {
+    setForm((f) => ({
+      ...f,
+      id:       u.id       ?? f.id,
+      name:     u.name     ?? f.name,
+      location: u.location ?? f.location,
+    }));
+    setErrors((e) => ({ ...e, id: undefined, name: undefined, location: undefined }));
+    setUserSuggestions([]);
+    setActiveUserField(null);
+  };
+
+  const triggerLocSearch = (q) => {
+    clearTimeout(locTimer.current);
+    if (!q.trim()) { setLocSuggestions([]); setShowLocDropdown(false); return; }
+    locTimer.current = setTimeout(async () => {
+      try {
+        const res = await searchLocations(q.trim());
+        setLocSuggestions(res ?? []);
+        setShowLocDropdown((res?.length ?? 0) > 0);
+      } catch { setLocSuggestions([]); setShowLocDropdown(false); }
+    }, 280);
+  };
+
+  const pickLocation = (loc) => {
+    setForm((f) => ({ ...f, location: loc.name }));
+    setErrors((e) => ({ ...e, location: undefined }));
+    setLocSuggestions([]);
+    setShowLocDropdown(false);
+  };
 
   const set = (key, value) => {
     setForm((f) => ({ ...f, [key]: value }));
@@ -45,6 +117,7 @@ function UserModal({ user, onClose, onSave, saving }) {
     if (!form.location.trim())   e.location   = 'Location is required.';
     if (!form.ipAddress.trim())  e.ipAddress  = 'IP address is required.';
     if (!form.macAddress.trim()) e.macAddress = 'MAC address is required.';
+    if (!isEdit && !form.password.trim()) e.password = 'Password is required.';
     return e;
   };
 
@@ -71,40 +144,111 @@ function UserModal({ user, onClose, onSave, saving }) {
         <form className="umg-modal__body" onSubmit={handleSubmit} noValidate>
 
           <div className="umg-field-row">
-            <label className="umg-field">
-              <span className="umg-field__label">Employee ID</span>
-              <input
-                className={`umg-input${errors.id ? ' umg-input--error' : ''}`}
-                value={form.id}
-                onChange={(e) => set('id', e.target.value)}
-                placeholder="e.g. EMP-008"
-                disabled={isEdit}
-              />
-              {errors.id && <span className="umg-field__error">{errors.id}</span>}
-            </label>
 
-            <label className="umg-field">
+            {/* ── Employee ID — typeahead (add mode only) ──────────────── */}
+            <div className="umg-field">
+              <span className="umg-field__label">Employee ID</span>
+              <div className="umg-typeahead">
+                <input
+                  className={`umg-input${errors.id ? ' umg-input--error' : ''}`}
+                  value={form.id}
+                  onChange={(e) => {
+                    set('id', e.target.value);
+                    if (!isEdit) { setActiveUserField('id'); triggerUserSearch(e.target.value); }
+                  }}
+                  onBlur={() => setTimeout(() => setActiveUserField(null), 150)}
+                  onKeyDown={(e) => { if (e.key === 'Escape') { setActiveUserField(null); setUserSuggestions([]); } }}
+                  placeholder="e.g. EMP-008"
+                  disabled={isEdit}
+                  autoComplete="off"
+                />
+                {activeUserField === 'id' && userSuggestions.length > 0 && (
+                  <ul className="umg-dropdown" role="listbox">
+                    {userSuggestions.map((u) => (
+                      <li
+                        key={u.id}
+                        className="umg-dropdown__item"
+                        onMouseDown={(e) => { e.preventDefault(); pickUser(u); }}
+                        role="option"
+                      >
+                        <span className="umg-dropdown__primary">{u.id}</span>
+                        <span className="umg-dropdown__secondary">{u.name}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              {errors.id && <span className="umg-field__error">{errors.id}</span>}
+            </div>
+
+            {/* ── Employee Name — typeahead (add mode only) ────────────── */}
+            <div className="umg-field">
               <span className="umg-field__label">Employee Name</span>
-              <input
-                className={`umg-input${errors.name ? ' umg-input--error' : ''}`}
-                value={form.name}
-                onChange={(e) => set('name', e.target.value)}
-                placeholder="Full name"
-              />
+              <div className="umg-typeahead">
+                <input
+                  className={`umg-input${errors.name ? ' umg-input--error' : ''}`}
+                  value={form.name}
+                  onChange={(e) => {
+                    set('name', e.target.value);
+                    if (!isEdit) { setActiveUserField('name'); triggerUserSearch(e.target.value); }
+                  }}
+                  onBlur={() => setTimeout(() => setActiveUserField(null), 150)}
+                  onKeyDown={(e) => { if (e.key === 'Escape') { setActiveUserField(null); setUserSuggestions([]); } }}
+                  placeholder="Full name"
+                  autoComplete="off"
+                />
+                {activeUserField === 'name' && userSuggestions.length > 0 && (
+                  <ul className="umg-dropdown" role="listbox">
+                    {userSuggestions.map((u) => (
+                      <li
+                        key={u.id}
+                        className="umg-dropdown__item"
+                        onMouseDown={(e) => { e.preventDefault(); pickUser(u); }}
+                        role="option"
+                      >
+                        <span className="umg-dropdown__primary">{u.name}</span>
+                        <span className="umg-dropdown__secondary">{u.id}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
               {errors.name && <span className="umg-field__error">{errors.name}</span>}
-            </label>
+            </div>
+
           </div>
 
-          <label className="umg-field">
+          {/* ── Location — typeahead (both add and edit mode) ────────────── */}
+          <div className="umg-field">
             <span className="umg-field__label">Location</span>
-            <input
-              className={`umg-input${errors.location ? ' umg-input--error' : ''}`}
-              value={form.location}
-              onChange={(e) => set('location', e.target.value)}
-              placeholder="e.g. Branch - Kondapur"
-            />
+            <div className="umg-typeahead">
+              <input
+                className={`umg-input${errors.location ? ' umg-input--error' : ''}`}
+                value={form.location}
+                onChange={(e) => { set('location', e.target.value); triggerLocSearch(e.target.value); }}
+                onBlur={() => setTimeout(() => setShowLocDropdown(false), 150)}
+                onKeyDown={(e) => { if (e.key === 'Escape') { setShowLocDropdown(false); setLocSuggestions([]); } }}
+                placeholder="Search location…"
+                autoComplete="off"
+              />
+              {showLocDropdown && locSuggestions.length > 0 && (
+                <ul className="umg-dropdown" role="listbox">
+                  {locSuggestions.map((loc) => (
+                    <li
+                      key={loc.code}
+                      className="umg-dropdown__item"
+                      onMouseDown={(e) => { e.preventDefault(); pickLocation(loc); }}
+                      role="option"
+                    >
+                      <span className="umg-dropdown__primary">{loc.name}</span>
+                      <span className="umg-dropdown__secondary">{loc.city}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             {errors.location && <span className="umg-field__error">{errors.location}</span>}
-          </label>
+          </div>
 
           <div className="umg-field-row">
             <label className="umg-field">
@@ -130,6 +274,37 @@ function UserModal({ user, onClose, onSave, saving }) {
             </label>
           </div>
 
+          <label className="umg-field">
+            <span className="umg-field__label">
+              {isEdit ? 'New Password' : 'Password'}
+              {isEdit && <span className="umg-field__optional"> (leave blank to keep current)</span>}
+            </span>
+            <div className={`umg-input-wrap${errors.password ? ' umg-input-wrap--error' : ''}`}>
+              <IconLock size={13} className="umg-input-wrap__icon" />
+              <input
+                className="umg-input umg-input--padded-icon"
+                type={showPassword ? 'text' : 'password'}
+                value={form.password}
+                onChange={(e) => set('password', e.target.value)}
+                placeholder={isEdit ? 'Enter new password to change it' : 'Enter password'}
+                autoComplete="new-password"
+              />
+              <button
+                type="button"
+                className="umg-input-wrap__eye"
+                onClick={() => setShowPassword((v) => !v)}
+                tabIndex={-1}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <IconEyeOff size={14} /> : <IconEye size={14} />}
+              </button>
+            </div>
+            {errors.password && <span className="umg-field__error">{errors.password}</span>}
+            {!isEdit && !errors.password && (
+              <span className="umg-field__hint">If left blank, defaults to the employee ID.</span>
+            )}
+          </label>
+
           <div className="umg-field umg-field--inline">
             <span className="umg-field__label">Status</span>
             <button
@@ -146,9 +321,17 @@ function UserModal({ user, onClose, onSave, saving }) {
             </button>
           </div>
 
+          {/* Save error */}
+          {saveError && (
+            <div className="umg-modal__error" role="alert">
+              <IconAlertCircle size={13} />
+              <span>{saveError}</span>
+            </div>
+          )}
+
           {/* Footer */}
           <div className="umg-modal__footer">
-            <button type="button" className="umg-btn umg-btn--ghost" onClick={onClose}>
+            <button type="button" className="umg-btn umg-btn--ghost" onClick={onClose} disabled={saving}>
               Cancel
             </button>
             <button type="submit" className="umg-btn umg-btn--primary" disabled={saving}>
@@ -169,13 +352,16 @@ export default function UserManagement() {
   const [initLoading, setInitLoading] = useState(true);
   const [modal,       setModal]       = useState(null); // null | 'add' | user-object
   const [saving,      setSaving]      = useState(false);
+  const [error,       setError]       = useState('');   // page-level error banner
+  const [saveError,   setSaveError]   = useState('');   // modal-level save error
 
   // ── Load on mount ────────────────────────────────────────────────────────
   useEffect(() => {
     let active = true;
+    setError('');
     getManagedUsers()
-      .then((data) => { if (active) setUsers(data); })
-      .catch(() => {})
+      .then((data) => { if (active) setUsers(data ?? []); })
+      .catch((err) => { if (active) setError(err.message ?? 'Failed to load users.'); })
       .finally(() => { if (active) setInitLoading(false); });
     return () => { active = false; };
   }, []);
@@ -183,6 +369,7 @@ export default function UserManagement() {
   // ── Save (add / edit) ────────────────────────────────────────────────────
   const handleSave = useCallback(async (form) => {
     setSaving(true);
+    setSaveError('');
     try {
       if (modal === 'add') {
         const created = await createManagedUser(form);
@@ -192,24 +379,30 @@ export default function UserManagement() {
         setUsers((prev) => prev.map((u) => u.id === updated.id ? updated : u));
       }
       setModal(null);
-    } catch {
-      // errors can be surfaced here once a toast system is added
+    } catch (err) {
+      setSaveError(err.message ?? 'Failed to save. Please try again.');
     } finally {
       setSaving(false);
     }
   }, [modal]);
 
-  // ── Status toggle (optimistic) ───────────────────────────────────────────
+  const handleModalClose = useCallback(() => {
+    if (!saving) { setModal(null); setSaveError(''); }
+  }, [saving]);
+
+  // ── Status toggle (optimistic UI, roll back on failure) ──────────────────
   const handleToggle = useCallback(async (id) => {
     const original = users.find((u) => u.id === id);
     if (!original) return;
     const next = !original.status;
 
     setUsers((prev) => prev.map((u) => u.id === id ? { ...u, status: next } : u));
+    setError('');
     try {
       await updateManagedUserStatus(id, next);
-    } catch {
+    } catch (err) {
       setUsers((prev) => prev.map((u) => u.id === id ? original : u));
+      setError(err.message ?? 'Failed to update status. Please try again.');
     }
   }, [users]);
 
@@ -229,6 +422,21 @@ export default function UserManagement() {
 
   return (
     <div className="umg-page">
+
+      {/* ── Page-level error banner ──────────────────────────────────────── */}
+      {error && (
+        <div className="umg-error-banner" role="alert">
+          <IconAlertCircle size={15} />
+          <span>{error}</span>
+          <button
+            className="umg-error-banner__dismiss"
+            onClick={() => setError('')}
+            aria-label="Dismiss error"
+          >
+            <IconX size={12} />
+          </button>
+        </div>
+      )}
 
       {/* ── Page header ─────────────────────────────────────────────────── */}
       <header className="umg-page__header">
@@ -347,9 +555,10 @@ export default function UserManagement() {
       {modal && (
         <UserModal
           user={modal === 'add' ? null : modal}
-          onClose={() => !saving && setModal(null)}
+          onClose={handleModalClose}
           onSave={handleSave}
           saving={saving}
+          saveError={saveError}
         />
       )}
 
