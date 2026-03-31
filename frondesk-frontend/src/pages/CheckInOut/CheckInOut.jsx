@@ -15,8 +15,11 @@ import {
   IconBuilding,
 } from '../../components/Icons/Icons';
 import { getEntries, checkOutEntry, checkOutMember } from './checkInOutService';
-import AddVisitorModal  from './AddVisitorModal/AddVisitorModal';
-import AddEmployeeModal from './AddEmployeeModal/AddEmployeeModal';
+import AddVisitorModal   from './AddVisitorModal/AddVisitorModal';
+import AddEmployeeModal  from './AddEmployeeModal/AddEmployeeModal';
+import ViewEntryModal    from './ViewEntryModal/ViewEntryModal';
+import EditVisitorModal  from './EditVisitorModal/EditVisitorModal';
+import EditEmployeeModal from './EditEmployeeModal/EditEmployeeModal';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TAB_ALL        = 'all';
@@ -83,7 +86,7 @@ function MemberRow({ member, entryId, onCheckOut }) {
 }
 
 // ─── Sub-component: main entry row ────────────────────────────────────────────
-function EntryRow({ entry, expanded, onToggleExpand, onCheckOut, onMemberCheckOut }) {
+function EntryRow({ entry, expanded, onToggleExpand, onCheckOut, onMemberCheckOut, onView, onEdit }) {
   const hasMembers = entry.members.length > 0;
   const isIn       = entry.status === 'checked-in';
   const status     = resolveStatus(entry);
@@ -151,6 +154,7 @@ function EntryRow({ entry, expanded, onToggleExpand, onCheckOut, onMemberCheckOu
           <div className="ci-actions">
             <button
               className="ci-action-btn ci-action-btn--view"
+              onClick={() => onView(entry)}
               aria-label={`View ${entry.name}`}
               title="View"
             >
@@ -159,6 +163,7 @@ function EntryRow({ entry, expanded, onToggleExpand, onCheckOut, onMemberCheckOu
             {isIn && (
               <button
                 className="ci-action-btn ci-action-btn--edit"
+                onClick={() => onEdit(entry)}
                 aria-label={`Edit ${entry.name}`}
                 title="Edit"
               >
@@ -264,6 +269,9 @@ export default function CheckInOut() {
   const [entryTypeModalOpen,  setEntryTypeModalOpen]  = useState(false);
   const [addVisitorOpen,      setAddVisitorOpen]      = useState(false);
   const [addEmployeeOpen,     setAddEmployeeOpen]     = useState(false);
+  // View / Edit state
+  const [viewEntry,           setViewEntry]           = useState(null);
+  const [editEntry,           setEditEntry]           = useState(null);
   const filterRef = useRef(null);
 
   // ── Load entries on mount ───────────────────────────────────────────────
@@ -353,6 +361,22 @@ export default function CheckInOut() {
   }, []);
   const handleEmployeeSuccess  = useCallback(() => {
     setAddEmployeeOpen(false);
+    const today = new Date().toISOString().split('T')[0];
+    getEntries(today).then(setEntries).catch(() => {});
+  }, []);
+
+  // ── View entry ──────────────────────────────────────────────────────────
+  const handleView = useCallback((entry) => setViewEntry(entry), []);
+  const handleCloseView = useCallback(() => setViewEntry(null), []);
+
+  // ── Edit entry ───────────────────────────────────────────────────────────
+  const handleEdit = useCallback((entry) => {
+    setViewEntry(null);   // close view modal if open
+    setEditEntry(entry);
+  }, []);
+  const handleCloseEdit  = useCallback(() => setEditEntry(null), []);
+  const handleEditSuccess = useCallback(() => {
+    setEditEntry(null);
     const today = new Date().toISOString().split('T')[0];
     getEntries(today).then(setEntries).catch(() => {});
   }, []);
@@ -521,6 +545,8 @@ export default function CheckInOut() {
                     onToggleExpand={toggleExpand}
                     onCheckOut={handleCheckOut}
                     onMemberCheckOut={handleMemberCheckOut}
+                    onView={handleView}
+                    onEdit={handleEdit}
                   />
                 ))
               )}
@@ -560,6 +586,31 @@ export default function CheckInOut() {
           onClose={handleCloseAddEmployee}
           onBack={handleEmployeeBack}
           onSuccess={handleEmployeeSuccess}
+        />
+      )}
+
+      {/* ── View Entry Modal ───────────────────────────────────────────── */}
+      {viewEntry && (
+        <ViewEntryModal
+          entry={viewEntry}
+          onClose={handleCloseView}
+          onEdit={handleEdit}
+        />
+      )}
+
+      {/* ── Edit Entry Modals ──────────────────────────────────────────── */}
+      {editEntry && editEntry.type === 'VISITOR' && (
+        <EditVisitorModal
+          entry={editEntry}
+          onClose={handleCloseEdit}
+          onSuccess={handleEditSuccess}
+        />
+      )}
+      {editEntry && editEntry.type === 'EMPLOYEE' && (
+        <EditEmployeeModal
+          entry={editEntry}
+          onClose={handleCloseEdit}
+          onSuccess={handleEditSuccess}
         />
       )}
 

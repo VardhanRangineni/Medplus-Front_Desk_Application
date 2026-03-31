@@ -97,6 +97,43 @@ export async function getDepartments() {
  * @param {object} visitorData  Full payload assembled by AddVisitorModal
  * @returns {Promise<{ success: boolean, entryId: string }>}
  */
+/**
+ * Updates an existing visitor entry.
+ *
+ * Endpoint: PUT /api/visitors/:id
+ *
+ * TODO: ATTACH API — replace stub when backend is ready.
+ *
+ * @param {string} id
+ * @param {object} visitorData  Full payload assembled by AddVisitorModal (edit mode)
+ * @returns {Promise<{ success: boolean, entryId: string }>}
+ */
+export async function updateVisitorEntry(id, visitorData) {
+  const isGroup = visitorData.visitType === 'group';
+  const payload = {
+    visitType:      visitorData.visitType.toUpperCase(),
+    entryType:      'VISITOR',
+    name:           visitorData.fullName,
+    mobile:         visitorData.mobile || null,
+    email:          visitorData.email  || null,
+    govtIdType:     visitorData.govtIdType   || null,
+    govtIdNumber:   visitorData.govtIdNumber || null,
+    personToMeetId: visitorData.personToMeet,
+    cardNumber:     isGroup
+                      ? (visitorData.leadCardNumber ? parseInt(visitorData.leadCardNumber, 10) : null)
+                      : (visitorData.cardNumber     ? parseInt(visitorData.cardNumber,     10) : null),
+    reasonForVisit: visitorData.reasonForVisit || null,
+    members: isGroup
+      ? (visitorData.members || []).map((m) => ({
+          name:       m.name,
+          cardNumber: m.card ? parseInt(m.card, 10) : null,
+        }))
+      : null,
+  };
+  const entry = await api('PUT', `/api/visitors/${encodeURIComponent(id)}`, payload);
+  return { success: true, entryId: entry.id ?? id };
+}
+
 export async function createVisitorEntry(visitorData) {
   const isGroup = visitorData.visitType === 'group';
 

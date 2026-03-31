@@ -76,6 +76,40 @@ export async function verifyEmployeeOtp(empId, otp) {
  * @param {object} data  Full payload assembled by AddEmployeeModal
  * @returns {Promise<{ success: boolean, entryId: string }>}
  */
+/**
+ * Updates an existing employee entry.
+ *
+ * Endpoint: PUT /api/visitors/:id
+ *
+ * TODO: ATTACH API — replace stub when backend is ready.
+ *
+ * @param {string} id
+ * @param {object} data  Full payload assembled by AddEmployeeModal (edit mode)
+ * @returns {Promise<{ success: boolean, entryId: string }>}
+ */
+export async function updateEmployeeEntry(id, data) {
+  const isGroup = data.visitType === 'group';
+  const payload = {
+    visitType:      data.visitType.toUpperCase(),
+    entryType:      'EMPLOYEE',
+    name:           data.name,
+    empId:          data.empId,
+    personToMeetId: data.personToMeet,
+    cardNumber:     isGroup
+                      ? (data.leadCardNumber ? parseInt(data.leadCardNumber, 10) : null)
+                      : (data.cardNumber     ? parseInt(data.cardNumber,     10) : null),
+    reasonForVisit: data.reasonForVisit || null,
+    members: isGroup
+      ? (data.members || []).map((m) => ({
+          name:       m.name,
+          cardNumber: m.card ? parseInt(m.card, 10) : null,
+        }))
+      : null,
+  };
+  const entry = await api('PUT', `/api/visitors/${encodeURIComponent(id)}`, payload);
+  return { success: true, entryId: entry.id ?? id };
+}
+
 export async function createEmployeeEntry(data) {
   const isGroup = data.visitType === 'group';
 

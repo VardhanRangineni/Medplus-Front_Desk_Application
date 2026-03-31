@@ -31,6 +31,7 @@ import {
   getPersonsToMeet,
   getDepartments,
   createEmployeeEntry,
+  updateEmployeeEntry,
 } from './addEmployeeService';
 
 // ─── Shared primitives (same design as AddVisitorModal) ───────────────────────

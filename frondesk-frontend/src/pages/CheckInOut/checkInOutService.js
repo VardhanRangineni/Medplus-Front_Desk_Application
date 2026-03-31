@@ -101,3 +101,34 @@ export async function checkOutMember(entryId, memberId) {
     `/api/visitors/${encodeURIComponent(entryId)}/members/${encodeURIComponent(memberId)}/checkout`
   );
 }
+
+/**
+ * Fetches the full details of a single entry (includes photo, email, govtId, etc.)
+ *
+ * Endpoint: GET /api/visitors/:id
+ *
+ * TODO: ATTACH API — replace stub when backend GET /api/visitors/:id is ready.
+ *
+ * @param {string} id
+ * @returns {Promise<Entry>}
+ */
+export async function getEntryDetail(id) {
+  const data = await api('GET', `/api/visitors/${encodeURIComponent(id)}`);
+  return normalise(data);
+}
+
+/**
+ * Updates an existing entry (visitor or employee).
+ *
+ * Endpoint: PUT /api/visitors/:id
+ *
+ * TODO: ATTACH API — replace stub when backend PUT /api/visitors/:id is ready.
+ *
+ * @param {string} id
+ * @param {object} payload
+ * @returns {Promise<Entry>}
+ */
+export async function updateEntry(id, payload) {
+  const data = await api('PUT', `/api/visitors/${encodeURIComponent(id)}`, payload);
+  return normalise(data);
+}

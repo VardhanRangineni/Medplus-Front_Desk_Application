@@ -1,0 +1,30 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   EditVisitorModal — loading state additions.
+   All other styles are inherited from AddVisitorModal.css (avm-* classes).
+───────────────────────────────────────────────────────────────────────────── */
+
+.evm-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 48px 24px;
+  color: #aaa;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.evm-loading__spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid #e8eaed;
+  border-top-color: #C2181D;
+  border-radius: 50%;
+  animation: evm-spin 0.7s linear infinite;
+}
+
+@keyframes evm-spin {
+  to { transform: rotate(360deg); }
+}

@@ -22,6 +22,7 @@ import {
   getPersonsToMeet,
   getDepartments,
   createVisitorEntry,
+  updateVisitorEntry,
 } from './addVisitorService';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -162,7 +163,7 @@ function Step1({ state, dispatch }) {
 // ─── Step 2 — Visitor details ─────────────────────────────────────────────────
 function Step2({ state, dispatch, refData }) {
   const {
-    visitType, location, fullName, email, govtIdType,
+    visitType, location, fullName, email, govtIdType, govtIdNumber,
     personToMeet, hostDepartment, reasonForVisit,
     cardNumber, leadCardNumber, members,
   } = state;
@@ -231,7 +232,7 @@ function Step2({ state, dispatch, refData }) {
         />
       </Field>
 
-      {/* Govt ID */}
+      {/* Govt ID type */}
       <Field label="Verified Govt. ID (Lead Only)">
         <SelectField
           placeholder="Select ID Type"
@@ -240,6 +241,21 @@ function Step2({ state, dispatch, refData }) {
           options={GOVT_ID_TYPES}
         />
       </Field>
+
+      {/* Govt ID number — shown only when a type is selected */}
+      {govtIdType && (
+        <Field label={`${GOVT_ID_TYPES.find((t) => t.id === govtIdType)?.name} Number`} required>
+          <InputWithIcon
+            icon={<IconCreditCard size={14} />}
+            type="text"
+            placeholder="Enter the ID number"
+            value={govtIdNumber}
+            onChange={(e) =>
+              dispatch({ type: 'SET_FIELD', field: 'govtIdNumber', value: e.target.value })
+            }
+          />
+        </Field>
+      )}
 
       {/* Person to meet — auto-fills Host Department */}
       <Field label="Person To Meet" required>
@@ -425,6 +441,7 @@ const initialState = {
   fullName:       '',
   email:          '',
   govtIdType:     '',
+  govtIdNumber:   '',
   personToMeet:   '',
   hostDepartment: '',
   reasonForVisit: '',
@@ -644,6 +661,7 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
         fullName:       formState.fullName,
         email:          formState.email,
         govtIdType:     formState.govtIdType,
+        govtIdNumber:   formState.govtIdNumber,
         personToMeet:   formState.personToMeet,
         hostDepartment: formState.hostDepartment,
         reasonForVisit: formState.reasonForVisit,
