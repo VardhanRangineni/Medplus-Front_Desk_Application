@@ -85,7 +85,7 @@ public class UserManagementService {
                 locationId,
                 status,
                 "RECEPTIONIST",
-                dto.getIpAddress() != null ? dto.getIpAddress().trim() : "0.0.0.0"
+                (dto.getIpAddress() != null && !dto.getIpAddress().isBlank()) ? dto.getIpAddress().trim() : "0.0.0.0"
         );
 
         log.info("[UserManagement] Created: {} ({})", employeeId, dto.getName());

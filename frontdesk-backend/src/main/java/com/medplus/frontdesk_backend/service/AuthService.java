@@ -47,8 +47,9 @@ public class AuthService {
         // ── Step 2: IP address validation ─────────────────────────────────────
         String storedIp    = user.getIpaddress();
         String incomingIp  = request.getIpAddress();
+        boolean ipRegistered = StringUtils.hasText(storedIp) && !"0.0.0.0".equals(storedIp);
 
-        if (StringUtils.hasText(storedIp) && !storedIp.equals(incomingIp)) {
+        if (ipRegistered && !storedIp.equals(incomingIp)) {
             log.warn("IP mismatch for employeeId: {}. Registered: {}, Provided: {}",
                     user.getEmployeeid(), storedIp, incomingIp);
             throw new DeviceNotAuthorizedException(
@@ -68,8 +69,14 @@ public class AuthService {
                         "Only registered Medplus network devices are allowed.");
             }
         } else {
-            log.info("First-time device registration for employeeId: {}, MAC: {}", user.getEmployeeid(), incomingMac);
-            userRepository.updateMacAddress(user.getEmployeeid(), incomingMac);
+            if (!ipRegistered) {
+                log.info("First-time device registration for employeeId: {}, IP: {}, MAC: {}",
+                        user.getEmployeeid(), incomingIp, incomingMac);
+                userRepository.updateIpAndMac(user.getEmployeeid(), incomingIp, incomingMac);
+            } else {
+                log.info("First-time MAC registration for employeeId: {}, MAC: {}", user.getEmployeeid(), incomingMac);
+                userRepository.updateMacAddress(user.getEmployeeid(), incomingMac);
+            }
         }
 
         // ── Step 4: Generate token and build response ─────────────────────────

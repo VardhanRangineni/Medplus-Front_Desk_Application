@@ -74,3 +74,54 @@ CREATE TABLE IF NOT EXISTS `usermanagement` (
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_0900_ai_ci
   COMMENT='User credentials, roles, location assignments and device-lock info';
+
+
+-- ── 4. visitorlog ─────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS `visitorlog` (
+    `visitorId`      VARCHAR(20)                        NOT NULL  COMMENT 'Auto-generated: MED-V-0001 (Individual) or MED-GV-0001 (Group)',
+    `visitType`      ENUM('INDIVIDUAL','GROUP')          NOT NULL  COMMENT 'Individual or Group visit',
+    `entryType`      ENUM('VISITOR','EMPLOYEE')          NOT NULL  COMMENT 'External visitor or internal employee',
+    `name`           VARCHAR(150)                       NOT NULL  COMMENT 'Primary visitor / employee name',
+    `mobile`         VARCHAR(20)                        DEFAULT NULL COMMENT 'Mobile number (VISITOR only)',
+    `empId`          VARCHAR(100)                       DEFAULT NULL COMMENT 'Employee ID (EMPLOYEE only)',
+    `status`         ENUM('CHECKED_IN','CHECKED_OUT')   NOT NULL  DEFAULT 'CHECKED_IN',
+    `personToMeet`   VARCHAR(100)                       NOT NULL  COMMENT 'employeeid of the person being visited',
+    `personName`     VARCHAR(150)                       NOT NULL  COMMENT 'Full name of person to meet (denormalised)',
+    `department`     VARCHAR(120)                       NOT NULL  COMMENT 'Department of personToMeet at time of visit',
+    `locationId`     VARCHAR(50)                        NOT NULL  COMMENT 'Location where check-in occurred',
+    `cardNumber`     INT                                DEFAULT NULL COMMENT 'Visitor card / badge number',
+    `checkInTime`    TIMESTAMP                          NOT NULL  DEFAULT CURRENT_TIMESTAMP,
+    `checkOutTime`   TIMESTAMP                          DEFAULT NULL,
+    `reasonForVisit` TEXT                               DEFAULT NULL,
+    `createdBy`      VARCHAR(100)                       NOT NULL,
+    `modifiedBy`     VARCHAR(100)                       DEFAULT NULL,
+    `modifiedAt`     TIMESTAMP                          NOT NULL  DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`visitorId`),
+    KEY `idx_vlog_location_date` (`locationId`, `checkInTime`),
+    CONSTRAINT `fk_vlog_location`
+        FOREIGN KEY (`locationId`) REFERENCES `locationmaster` (`LocationId`)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='Visitor / employee check-in and check-out log';
+
+
+-- ── 5. visitormember ──────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS `visitormember` (
+    `memberId`     VARCHAR(20)                        NOT NULL  COMMENT 'Auto-generated: MED-GM-0001',
+    `visitorId`    VARCHAR(20)                        NOT NULL  COMMENT 'Parent visitorlog entry (group visit)',
+    `name`         VARCHAR(150)                       NOT NULL  COMMENT 'Member name',
+    `cardNumber`   INT                                DEFAULT NULL,
+    `status`       ENUM('CHECKED_IN','CHECKED_OUT')   NOT NULL  DEFAULT 'CHECKED_IN',
+    `checkOutTime` TIMESTAMP                          DEFAULT NULL,
+    `createdAt`    TIMESTAMP                          NOT NULL  DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`memberId`),
+    KEY `fk_vmember_visitor` (`visitorId`),
+    CONSTRAINT `fk_vmember_visitor`
+        FOREIGN KEY (`visitorId`) REFERENCES `visitorlog` (`visitorId`)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='Additional members of a group visitor entry';

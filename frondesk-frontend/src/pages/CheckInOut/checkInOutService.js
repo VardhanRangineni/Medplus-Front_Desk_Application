@@ -53,13 +53,13 @@ async function request(path, options = {}) {
  * Fetches all check-in/check-out entries for the given date.
  *
  * TODO: uncomment when backend is ready
- * Endpoint: GET /api/entries?date=YYYY-MM-DD
+ * Endpoint: GET /api/visitors?date=YYYY-MM-DD
  *
  * @param {string} date - ISO date string (e.g. "2026-03-28")
  * @returns {Promise<Entry[]>}
  */
 export async function getEntries(date) {
-  // return request(`/api/entries?date=${encodeURIComponent(date)}`);
+  // return request(`/api/visitors?date=${encodeURIComponent(date)}`);
   return _mockDelay(MOCK_ENTRIES);
 }
 
@@ -67,13 +67,13 @@ export async function getEntries(date) {
  * Checks out a main entry (visitor or employee).
  *
  * TODO: uncomment when backend is ready
- * Endpoint: PATCH /api/entries/:id/checkout
+ * Endpoint: PATCH /api/visitors/:id/checkout
  *
  * @param {string} id
  * @returns {Promise<Entry>}
  */
 export async function checkOutEntry(id) {
-  // return request(`/api/entries/${encodeURIComponent(id)}/checkout`, { method: 'PATCH' });
+  // return request(`/api/visitors/${encodeURIComponent(id)}/checkout`, { method: 'PATCH' });
   return _mockDelay({ id, status: 'checked-out', checkOut: new Date().toISOString() }, 300);
 }
 
@@ -81,7 +81,7 @@ export async function checkOutEntry(id) {
  * Checks out a single member within a visitor group.
  *
  * TODO: uncomment when backend is ready
- * Endpoint: PATCH /api/entries/:entryId/members/:memberId/checkout
+ * Endpoint: PATCH /api/visitors/:entryId/members/:memberId/checkout
  *
  * @param {string} entryId
  * @param {string} memberId
@@ -89,7 +89,7 @@ export async function checkOutEntry(id) {
  */
 export async function checkOutMember(entryId, memberId) {
   // return request(
-  //   `/api/entries/${encodeURIComponent(entryId)}/members/${encodeURIComponent(memberId)}/checkout`,
+  //   `/api/visitors/${encodeURIComponent(entryId)}/members/${encodeURIComponent(memberId)}/checkout`,
   //   { method: 'PATCH' }
   // );
   return _mockDelay({ id: memberId, status: 'checked-out' }, 300);
