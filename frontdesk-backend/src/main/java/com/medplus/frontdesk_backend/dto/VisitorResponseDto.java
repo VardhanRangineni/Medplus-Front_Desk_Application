@@ -37,10 +37,33 @@ public class VisitorResponseDto {
     private String personToMeetId;
 
     private String department;
+
+    /** Alias for department — used by edit forms as "hostDepartment" */
+    private String hostDepartment;
+
     private String locationId;
 
-    /** Visitor card / badge number */
+    /** Location human-readable name (resolved from locationmaster) */
+    private String locationName;
+
+    /** Visitor card / badge number (individual, or lead card for group) */
     private Integer card;
+
+    /** Lead card number — same as card for GROUP visits, null for INDIVIDUAL */
+    private Integer leadCardNumber;
+
+    /** Government ID type used at check-in — e.g. "AADHAAR", "PAN" */
+    private String govtIdType;
+
+    /** Government ID number corresponding to govtIdType */
+    private String govtIdNumber;
+
+    /**
+     * URL of the visitor photo.
+     * Currently served from local storage (http://localhost:8080/images/visitors/...).
+     * TODO: swap to cloud storage URL when storage migration is done.
+     */
+    private String imageUrl;
 
     private LocalDateTime checkIn;
     private LocalDateTime checkOut;

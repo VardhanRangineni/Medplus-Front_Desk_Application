@@ -36,6 +36,19 @@ public class VisitorRequestDto {
 
     private Integer cardNumber;
 
+    /** e.g. "AADHAAR", "PAN", "PASSPORT", "VOTER", "DL" — optional, VISITOR only */
+    private String govtIdType;
+
+    /** The actual ID number corresponding to govtIdType — optional */
+    private String govtIdNumber;
+
+    /**
+     * URL of the visitor photo — set after uploading via POST /api/images/upload.
+     * Currently points to local server (http://localhost:8080/images/visitors/...).
+     * TODO: swap to cloud storage URL when storage migration is done.
+     */
+    private String imageUrl;
+
     private String reasonForVisit;
 
     /** Members list — required (and non-empty) when visitType = GROUP */

@@ -59,6 +59,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/login").permitAll()
                         .requestMatchers("/api/auth/health").permitAll()
+                        .requestMatchers("/images/visitors/**").permitAll()
                         .requestMatchers("/api/sync/**").hasAnyRole("PRIMARY_ADMIN", "REGIONAL_ADMIN")
                         .anyRequest().authenticated()
                 )

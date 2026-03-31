@@ -86,23 +86,34 @@ export async function getDepartments() {
     : [];
 }
 
+// ─── Image upload ─────────────────────────────────────────────────────────────
+
+/**
+ * Uploads a visitor photo to the backend and returns the stored image URL.
+ *
+ * Endpoint: POST /api/images/upload
+ *   Body:     { imageData: "data:image/jpeg;base64,..." }
+ *   Response: { imageUrl: "http://localhost:8080/images/visitors/xyz.jpg" }
+ *
+ * The returned URL is saved in visitorlog.imageUrl.
+ * TODO: when cloud storage is ready, the backend will return a cloud URL instead
+ *       of a local one — no changes needed here.
+ *
+ * @param {string} base64Image  data-URI string from canvas.toDataURL()
+ * @returns {Promise<string>}   public image URL
+ */
+export async function uploadVisitorPhoto(base64Image) {
+  const data = await api('POST', '/api/images/upload', { imageData: base64Image });
+  return data.imageUrl;
+}
+
 // ─── Visitor entry creation ───────────────────────────────────────────────────
 
 /**
- * Submits a new visitor check-in entry.
- * Transforms the modal's form state into the shape expected by the backend.
- *
- * Endpoint: POST /api/visitors
- *
- * @param {object} visitorData  Full payload assembled by AddVisitorModal
- * @returns {Promise<{ success: boolean, entryId: string }>}
- */
-/**
  * Updates an existing visitor entry.
+ * If the modal has a new photo captured, uploads it first and includes the URL.
  *
  * Endpoint: PUT /api/visitors/:id
- *
- * TODO: ATTACH API — replace stub when backend is ready.
  *
  * @param {string} id
  * @param {object} visitorData  Full payload assembled by AddVisitorModal (edit mode)
@@ -110,14 +121,20 @@ export async function getDepartments() {
  */
 export async function updateVisitorEntry(id, visitorData) {
   const isGroup = visitorData.visitType === 'group';
+
+  let imageUrl = visitorData.imageUrl || null;
+  if (visitorData.photo && visitorData.photo.startsWith('data:')) {
+    imageUrl = await uploadVisitorPhoto(visitorData.photo);
+  }
+
   const payload = {
     visitType:      visitorData.visitType.toUpperCase(),
     entryType:      'VISITOR',
     name:           visitorData.fullName,
     mobile:         visitorData.mobile || null,
-    email:          visitorData.email  || null,
     govtIdType:     visitorData.govtIdType   || null,
     govtIdNumber:   visitorData.govtIdNumber || null,
+    imageUrl,
     personToMeetId: visitorData.personToMeet,
     cardNumber:     isGroup
                       ? (visitorData.leadCardNumber ? parseInt(visitorData.leadCardNumber, 10) : null)
@@ -134,16 +151,33 @@ export async function updateVisitorEntry(id, visitorData) {
   return { success: true, entryId: entry.id ?? id };
 }
 
+/**
+ * Submits a new visitor check-in entry.
+ * If a photo was captured, uploads it first and includes the URL in the payload.
+ *
+ * Endpoint: POST /api/visitors
+ *
+ * @param {object} visitorData  Full payload assembled by AddVisitorModal
+ * @returns {Promise<{ success: boolean, entryId: string }>}
+ */
 export async function createVisitorEntry(visitorData) {
   const isGroup = visitorData.visitType === 'group';
 
+  let imageUrl = null;
+  if (visitorData.photo && visitorData.photo.startsWith('data:')) {
+    imageUrl = await uploadVisitorPhoto(visitorData.photo);
+  }
+
   const payload = {
-    visitType:      visitorData.visitType.toUpperCase(),   // individual → INDIVIDUAL
+    visitType:      visitorData.visitType.toUpperCase(),
     entryType:      'VISITOR',
     name:           visitorData.fullName,
     mobile:         visitorData.mobile || null,
     empId:          null,
-    personToMeetId: visitorData.personToMeet,              // employeeId
+    govtIdType:     visitorData.govtIdType   || null,
+    govtIdNumber:   visitorData.govtIdNumber || null,
+    imageUrl,
+    personToMeetId: visitorData.personToMeet,
     cardNumber:     isGroup
                       ? (visitorData.leadCardNumber ? parseInt(visitorData.leadCardNumber, 10) : null)
                       : (visitorData.cardNumber     ? parseInt(visitorData.cardNumber,     10) : null),

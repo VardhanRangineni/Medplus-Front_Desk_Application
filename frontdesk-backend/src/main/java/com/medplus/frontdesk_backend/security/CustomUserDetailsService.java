@@ -1,6 +1,7 @@
 package com.medplus.frontdesk_backend.security;
 
 import com.medplus.frontdesk_backend.model.UserManagement;
+import com.medplus.frontdesk_backend.model.UserStatus;
 import com.medplus.frontdesk_backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,7 +36,7 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .accountExpired(false)
                 .accountLocked(false)
                 .credentialsExpired(false)
-                .disabled("INACTIVE".equalsIgnoreCase(userManagement.getStatus()))
+                .disabled(userManagement.getStatus() == UserStatus.INACTIVE)
                 .build();
     }
 }

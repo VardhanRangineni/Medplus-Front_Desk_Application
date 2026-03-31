@@ -15,7 +15,7 @@ public class Visitor {
 
     private String        visitorId;
     private VisitType     visitType;
-    private String        entryType;
+    private EntryType     entryType;
     private String        name;
     private String        mobile;
     private String        empId;
@@ -25,6 +25,9 @@ public class Visitor {
     private String        department;
     private String        locationId;
     private Integer       cardNumber;
+    private GovtIdType    govtIdType;
+    private String        govtIdNumber;
+    private String        imageUrl;
     private LocalDateTime checkInTime;
     private LocalDateTime checkOutTime;
     private String        reasonForVisit;

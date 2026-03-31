@@ -62,9 +62,10 @@ function DetailRow({ icon, label, value }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ViewEntryModal({ entry, onClose, onEdit }) {
-  const [detail,  setDetail]  = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState('');
+  const [detail,   setDetail]   = useState(null);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState('');
+  const [photoSrc, setPhotoSrc] = useState(null);
 
   // Close on Escape
   useEffect(() => {
@@ -82,6 +83,16 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
       .catch((err) => setError(err?.message || 'Failed to load entry details.'))
       .finally(() => setLoading(false));
   }, [entry.id]);
+
+  // Load photo via Electron IPC so it works regardless of how Chromium handles localhost URLs.
+  // When photos move to cloud storage, this same path works — just pass the cloud URL.
+  useEffect(() => {
+    setPhotoSrc(null);
+    if (!detail?.imageUrl) return;
+    window.electronAPI.getImage(detail.imageUrl)
+      .then((dataUri) => setPhotoSrc(dataUri || null))
+      .catch(() => setPhotoSrc(null));
+  }, [detail?.imageUrl]);
 
   const isVisitor  = entry.type === 'VISITOR';
   const isIn       = entry.status === 'checked-in';
@@ -269,17 +280,17 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
               {/* Photo */}
               <div className="vem-photo-section">
                 <p className="vem-section__title">Photo Proof</p>
-                <div className={`vem-photo-frame${detail.photo ? '' : ' vem-photo-frame--empty'}`}>
-                  {detail.photo ? (
+                <div className={`vem-photo-frame${photoSrc ? '' : ' vem-photo-frame--empty'}`}>
+                  {photoSrc ? (
                     <img
                       className="vem-photo-img"
-                      src={detail.photo}
+                      src={photoSrc}
                       alt={`${entry.name} photo`}
                     />
                   ) : (
                     <div className="vem-photo-placeholder">
                       <IconCamera size={32} />
-                      <span>No photo captured</span>
+                      <span>{detail.imageUrl ? 'Loading photo…' : 'No photo captured'}</span>
                     </div>
                   )}
                 </div>

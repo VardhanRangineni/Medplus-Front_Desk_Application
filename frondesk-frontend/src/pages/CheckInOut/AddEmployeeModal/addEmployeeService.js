@@ -65,23 +65,29 @@ export async function verifyEmployeeOtp(empId, otp) {
   return { verified: false, message: 'Invalid OTP. Please enter the 6-digit code.' };
 }
 
+// ─── Image upload ─────────────────────────────────────────────────────────────
+
+/**
+ * Uploads an employee check-in photo to the backend and returns the stored URL.
+ *
+ * Endpoint: POST /api/images/upload
+ * TODO: when cloud storage is ready the backend will return a cloud URL — no changes needed here.
+ *
+ * @param {string} base64Image  data-URI string from canvas.toDataURL()
+ * @returns {Promise<string>}   public image URL
+ */
+async function uploadEmployeePhoto(base64Image) {
+  const data = await api('POST', '/api/images/upload', { imageData: base64Image });
+  return data.imageUrl;
+}
+
 // ─── Entry creation ───────────────────────────────────────────────────────────
 
 /**
- * Submits a new employee check-in entry.
- * Transforms the modal's form state into the shape expected by the backend.
- *
- * Endpoint: POST /api/visitors
- *
- * @param {object} data  Full payload assembled by AddEmployeeModal
- * @returns {Promise<{ success: boolean, entryId: string }>}
- */
-/**
  * Updates an existing employee entry.
+ * If a new photo was captured, uploads it first and includes the URL.
  *
  * Endpoint: PUT /api/visitors/:id
- *
- * TODO: ATTACH API — replace stub when backend is ready.
  *
  * @param {string} id
  * @param {object} data  Full payload assembled by AddEmployeeModal (edit mode)
@@ -89,11 +95,18 @@ export async function verifyEmployeeOtp(empId, otp) {
  */
 export async function updateEmployeeEntry(id, data) {
   const isGroup = data.visitType === 'group';
+
+  let imageUrl = data.imageUrl || null;
+  if (data.photo && data.photo.startsWith('data:')) {
+    imageUrl = await uploadEmployeePhoto(data.photo);
+  }
+
   const payload = {
     visitType:      data.visitType.toUpperCase(),
     entryType:      'EMPLOYEE',
     name:           data.name,
     empId:          data.empId,
+    imageUrl,
     personToMeetId: data.personToMeet,
     cardNumber:     isGroup
                       ? (data.leadCardNumber ? parseInt(data.leadCardNumber, 10) : null)
@@ -110,16 +123,31 @@ export async function updateEmployeeEntry(id, data) {
   return { success: true, entryId: entry.id ?? id };
 }
 
+/**
+ * Submits a new employee check-in entry.
+ * If a photo was captured, uploads it first and includes the URL in the payload.
+ *
+ * Endpoint: POST /api/visitors
+ *
+ * @param {object} data  Full payload assembled by AddEmployeeModal
+ * @returns {Promise<{ success: boolean, entryId: string }>}
+ */
 export async function createEmployeeEntry(data) {
   const isGroup = data.visitType === 'group';
 
+  let imageUrl = null;
+  if (data.photo && data.photo.startsWith('data:')) {
+    imageUrl = await uploadEmployeePhoto(data.photo);
+  }
+
   const payload = {
-    visitType:      data.visitType.toUpperCase(),         // individual → INDIVIDUAL
+    visitType:      data.visitType.toUpperCase(),
     entryType:      'EMPLOYEE',
     name:           data.name,
     mobile:         null,
     empId:          data.empId,
-    personToMeetId: data.personToMeet,                    // employeeId
+    imageUrl,
+    personToMeetId: data.personToMeet,
     cardNumber:     isGroup
                       ? (data.leadCardNumber ? parseInt(data.leadCardNumber, 10) : null)
                       : (data.cardNumber     ? parseInt(data.cardNumber,     10) : null),

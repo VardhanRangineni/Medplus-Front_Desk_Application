@@ -7,6 +7,8 @@ import com.medplus.frontdesk_backend.dto.UserLookupDto;
 import com.medplus.frontdesk_backend.exception.InvalidCredentialsException;
 import com.medplus.frontdesk_backend.exception.UnauthorizedOperationException;
 import com.medplus.frontdesk_backend.model.UserManagement;
+import com.medplus.frontdesk_backend.model.UserRole;
+import com.medplus.frontdesk_backend.model.UserStatus;
 import com.medplus.frontdesk_backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -80,7 +82,7 @@ public class UserManagementService {
                 ? dto.getPassword()
                 : employeeId;
         String encoded = passwordEncoder.encode(rawPassword);
-        String status  = dto.isStatus() ? "ACTIVE" : "INACTIVE";
+        UserStatus status = dto.isStatus() ? UserStatus.ACTIVE : UserStatus.INACTIVE;
 
         userRepository.insertUserManagement(
                 employeeId,
@@ -88,7 +90,7 @@ public class UserManagementService {
                 encoded,
                 locationId,
                 status,
-                "RECEPTIONIST",
+                UserRole.RECEPTIONIST,
                 (dto.getIpAddress() != null && !dto.getIpAddress().isBlank()) ? dto.getIpAddress().trim() : "0.0.0.0"
         );
 
@@ -112,8 +114,8 @@ public class UserManagementService {
                     "User '" + employeeId + "' not found.");
         }
 
-        String locationId = resolveLocationId(dto.getLocation());
-        String status     = dto.isStatus() ? "ACTIVE" : "INACTIVE";
+        String locationId    = resolveLocationId(dto.getLocation());
+        UserStatus status    = dto.isStatus() ? UserStatus.ACTIVE : UserStatus.INACTIVE;
 
         userRepository.updateUserManagement(
                 employeeId,
@@ -147,7 +149,7 @@ public class UserManagementService {
                     "User '" + employeeId + "' not found.");
         }
 
-        String status = active ? "ACTIVE" : "INACTIVE";
+        UserStatus status = active ? UserStatus.ACTIVE : UserStatus.INACTIVE;
         userRepository.updateUserManagementStatus(employeeId, status);
         log.info("[UserManagement] Status updated: {} → {}", employeeId, status);
 
@@ -205,16 +207,17 @@ public class UserManagementService {
 
     private void validatePermission(String callerRole, String callerEmployeeId,
                                      UserManagement target) {
-        String targetRole = target.getRole();
-        switch (callerRole) {
-            case "PRIMARY_ADMIN" -> {
-                if ("PRIMARY_ADMIN".equals(targetRole) && !callerEmployeeId.equals(target.getEmployeeid())) {
+        UserRole targetRole = target.getRole();
+        UserRole callerUserRole = UserRole.valueOf(callerRole);
+        switch (callerUserRole) {
+            case PRIMARY_ADMIN -> {
+                if (targetRole == UserRole.PRIMARY_ADMIN && !callerEmployeeId.equals(target.getEmployeeid())) {
                     throw new UnauthorizedOperationException(
                             "Admin cannot update another Admin's device. Contact the system owner.");
                 }
             }
-            case "REGIONAL_ADMIN" -> {
-                if (!"RECEPTIONIST".equals(targetRole)) {
+            case REGIONAL_ADMIN -> {
+                if (targetRole != UserRole.RECEPTIONIST) {
                     throw new UnauthorizedOperationException(
                             "Supervisors can only update device access for Receptionists.");
                 }

@@ -6,6 +6,8 @@ import com.medplus.frontdesk_backend.dto.VisitorMemberDto;
 import com.medplus.frontdesk_backend.dto.VisitorMemberRequestDto;
 import com.medplus.frontdesk_backend.dto.VisitorRequestDto;
 import com.medplus.frontdesk_backend.dto.VisitorResponseDto;
+import com.medplus.frontdesk_backend.model.EntryType;
+import com.medplus.frontdesk_backend.model.GovtIdType;
 import com.medplus.frontdesk_backend.model.UserManagement;
 import com.medplus.frontdesk_backend.model.VisitStatus;
 import com.medplus.frontdesk_backend.model.VisitType;
@@ -16,12 +18,14 @@ import com.medplus.frontdesk_backend.repository.VisitorRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @Slf4j
@@ -65,7 +69,7 @@ public class VisitorService {
         Visitor visitor = Visitor.builder()
                 .visitorId(visitorId)
                 .visitType(visitType)
-                .entryType(req.getEntryType().toUpperCase())
+                .entryType(parseEntryType(req.getEntryType()))
                 .name(req.getName().trim())
                 .mobile(req.getMobile() != null ? req.getMobile().trim() : null)
                 .empId(req.getEmpId() != null ? req.getEmpId().trim() : null)
@@ -75,6 +79,9 @@ public class VisitorService {
                 .department(person.getDepartment())
                 .locationId(locationId)
                 .cardNumber(req.getCardNumber())
+                .govtIdType(parseGovtIdType(req.getGovtIdType()))
+                .govtIdNumber(req.getGovtIdNumber() != null ? req.getGovtIdNumber().trim() : null)
+                .imageUrl(req.getImageUrl())
                 .checkInTime(LocalDateTime.now())
                 .reasonForVisit(req.getReasonForVisit())
                 .createdBy(createdBy)
@@ -105,25 +112,125 @@ public class VisitorService {
     // ── Read ──────────────────────────────────────────────────────────────────
 
     /**
-     * Returns all entries for the authenticated user's location on the given date.
-     * Defaults to today if date is null.
+     * Returns a single entry by visitor ID.
+     * Throws 404 if not found.
      */
-    public List<VisitorResponseDto> getEntries(String callerEmployeeId, LocalDate date) {
-        String locationId = getUserLocation(callerEmployeeId);
-        LocalDate queryDate = date != null ? date : LocalDate.now();
-        List<Visitor> visitors = visitorRepository.findByLocationAndDate(locationId, queryDate);
-        return visitors.stream().map(this::buildResponse).toList();
+    public VisitorResponseDto getEntryById(String visitorId) {
+        return visitorRepository.findById(visitorId)
+                .map(this::buildResponse)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Visitor entry not found: " + visitorId));
     }
 
     /**
-     * Full-text search over entries for the caller's location + date.
+     * Returns entries filtered by date, location (admin-override), and department.
+     *
+     * Role rules:
+     *  - RECEPTIONIST: always scoped to their own location; locationIdParam ignored.
+     *  - PRIMARY_ADMIN / REGIONAL_ADMIN:
+     *      - if locationIdParam supplied → filter to that location
+     *      - if locationIdParam blank/null → return ALL locations for that date
      */
-    public List<VisitorResponseDto> searchEntries(String callerEmployeeId, LocalDate date, String query) {
-        if (query == null || query.isBlank()) return getEntries(callerEmployeeId, date);
-        String locationId = getUserLocation(callerEmployeeId);
+    public List<VisitorResponseDto> getEntries(String callerEmployeeId, LocalDate date,
+                                               String locationIdParam, String department,
+                                               Authentication auth) {
         LocalDate queryDate = date != null ? date : LocalDate.now();
-        return visitorRepository.searchByLocationAndDate(locationId, queryDate, query)
+        String dept = (department != null && !department.isBlank()) ? department : null;
+
+        if (isAdmin(auth)) {
+            String locId = (locationIdParam != null && !locationIdParam.isBlank()) ? locationIdParam : null;
+            List<Visitor> visitors = (locId != null)
+                    ? visitorRepository.findByLocationAndDate(locId, queryDate, dept)
+                    : visitorRepository.findAllByDate(queryDate, dept);
+            return visitors.stream().map(this::buildResponse).toList();
+        }
+
+        String locationId = getUserLocation(callerEmployeeId);
+        return visitorRepository.findByLocationAndDate(locationId, queryDate, dept)
                 .stream().map(this::buildResponse).toList();
+    }
+
+    /**
+     * Full-text search over entries — respects the same admin/location rules as getEntries.
+     */
+    public List<VisitorResponseDto> searchEntries(String callerEmployeeId, LocalDate date,
+                                                  String query, String locationIdParam,
+                                                  String department, Authentication auth) {
+        LocalDate queryDate = date != null ? date : LocalDate.now();
+        String dept = (department != null && !department.isBlank()) ? department : null;
+
+        if (query == null || query.isBlank()) {
+            return getEntries(callerEmployeeId, date, locationIdParam, department, auth);
+        }
+
+        if (isAdmin(auth)) {
+            String locId = (locationIdParam != null && !locationIdParam.isBlank()) ? locationIdParam : null;
+            List<Visitor> visitors = (locId != null)
+                    ? visitorRepository.searchByLocationAndDate(locId, queryDate, query, dept)
+                    : visitorRepository.searchAllByDate(queryDate, query, dept);
+            return visitors.stream().map(this::buildResponse).toList();
+        }
+
+        String locationId = getUserLocation(callerEmployeeId);
+        return visitorRepository.searchByLocationAndDate(locationId, queryDate, query, dept)
+                .stream().map(this::buildResponse).toList();
+    }
+
+    /**
+     * Returns distinct department names found in the log for the given date/location.
+     * Used to build the dynamic "Filter by Dept" dropdown on the home page.
+     */
+    public List<String> getDepartmentsInLog(String callerEmployeeId, LocalDate date,
+                                            String locationIdParam, Authentication auth) {
+        LocalDate queryDate = date != null ? date : LocalDate.now();
+        if (isAdmin(auth)) {
+            String locId = (locationIdParam != null && !locationIdParam.isBlank()) ? locationIdParam : null;
+            return visitorRepository.findDistinctDepartmentsInLog(locId, queryDate);
+        }
+        String locationId = getUserLocation(callerEmployeeId);
+        return visitorRepository.findDistinctDepartmentsInLog(locationId, queryDate);
+    }
+
+    /**
+     * Exports visitor entries as a CSV byte array.
+     * Applies the same admin/location/department/date filters as getEntries.
+     */
+    public byte[] exportCsv(String callerEmployeeId, LocalDate date,
+                            String locationIdParam, String department, Authentication auth) {
+        List<VisitorResponseDto> entries = getEntries(callerEmployeeId, date, locationIdParam, department, auth);
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm");
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("ID,Type,Visit Type,Name,Mobile,Emp ID,Status,Person To Meet,Department,")
+          .append("Location,Card,Govt ID Type,Govt ID Number,Check-In,Check-Out,Reason\n");
+
+        for (VisitorResponseDto e : entries) {
+            sb.append(csv(e.getId())).append(',')
+              .append(csv(e.getType())).append(',')
+              .append(csv(e.getVisitType())).append(',')
+              .append(csv(e.getName())).append(',')
+              .append(csv(e.getMobile())).append(',')
+              .append(csv(e.getEmpId())).append(',')
+              .append(csv(e.getStatus())).append(',')
+              .append(csv(e.getPersonToMeet())).append(',')
+              .append(csv(e.getDepartment())).append(',')
+              .append(csv(e.getLocationName() != null ? e.getLocationName() : e.getLocationId())).append(',')
+              .append(e.getCard() != null ? e.getCard() : "").append(',')
+              .append(csv(e.getGovtIdType())).append(',')
+              .append(csv(e.getGovtIdNumber())).append(',')
+              .append(e.getCheckIn()  != null ? e.getCheckIn().format(fmt)  : "").append(',')
+              .append(e.getCheckOut() != null ? e.getCheckOut().format(fmt) : "").append(',')
+              .append(csv(e.getReasonForVisit())).append('\n');
+        }
+        return sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private static String csv(String value) {
+        if (value == null) return "";
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
     }
 
     // ── Update ────────────────────────────────────────────────────────────────
@@ -149,6 +256,12 @@ public class VisitorService {
         existing.setPersonName(person.getName());
         existing.setDepartment(person.getDepartment());
         existing.setCardNumber(req.getCardNumber());
+        existing.setGovtIdType(parseGovtIdType(req.getGovtIdType()));
+        existing.setGovtIdNumber(req.getGovtIdNumber() != null ? req.getGovtIdNumber().trim() : null);
+        // Only overwrite imageUrl when a new one is explicitly provided
+        if (req.getImageUrl() != null && !req.getImageUrl().isBlank()) {
+            existing.setImageUrl(req.getImageUrl());
+        }
         existing.setReasonForVisit(req.getReasonForVisit());
         existing.setCreatedBy(callerEmployeeId);
 
@@ -282,12 +395,42 @@ public class VisitorService {
                         "User not found in management records: " + employeeId));
     }
 
+    /**
+     * Returns true if the authenticated user has the PRIMARY_ADMIN or REGIONAL_ADMIN role.
+     * These roles may override the location filter and access cross-location data.
+     */
+    private boolean isAdmin(Authentication auth) {
+        if (auth == null) return false;
+        return auth.getAuthorities().stream().anyMatch(a ->
+                "ROLE_PRIMARY_ADMIN".equals(a.getAuthority()) ||
+                "ROLE_REGIONAL_ADMIN".equals(a.getAuthority()));
+    }
+
     private static VisitType parseVisitType(String raw) {
         try {
             return VisitType.valueOf(raw.toUpperCase());
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Invalid visitType '" + raw + "'. Must be INDIVIDUAL or GROUP.");
+        }
+    }
+
+    private static EntryType parseEntryType(String raw) {
+        try {
+            return EntryType.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Invalid entryType '" + raw + "'. Must be VISITOR or EMPLOYEE.");
+        }
+    }
+
+    private static GovtIdType parseGovtIdType(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        try {
+            return GovtIdType.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Invalid govtIdType '" + raw + "'. Must be one of: AADHAAR, PAN, PASSPORT, VOTER, DL.");
         }
     }
 
@@ -309,9 +452,14 @@ public class VisitorService {
                         .build())
                 .toList();
 
+        String locationName = visitorRepository.findLocationName(v.getLocationId()).orElse(null);
+
+        // For GROUP visits, expose cardNumber also as leadCardNumber so edit forms pre-fill correctly
+        Integer leadCard = (v.getVisitType() == VisitType.GROUP) ? v.getCardNumber() : null;
+
         return VisitorResponseDto.builder()
                 .id(v.getVisitorId())
-                .type(v.getEntryType())
+                .type(v.getEntryType().name())
                 .visitType(v.getVisitType().name())
                 .name(v.getName())
                 .mobile(v.getMobile())
@@ -320,8 +468,14 @@ public class VisitorService {
                 .personToMeet(v.getPersonName())
                 .personToMeetId(v.getPersonToMeet())
                 .department(v.getDepartment())
+                .hostDepartment(v.getDepartment())
                 .locationId(v.getLocationId())
+                .locationName(locationName)
                 .card(v.getCardNumber())
+                .leadCardNumber(leadCard)
+                .govtIdType(v.getGovtIdType() != null ? v.getGovtIdType().name() : null)
+                .govtIdNumber(v.getGovtIdNumber())
+                .imageUrl(v.getImageUrl())
                 .checkIn(v.getCheckInTime())
                 .checkOut(v.getCheckOutTime())
                 .reasonForVisit(v.getReasonForVisit())

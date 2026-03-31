@@ -5,6 +5,8 @@ import com.medplus.frontdesk_backend.dto.UserDto;
 import com.medplus.frontdesk_backend.dto.UserLookupDto;
 import com.medplus.frontdesk_backend.model.UserManagement;
 import com.medplus.frontdesk_backend.model.UserMaster;
+import com.medplus.frontdesk_backend.model.UserRole;
+import com.medplus.frontdesk_backend.model.UserStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -37,8 +39,8 @@ public class UserRepository {
                         .ipaddress(rs.getString("ipaddress"))
                         .password(rs.getString("password"))
                         .location(rs.getString("location"))
-                        .status(rs.getString("status"))
-                        .role(rs.getString("role"))
+                        .status(UserStatus.valueOf(rs.getString("status")))
+                        .role(UserRole.valueOf(rs.getString("role")))
                         .macaddress(rs.getString("macaddress"))
                         .build()
         );
@@ -54,7 +56,7 @@ public class UserRepository {
     }
 
     public void insertUserManagement(String employeeId, String fullName, String encodedPassword,
-                                     String locationId, String status, String role, String ipaddress) {
+                                     String locationId, UserStatus status, UserRole role, String ipaddress) {
         String sql = """
                 INSERT INTO usermanagement (employeeid, fullName, ipaddress, password, location, status, role, createdBy)
                 VALUES (:employeeId, :fullName, :ipaddress, :password, :location, :status, :role, 'SYSTEM')
@@ -65,8 +67,8 @@ public class UserRepository {
                 .addValue("ipaddress", ipaddress)
                 .addValue("password", encodedPassword)
                 .addValue("location", locationId)
-                .addValue("status", status)
-                .addValue("role", role);
+                .addValue("status", status.name())
+                .addValue("role", role.name());
         namedParameterJdbcTemplate.update(sql, params);
     }
 
@@ -312,7 +314,7 @@ public class UserRepository {
      * Updates an existing usermanagement record (name, location FK, ip, mac, status).
      */
     public void updateUserManagement(String employeeId, String fullName, String locationId,
-                                     String ipAddress, String macAddress, String status) {
+                                     String ipAddress, String macAddress, UserStatus status) {
         String sql = """
                 UPDATE usermanagement
                 SET fullName    = :fullName,
@@ -329,14 +331,14 @@ public class UserRepository {
                 .addValue("locationId",  locationId)
                 .addValue("ipAddress",   ipAddress)
                 .addValue("macAddress",  macAddress)
-                .addValue("status",      status)
+                .addValue("status",      status.name())
         );
     }
 
     /**
      * Updates only the status of a usermanagement record.
      */
-    public void updateUserManagementStatus(String employeeId, String status) {
+    public void updateUserManagementStatus(String employeeId, UserStatus status) {
         String sql = """
                 UPDATE usermanagement
                 SET status = :status, modifiedBy = 'APP'
@@ -344,7 +346,7 @@ public class UserRepository {
                 """;
         namedParameterJdbcTemplate.update(sql, new MapSqlParameterSource()
                 .addValue("employeeId", employeeId)
-                .addValue("status",     status)
+                .addValue("status",     status.name())
         );
     }
 

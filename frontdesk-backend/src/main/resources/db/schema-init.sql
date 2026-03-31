@@ -91,6 +91,9 @@ CREATE TABLE IF NOT EXISTS `visitorlog` (
     `department`     VARCHAR(120)                       NOT NULL  COMMENT 'Department of personToMeet at time of visit',
     `locationId`     VARCHAR(50)                        NOT NULL  COMMENT 'Location where check-in occurred',
     `cardNumber`     INT                                DEFAULT NULL COMMENT 'Visitor card / badge number',
+    `govtIdType`     ENUM('AADHAAR','PAN','PASSPORT','VOTER','DL') DEFAULT NULL COMMENT 'Government-issued ID type',
+    `govtIdNumber`   VARCHAR(60)                        DEFAULT NULL COMMENT 'Government ID number (masked or full)',
+    `imageUrl`       VARCHAR(500)                       DEFAULT NULL COMMENT 'Visitor photo URL — local path now, swap to cloud storage URL when ready',
     `checkInTime`    TIMESTAMP                          NOT NULL  DEFAULT CURRENT_TIMESTAMP,
     `checkOutTime`   TIMESTAMP                          DEFAULT NULL,
     `reasonForVisit` TEXT                               DEFAULT NULL,
@@ -105,6 +108,7 @@ CREATE TABLE IF NOT EXISTS `visitorlog` (
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_0900_ai_ci
   COMMENT='Visitor / employee check-in and check-out log';
+
 
 
 -- ── 5. visitormember ──────────────────────────────────────────────────────────

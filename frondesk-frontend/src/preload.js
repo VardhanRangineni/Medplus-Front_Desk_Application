@@ -9,4 +9,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   storeAuthSession: (session)               => ipcRenderer.invoke('store-auth-session', session),
   getAuthSession:   ()                      => ipcRenderer.invoke('get-auth-session'),
   clearAuthSession: ()                      => ipcRenderer.invoke('clear-auth-session'),
+  /**
+   * Fetches an image by URL through the main process and returns a base64 data URI.
+   * Works for both local server URLs and future cloud storage URLs.
+   * Returns null if the URL is missing or the fetch fails.
+   */
+  getImage:         (url)                   => ipcRenderer.invoke('get-image', url),
 });

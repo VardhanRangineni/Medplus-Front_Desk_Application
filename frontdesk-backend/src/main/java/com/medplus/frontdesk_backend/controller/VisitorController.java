@@ -11,7 +11,9 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,6 +27,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @Slf4j
@@ -80,41 +83,124 @@ public class VisitorController {
     // ── GET /api/visitors ─────────────────────────────────────────────────────
 
     /**
-     * Returns all check-in/check-out entries for the caller's location on the given date.
-     * Defaults to today if the date parameter is omitted.
+     * Returns check-in/check-out entries for the given date, with optional filters.
      *
      * Query params:
-     *   date (optional) — ISO date, e.g. 2026-03-28
+     *   date       (optional) — ISO date, e.g. 2026-03-28  (defaults to today)
+     *   locationId (optional) — restrict to a specific location;
+     *                           PRIMARY_ADMIN / REGIONAL_ADMIN only — receptionists always
+     *                           see their own location regardless of this param.
+     *                           If omitted by an admin, all locations are returned.
+     *   department (optional) — filter entries by the host department name
      */
     @GetMapping
     public ResponseEntity<ApiResponse<List<VisitorResponseDto>>> getEntries(
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) String locationId,
+            @RequestParam(required = false) String department,
             Authentication auth) {
 
-        List<VisitorResponseDto> entries = visitorService.getEntries(auth.getName(), date);
+        List<VisitorResponseDto> entries =
+                visitorService.getEntries(auth.getName(), date, locationId, department, auth);
         return ResponseEntity.ok(ApiResponse.success("Entries retrieved successfully.", entries));
+    }
+
+    // ── GET /api/visitors/{visitorId} ─────────────────────────────────────────
+
+    /**
+     * Returns the full details of a single visitor entry by ID.
+     * Used by the Edit Visitor / Edit Employee modals to pre-fill their forms.
+     *
+     * Path param:
+     *   visitorId — e.g. "MED-V-0001" or "MED-GV-0001"
+     */
+    @GetMapping("/{visitorId}")
+    public ResponseEntity<ApiResponse<VisitorResponseDto>> getEntryById(
+            @PathVariable String visitorId) {
+
+        VisitorResponseDto entry = visitorService.getEntryById(visitorId);
+        return ResponseEntity.ok(ApiResponse.success("Entry retrieved.", entry));
     }
 
     // ── GET /api/visitors/search ──────────────────────────────────────────────
 
     /**
-     * Full-text search within the caller's location + date.
+     * Full-text search within entries (scoped by role/location same as GET /api/visitors).
      * Searches visitor name, mobile, empId, and person-to-meet name.
      *
      * Query params:
-     *   q    — search term
-     *   date — ISO date (optional, defaults to today)
+     *   q          — search term
+     *   date       — ISO date (optional, defaults to today)
+     *   locationId — admin-level location override (optional)
+     *   department — department filter (optional)
      */
     @GetMapping("/search")
     public ResponseEntity<ApiResponse<List<VisitorResponseDto>>> searchEntries(
             @RequestParam(defaultValue = "") String q,
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) String locationId,
+            @RequestParam(required = false) String department,
             Authentication auth) {
 
-        List<VisitorResponseDto> results = visitorService.searchEntries(auth.getName(), date, q);
+        List<VisitorResponseDto> results =
+                visitorService.searchEntries(auth.getName(), date, q, locationId, department, auth);
         return ResponseEntity.ok(ApiResponse.success("Search results.", results));
+    }
+
+    // ── GET /api/visitors/log-departments ────────────────────────────────────
+
+    /**
+     * Returns distinct department names that actually appear in the visitor log for the
+     * given date (and optional location). Used to build the "Filter by Dept" dropdown
+     * dynamically from real data rather than a hardcoded list.
+     *
+     * Query params:
+     *   date       — ISO date (optional, defaults to today)
+     *   locationId — admin-level location override (optional)
+     */
+    @GetMapping("/log-departments")
+    public ResponseEntity<ApiResponse<List<String>>> getDepartmentsInLog(
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) String locationId,
+            Authentication auth) {
+
+        List<String> depts =
+                visitorService.getDepartmentsInLog(auth.getName(), date, locationId, auth);
+        return ResponseEntity.ok(ApiResponse.success("Log departments.", depts));
+    }
+
+    // ── GET /api/visitors/export ──────────────────────────────────────────────
+
+    /**
+     * Exports visitor entries for the given date/filters as a UTF-8 CSV file.
+     * Applies the same admin/location/department rules as GET /api/visitors.
+     *
+     * Query params:
+     *   date       — ISO date (optional, defaults to today)
+     *   locationId — admin-level location override (optional)
+     *   department — department filter (optional)
+     *
+     * Response: text/csv  attachment  visitors_YYYY-MM-DD.csv
+     */
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> exportCsv(
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false) String locationId,
+            @RequestParam(required = false) String department,
+            Authentication auth) {
+
+        byte[] csv = visitorService.exportCsv(auth.getName(), date, locationId, department, auth);
+        LocalDate queryDate = date != null ? date : LocalDate.now();
+        String filename = "visitors_" + queryDate.format(DateTimeFormatter.ISO_LOCAL_DATE) + ".csv";
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("text/csv;charset=UTF-8"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .body(csv);
     }
 
     // ── PUT /api/visitors/{visitorId} ─────────────────────────────────────────

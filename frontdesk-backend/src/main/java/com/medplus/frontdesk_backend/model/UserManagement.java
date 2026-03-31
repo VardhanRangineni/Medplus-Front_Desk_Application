@@ -11,12 +11,12 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class UserManagement {
 
-    private String employeeid;
-    private String fullName;
-    private String ipaddress;
-    private String password;
-    private String location;
-    private String status;
-    private String role;
-    private String macaddress;
+    private String     employeeid;
+    private String     fullName;
+    private String     ipaddress;
+    private String     password;
+    private String     location;
+    private UserStatus status;
+    private UserRole   role;
+    private String     macaddress;
 }

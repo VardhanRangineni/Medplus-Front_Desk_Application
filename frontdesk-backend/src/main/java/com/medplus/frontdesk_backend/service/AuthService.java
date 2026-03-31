@@ -6,6 +6,7 @@ import com.medplus.frontdesk_backend.exception.AccountInactiveException;
 import com.medplus.frontdesk_backend.exception.DeviceNotAuthorizedException;
 import com.medplus.frontdesk_backend.exception.InvalidCredentialsException;
 import com.medplus.frontdesk_backend.model.UserManagement;
+import com.medplus.frontdesk_backend.model.UserStatus;
 import com.medplus.frontdesk_backend.repository.UserRepository;
 import com.medplus.frontdesk_backend.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
@@ -34,7 +35,7 @@ public class AuthService {
         UserManagement user = userRepository.findByEmployeeId(request.getEmployeeId())
                 .orElseThrow(() -> new InvalidCredentialsException("Invalid employee ID or password"));
 
-        if ("INACTIVE".equalsIgnoreCase(user.getStatus())) {
+        if (user.getStatus() == UserStatus.INACTIVE) {
             throw new AccountInactiveException(
                     "Your account is inactive. Please contact your administrator.");
         }
@@ -80,7 +81,7 @@ public class AuthService {
         }
 
         // ── Step 4: Generate token and build response ─────────────────────────
-        String token = jwtTokenProvider.generateToken(user.getEmployeeid(), user.getRole());
+        String token = jwtTokenProvider.generateToken(user.getEmployeeid(), user.getRole().name());
 
         String locationName = userRepository.findLocationName(user.getLocation())
                 .orElse(user.getLocation());
@@ -92,7 +93,7 @@ public class AuthService {
                 .token(token)
                 .tokenType("Bearer")
                 .employeeId(user.getEmployeeid())
-                .role(user.getRole())
+                .role(user.getRole().name())
                 .fullName(user.getFullName())
                 .locationId(user.getLocation())
                 .locationName(locationName)
