@@ -66,7 +66,7 @@ public class LocationController {
      * Restricted to PRIMARY_ADMIN and REGIONAL_ADMIN.
      */
     @PostMapping("/sync")
-    @PreAuthorize("hasAnyAuthority('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
+    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
     public ResponseEntity<ApiResponse<List<LocationDto>>> syncLocations(
             @AuthenticationPrincipal UserDetails principal) {
 
@@ -84,7 +84,7 @@ public class LocationController {
      * Request body: { "status": true }
      */
     @PatchMapping("/{code}/status")
-    @PreAuthorize("hasAnyAuthority('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
+    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
     public ResponseEntity<ApiResponse<LocationDto>> updateStatus(
             @PathVariable String code,
             @RequestBody LocationStatusRequestDto request) {

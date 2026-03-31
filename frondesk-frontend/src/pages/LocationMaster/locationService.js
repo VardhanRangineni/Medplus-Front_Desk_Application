@@ -1,18 +1,20 @@
 /**
  * locationService.js
  *
- * All backend communication for the Location Master screen lives here.
- * When your friend's API is ready:
- *   1. Set VITE_API_BASE_URL in your .env file.
- *   2. Uncomment the real fetch() calls below each TODO comment.
- *   3. Delete the mock helpers at the bottom of this file.
+ * All backend communication for the Location Master screen.
  *
- * Nothing in the UI component needs to change.
+ * Architecture note (Electron):
+ *   HTTP requests are routed through the main-process IPC bridge via
+ *   window.electronAPI.apiRequest(). This keeps the JWT token inside
+ *   the main process and avoids renderer-side CSP restrictions.
+ *
+ * Backend base path : /api/locations
+ * Auth              : Bearer token is injected automatically by main.js
+ * Response envelope : ApiResponse<T> → { success, message, data, timestamp }
  */
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080';
-
 // ─── Types (JSDoc) ────────────────────────────────────────────────────────────
+
 /**
  * @typedef {Object} Location
  * @property {string}  code    - Unique location code  (e.g. "LOC-001")
@@ -23,78 +25,94 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080';
  * @property {boolean} status  - true = Active, false = Inactive
  */
 
-// ─── API helpers ──────────────────────────────────────────────────────────────
-async function request(path, options = {}) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    ...options,
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(body || `Request failed: ${res.status} ${res.statusText}`);
+// ─── Core request helper ──────────────────────────────────────────────────────
+
+/**
+ * Sends an authenticated API call via the Electron IPC bridge.
+ * The JWT Bearer token is injected by the main process automatically.
+ *
+ * @param {'GET'|'POST'|'PUT'|'PATCH'|'DELETE'} method
+ * @param {string} path   - API path, may include query string
+ * @param {object} [body] - Request body; omit for GET/DELETE
+ * @returns {Promise<*>}  Resolves with `response.body.data`
+ * @throws {ApiError}     On network failure or non-2xx HTTP status
+ */
+async function request(method, path, body) {
+  const result = await window.electronAPI.apiRequest(method, path, body ?? null);
+
+  if (result.error) {
+    throw new ApiError('Cannot reach the server. Check your network connection.', 0);
   }
-  return res.json();
+
+  if (!result.ok) {
+    const message = result.body?.message ?? `Request failed with status ${result.status}.`;
+    throw new ApiError(message, result.status);
+  }
+
+  return result.body?.data;
+}
+
+/**
+ * Structured error type so callers can distinguish HTTP errors from
+ * network failures and handle them differently if needed.
+ */
+export class ApiError extends Error {
+  /** @param {string} message @param {number} status */
+  constructor(message, status) {
+    super(message);
+    this.name   = 'ApiError';
+    this.status = status;
+  }
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Returns all locations currently stored in the local DB.
+ * Type-ahead search over locationmaster by descriptive name or LocationId.
+ * Used to auto-fill the Location field in the Add / Edit User modal.
  *
- * TODO: uncomment when backend is ready
+ * Endpoint: GET /api/locations/search?q=<term>
+ *
+ * @param {string} [q=''] - Search term (empty string returns empty array)
+ * @returns {Promise<Location[]>}
+ */
+export async function searchLocations(q = '') {
+  return request('GET', `/api/locations/search?q=${encodeURIComponent(q)}`);
+}
+
+/**
+ * Returns all locations currently stored in the local locationmaster table.
+ *
  * Endpoint: GET /api/locations
  *
  * @returns {Promise<Location[]>}
  */
 export async function getLocations() {
-  // return request('/api/locations');
-  return _mockDelay(MOCK_LOCATIONS);
+  return request('GET', '/api/locations');
 }
 
 /**
- * Pulls all locations from the external master DB via the backend,
- * saves them into the local DB, and returns the full saved list.
+ * Pulls the latest location data from the external HR API via the backend,
+ * upserts into the local locationmaster table, and returns the full updated list.
+ * Called by the "Fetch Locations" button.
  *
- * This is what the "Fetch Locations" button calls.
- *
- * TODO: uncomment when backend is ready
  * Endpoint: POST /api/locations/sync
  *
  * @returns {Promise<Location[]>}
  */
 export async function syncLocationsFromMaster() {
-  // return request('/api/locations/sync', { method: 'POST' });
-  return _mockDelay(MOCK_LOCATIONS, 1200);
+  return request('POST', '/api/locations/sync');
 }
 
 /**
- * Toggles the active/inactive status of a single location in the local DB.
+ * Toggles the active / inactive status of a single location.
  *
- * TODO: uncomment when backend is ready
  * Endpoint: PATCH /api/locations/:code/status
  *
  * @param {string}  code
- * @param {boolean} status
+ * @param {boolean} status - true = activate, false = deactivate
  * @returns {Promise<Location>}
  */
 export async function updateLocationStatus(code, status) {
-  // return request(`/api/locations/${encodeURIComponent(code)}/status`, {
-  //   method: 'PATCH',
-  //   body: JSON.stringify({ status }),
-  // });
-  return _mockDelay({ code, status }, 250);
+  return request('PATCH', `/api/locations/${encodeURIComponent(code)}/status`, { status });
 }
-
-// ─── Mock helpers (delete when API is live) ───────────────────────────────────
-function _mockDelay(data, ms = 400) {
-  return new Promise((resolve) => setTimeout(() => resolve(data), ms));
-}
-
-/** @type {Location[]} */
-const MOCK_LOCATIONS = [
-  { code: 'LOC-001', name: 'Medplus Head Office',    address: '8-2-293, Road No. 78, Jubilee Hills', city: 'Hyderabad', state: 'Telangana', status: true  },
-  { code: 'LOC-002', name: 'Branch - Banjara Hills', address: '6-3-871, Banjara Hills',              city: 'Hyderabad', state: 'Telangana', status: true  },
-  { code: 'LOC-003', name: 'Branch - Kondapur',      address: 'Plot 42, Kondapur Main Road',         city: 'Hyderabad', state: 'Telangana', status: true  },
-  { code: 'LOC-004', name: 'Branch - Madhapur',      address: '2-49, HITEC City, Madhapur',          city: 'Hyderabad', state: 'Telangana', status: false },
-  { code: 'LOC-005', name: 'Branch - Gachibowli',    address: 'Plot 18, Gachibowli Junction',        city: 'Hyderabad', state: 'Telangana', status: true  },
-];

@@ -2,74 +2,122 @@
  * userManagementService.js
  *
  * All backend communication for the User Management screen.
- * When the API is ready:
- *   1. Set VITE_API_BASE_URL in your .env file.
- *   2. Uncomment the real fetch() calls and delete the mock helpers.
+ *
+ * Architecture note (Electron):
+ *   HTTP requests are routed through the main-process IPC bridge via
+ *   window.electronAPI.apiRequest(). This keeps the JWT token inside
+ *   the main process and avoids renderer-side CSP restrictions.
+ *
+ * Backend base path : /api/managed-users
+ * Auth              : Bearer token is injected automatically by main.js
+ * Response envelope : ApiResponse<T> → { success, message, data, timestamp }
  */
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080';
-
 // ─── Types (JSDoc) ────────────────────────────────────────────────────────────
+
 /**
  * @typedef {Object} ManagedUser
- * @property {string}  id          - Employee ID       (e.g. "EMP-001")
+ * @property {string}  id          - Employee ID            (e.g. "EMP-001")
  * @property {string}  name        - Full name
- * @property {string}  location    - Assigned branch/office
+ * @property {string}  location    - Assigned branch/office (descriptive name)
  * @property {string}  ipAddress   - Device IP address
  * @property {string}  macAddress  - Device MAC address
  * @property {boolean} status      - true = Active, false = Inactive
  */
 
-// ─── API helpers ──────────────────────────────────────────────────────────────
-async function request(path, options = {}) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    ...options,
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(body || `Request failed: ${res.status} ${res.statusText}`);
+/**
+ * @typedef {Object} UserLookup
+ * @property {string} id
+ * @property {string} name
+ * @property {string} location
+ * @property {string} designation
+ * @property {string} department
+ * @property {string} email
+ * @property {string} phone
+ */
+
+// ─── Core request helper ──────────────────────────────────────────────────────
+
+/**
+ * Sends an authenticated API call via the Electron IPC bridge.
+ * The JWT Bearer token is injected by the main process automatically.
+ *
+ * @param {'GET'|'POST'|'PUT'|'PATCH'|'DELETE'} method
+ * @param {string} path   - API path, may include query string
+ * @param {object} [body] - Request body; omit / pass undefined for GET/DELETE
+ * @returns {Promise<*>}  Resolves with `response.body.data`
+ * @throws {ApiError}     On network failure or non-2xx HTTP status
+ */
+async function request(method, path, body) {
+  const result = await window.electronAPI.apiRequest(method, path, body ?? null);
+
+  if (result.error) {
+    throw new ApiError('Cannot reach the server. Check your network connection.', 0);
   }
-  return res.json();
+
+  if (!result.ok) {
+    const message = result.body?.message ?? `Request failed with status ${result.status}.`;
+    throw new ApiError(message, result.status);
+  }
+
+  return result.body?.data;
+}
+
+/**
+ * Structured error type so callers can distinguish HTTP errors from
+ * network failures and handle them differently if needed.
+ */
+export class ApiError extends Error {
+  /** @param {string} message @param {number} status */
+  constructor(message, status) {
+    super(message);
+    this.name    = 'ApiError';
+    this.status  = status;
+  }
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Returns all managed users from the local DB.
+ * Type-ahead lookup over the user master by employee ID or full name.
+ * Used to auto-fill the Add / Edit User modal.
  *
- * TODO: uncomment when backend is ready
+ * Endpoint: GET /api/managed-users/search?q=<term>
+ *
+ * @param {string} [q=''] - Search term (empty string returns empty array)
+ * @returns {Promise<UserLookup[]>}
+ */
+export async function searchUsers(q = '') {
+  return request('GET', `/api/managed-users/search?q=${encodeURIComponent(q)}`);
+}
+
+/**
+ * Returns all managed users from the local database.
+ *
  * Endpoint: GET /api/managed-users
  *
  * @returns {Promise<ManagedUser[]>}
  */
 export async function getManagedUsers() {
-  // return request('/api/managed-users');
-  return _mockDelay(MOCK_USERS);
+  return request('GET', '/api/managed-users');
 }
 
 /**
- * Creates a new managed user.
+ * Creates a new managed user record.
+ * The backend defaults role to RECEPTIONIST and password to BCrypt(employeeId).
  *
- * TODO: uncomment when backend is ready
  * Endpoint: POST /api/managed-users
  *
- * @param {Omit<ManagedUser, 'id'>} payload
+ * @param {ManagedUser} payload
  * @returns {Promise<ManagedUser>}
  */
 export async function createManagedUser(payload) {
-  // return request('/api/managed-users', {
-  //   method: 'POST',
-  //   body: JSON.stringify(payload),
-  // });
-  const newUser = { ...payload, id: `EMP-${String(Date.now()).slice(-4)}` };
-  return _mockDelay(newUser, 350);
+  return request('POST', '/api/managed-users', payload);
 }
 
 /**
- * Updates an existing managed user.
+ * Updates an existing managed user (name, location, IP, MAC, status).
  *
- * TODO: uncomment when backend is ready
  * Endpoint: PUT /api/managed-users/:id
  *
  * @param {string}      id
@@ -77,43 +125,18 @@ export async function createManagedUser(payload) {
  * @returns {Promise<ManagedUser>}
  */
 export async function updateManagedUser(id, payload) {
-  // return request(`/api/managed-users/${encodeURIComponent(id)}`, {
-  //   method: 'PUT',
-  //   body: JSON.stringify(payload),
-  // });
-  return _mockDelay({ ...payload, id }, 350);
+  return request('PUT', `/api/managed-users/${encodeURIComponent(id)}`, payload);
 }
 
 /**
- * Toggles the active/inactive status of a managed user.
+ * Toggles the active / inactive status of a managed user.
  *
- * TODO: uncomment when backend is ready
  * Endpoint: PATCH /api/managed-users/:id/status
  *
  * @param {string}  id
- * @param {boolean} status
+ * @param {boolean} status - true = activate, false = deactivate
  * @returns {Promise<ManagedUser>}
  */
 export async function updateManagedUserStatus(id, status) {
-  // return request(`/api/managed-users/${encodeURIComponent(id)}/status`, {
-  //   method: 'PATCH',
-  //   body: JSON.stringify({ status }),
-  // });
-  return _mockDelay({ id, status }, 250);
+  return request('PATCH', `/api/managed-users/${encodeURIComponent(id)}/status`, { status });
 }
-
-// ─── Mock helpers (delete when API is live) ───────────────────────────────────
-function _mockDelay(data, ms = 400) {
-  return new Promise((resolve) => setTimeout(() => resolve(data), ms));
-}
-
-/** @type {ManagedUser[]} */
-const MOCK_USERS = [
-  { id: 'EMP-001', name: 'Sunita Reddy',  location: 'Medplus Head Office',    ipAddress: '192.168.1.101', macAddress: 'A4:C3:F0:11:22:33', status: true  },
-  { id: 'EMP-002', name: 'Arjun Das',     location: 'Medplus Head Office',    ipAddress: '192.168.1.102', macAddress: 'B8:27:EB:44:55:66', status: true  },
-  { id: 'EMP-003', name: 'Kavita Rao',    location: 'Branch - Banjara Hills', ipAddress: '192.168.2.101', macAddress: 'DC:A6:32:77:88:99', status: true  },
-  { id: 'EMP-004', name: 'Ravi Kumar',    location: 'Medplus Head Office',    ipAddress: '192.168.1.104', macAddress: '00:1A:2B:CC:DD:EE', status: false },
-  { id: 'EMP-005', name: 'Priya Sharma',  location: 'Branch - Kondapur',      ipAddress: '192.168.3.101', macAddress: 'F4:5C:89:AB:CD:EF', status: true  },
-  { id: 'EMP-006', name: 'Ananya Singh',  location: 'Branch - Banjara Hills', ipAddress: '192.168.2.102', macAddress: '3C:22:FB:12:34:56', status: false },
-  { id: 'EMP-007', name: 'Deepak Verma',  location: 'Branch - Gachibowli',    ipAddress: '192.168.4.101', macAddress: '08:00:27:78:9A:BC', status: true  },
-];

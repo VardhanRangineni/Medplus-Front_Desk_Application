@@ -1,5 +1,6 @@
 package com.medplus.frontdesk_backend.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -21,6 +22,9 @@ import lombok.NoArgsConstructor;
  *   ipAddress  ↔ usermanagement.ipaddress
  *   macAddress ↔ usermanagement.macaddress
  *   status     ↔ usermanagement.status  (true = ACTIVE, false = INACTIVE)
+ *   password   → write-only; never returned in GET responses (security).
+ *               On create: if blank, defaults to BCrypt(employeeId).
+ *               On update: if blank, the existing password is kept unchanged.
  */
 @Data
 @Builder
@@ -34,4 +38,8 @@ public class ManagedUserDto {
     private String  ipAddress;
     private String  macAddress;
     private boolean status;
+
+    /** Plain-text password supplied by the admin. Write-only — never serialised in responses. */
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    private String password;
 }

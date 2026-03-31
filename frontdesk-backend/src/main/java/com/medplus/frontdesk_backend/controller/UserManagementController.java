@@ -48,7 +48,7 @@ public class UserManagementController {
      * Returns up to 20 matches: [ { id, name, location, designation, department, email, phone } ]
      */
     @GetMapping("/search")
-    @PreAuthorize("hasAnyAuthority('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
+    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
     public ResponseEntity<ApiResponse<List<UserLookupDto>>> searchUsers(
             @RequestParam(defaultValue = "") String q) {
 
@@ -63,7 +63,7 @@ public class UserManagementController {
      * Accessible to PRIMARY_ADMIN and REGIONAL_ADMIN.
      */
     @GetMapping
-    @PreAuthorize("hasAnyAuthority('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
+    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
     public ResponseEntity<ApiResponse<List<ManagedUserDto>>> getManagedUsers() {
         List<ManagedUserDto> users = userManagementService.getManagedUsers();
         return ResponseEntity.ok(ApiResponse.success("Users retrieved successfully.", users));
@@ -82,7 +82,7 @@ public class UserManagementController {
      * Restricted to PRIMARY_ADMIN.
      */
     @PostMapping
-    @PreAuthorize("hasAuthority('PRIMARY_ADMIN')")
+    @PreAuthorize("hasRole('PRIMARY_ADMIN')")
     public ResponseEntity<ApiResponse<ManagedUserDto>> createManagedUser(
             @RequestBody ManagedUserDto dto) {
 
@@ -102,7 +102,7 @@ public class UserManagementController {
      * Restricted to PRIMARY_ADMIN and REGIONAL_ADMIN.
      */
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
+    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
     public ResponseEntity<ApiResponse<ManagedUserDto>> updateManagedUser(
             @PathVariable String id,
             @RequestBody ManagedUserDto dto) {
@@ -121,7 +121,7 @@ public class UserManagementController {
      * Restricted to PRIMARY_ADMIN and REGIONAL_ADMIN.
      */
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasAnyAuthority('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
+    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
     public ResponseEntity<ApiResponse<ManagedUserDto>> updateManagedUserStatus(
             @PathVariable String id,
             @RequestBody UserStatusRequestDto request) {
@@ -147,7 +147,7 @@ public class UserManagementController {
      *   REGIONAL_ADMIN → can only reset MAC for RECEPTIONIST
      */
     @PutMapping("/{employeeId}/reset-mac")
-    @PreAuthorize("hasAnyAuthority('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
+    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
     public ResponseEntity<ApiResponse<DeviceResetResponseDto>> resetDeviceMac(
             @PathVariable String employeeId,
             @Valid @RequestBody DeviceResetRequestDto request,

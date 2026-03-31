@@ -44,7 +44,7 @@ public class UserController {
      * Restricted to PRIMARY_ADMIN and REGIONAL_ADMIN.
      */
     @PostMapping("/sync")
-    @PreAuthorize("hasAnyAuthority('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
+    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
     public ResponseEntity<ApiResponse<List<UserDto>>> syncUsers(
             @AuthenticationPrincipal UserDetails principal) {
 

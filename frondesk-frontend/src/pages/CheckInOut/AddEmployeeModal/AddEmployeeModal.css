@@ -1,0 +1,100 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Add Employee Modal — employee-specific additions  (prefix: aem-)
+   Base avm-* styles come from ../AddVisitorModal/AddVisitorModal.css
+───────────────────────────────────────────────────────────────────────────── */
+
+/* ── Employee info card (Step 1 — after lookup) ──────────────────────────── */
+.aem-emp-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: rgba(40, 136, 61, 0.05);
+  border: 1.5px solid rgba(40, 136, 61, 0.22);
+  border-radius: 10px;
+  animation: aem-card-in 0.20s ease;
+}
+
+@keyframes aem-card-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+.aem-emp-card__avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: rgba(40, 136, 61, 0.12);
+  color: #28883d;
+}
+
+.aem-emp-card__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.aem-emp-card__name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #111;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aem-emp-card__meta {
+  font-size: 12px;
+  color: #666;
+  margin: 0;
+}
+
+.aem-emp-card__otp-hint {
+  font-size: 12px;
+  color: #28883d;
+  margin: 4px 0 0;
+  font-weight: 500;
+}
+.aem-emp-card__otp-hint strong { font-weight: 700; }
+
+/* ── Employee summary chip (Step 2 — read-only top strip) ────────────────── */
+.aem-emp-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  background: rgba(59, 109, 212, 0.05);
+  border: 1px solid rgba(59, 109, 212, 0.18);
+  border-radius: 9px;
+}
+
+.aem-emp-summary__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: rgba(59, 109, 212, 0.10);
+  color: #3b6dd4;
+}
+
+.aem-emp-summary__name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #111;
+  margin: 0 0 2px;
+}
+
+.aem-emp-summary__meta {
+  font-size: 12px;
+  color: #888;
+  margin: 0;
+}

@@ -40,6 +40,7 @@ export default function LocationMaster() {
   const [locations,   setLocations]   = useState([]);
   const [search,      setSearch]      = useState('');
   const [initLoading, setInitLoading] = useState(true);
+  const [loadError,   setLoadError]   = useState(null);
 
   /** @type {[FetchStatus, Function]} */
   const [syncStatus,  setSyncStatus]  = useState('idle');
@@ -52,10 +53,11 @@ export default function LocationMaster() {
   // ── Load from local DB on mount ─────────────────────────────────────────
   useEffect(() => {
     let active = true;
+    setLoadError(null);
     getLocations()
-      .then((data) => { if (active) setLocations(data); })
-      .catch(() => {})
-      .finally(() => { if (active) setInitLoading(false); });
+      .then((data) => { if (active) setLocations(data ?? []); })
+      .catch((err) => { if (active) setLoadError(err.message ?? 'Failed to load locations.'); })
+      .finally(()  => { if (active) setInitLoading(false); });
     return () => { active = false; };
   }, []);
 
@@ -97,10 +99,13 @@ export default function LocationMaster() {
 
     try {
       await updateLocationStatus(code, next);
-    } catch {
+    } catch (err) {
+      // Roll back the optimistic update and surface the error via the sync banner
       setLocations((prev) =>
         prev.map((l) => (l.code === code ? { ...l, status: original.status } : l))
       );
+      setSyncError(err.message ?? 'Failed to update status. Please try again.');
+      setSyncStatus('error');
     }
   }, [locations]);
 
@@ -109,9 +114,9 @@ export default function LocationMaster() {
     ? locations.filter((l) => {
         const q = search.toLowerCase();
         return (
-          l.code.toLowerCase().includes(q) ||
-          l.name.toLowerCase().includes(q) ||
-          l.city.toLowerCase().includes(q)
+          (l.code ?? '').toLowerCase().includes(q) ||
+          (l.name ?? '').toLowerCase().includes(q) ||
+          (l.city ?? '').toLowerCase().includes(q)
         );
       })
     : locations;
@@ -133,6 +138,14 @@ export default function LocationMaster() {
           )}
         </p>
       </header>
+
+      {/* ── Load error banner ───────────────────────────────────────────── */}
+      {loadError && (
+        <div className="lm-banner lm-banner--error" role="alert" aria-live="assertive">
+          <IconAlertCircle size={15} />
+          <span>{loadError}</span>
+        </div>
+      )}
 
       {/* ── Feedback banner ─────────────────────────────────────────────── */}
       {syncStatus === 'success' && (
@@ -215,7 +228,7 @@ export default function LocationMaster() {
                         {loc.name}
                       </span>
                     </td>
-                    <td className="lm-col--addr">{loc.address}</td>
+                    <td className="lm-col--addr" title={loc.address ?? ''}>{loc.address}</td>
                     <td>{loc.city}</td>
                     <td>{loc.state}</td>
                     <td>
