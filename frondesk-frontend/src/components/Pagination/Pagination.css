@@ -1,0 +1,70 @@
+/* ─── Pagination bar ──────────────────────────────────────────────────────── */
+.pgn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: var(--space-3) var(--space-4);
+}
+
+/* ── Base button ── */
+.pgn__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 var(--space-2);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--text-500);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast),
+              color var(--transition-fast), transform var(--transition-fast);
+  -webkit-app-region: no-drag;
+}
+
+.pgn__btn:hover:not(:disabled):not(.pgn__btn--active) {
+  background: rgba(255, 255, 255, 0.28);
+  border-color: rgba(255, 255, 255, 0.55);
+  color: var(--text-700);
+  transform: translateY(-1px);
+}
+
+/* ── Active page ── */
+.pgn__btn--active {
+  background: var(--color-red);
+  border-color: var(--color-red);
+  color: var(--color-white);
+  cursor: default;
+  box-shadow: 0 2px 8px rgba(194, 24, 29, 0.35);
+}
+
+/* ── Arrow buttons (‹ ›) ── */
+.pgn__btn--arrow {
+  font-size: 16px;
+  font-weight: 400;
+}
+
+/* ── Disabled ── */
+.pgn__btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ── Ellipsis ── */
+.pgn__ellipsis {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 32px;
+  color: var(--text-400);
+  font-size: 13px;
+  user-select: none;
+}

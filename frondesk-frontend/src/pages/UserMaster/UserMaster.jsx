@@ -7,6 +7,7 @@ import {
   IconAlertCircle,
 } from '../../components/Icons/Icons';
 import { getUsers, syncUsersFromMaster } from './userService';
+import Pagination from '../../components/Pagination/Pagination';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TABLE_COLUMNS = [
@@ -22,6 +23,7 @@ const TABLE_COLUMNS = [
 
 const SKELETON_ROW_COUNT = 6;
 const BANNER_DISMISS_MS  = 4500;
+const PAGE_SIZE          = 20;
 
 /** @typedef {'idle'|'loading'|'success'|'error'} SyncStatus */
 
@@ -36,6 +38,7 @@ export default function UserMaster() {
   const [search,      setSearch]      = useState('');
   const [initLoading, setInitLoading] = useState(true);
   const [loadError,   setLoadError]   = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   /** @type {[SyncStatus, Function]} */
   const [syncStatus, setSyncStatus] = useState('idle');
@@ -96,6 +99,15 @@ export default function UserMaster() {
         );
       })
     : users;
+
+  // Reset to first page whenever search changes
+  useEffect(() => { setCurrentPage(1); }, [search]);
+
+  // ── Pagination ───────────────────────────────────────────────────────────
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage   = Math.min(currentPage, totalPages);
+  const pageStart  = (safePage - 1) * PAGE_SIZE;
+  const paginated  = filtered.slice(pageStart, pageStart + PAGE_SIZE);
 
   const isSyncing = syncStatus === 'loading';
 
@@ -195,7 +207,7 @@ export default function UserMaster() {
                   </td>
                 </tr>
               ) : (
-                filtered.map((user) => (
+                paginated.map((user) => (
                   <tr key={user.id}>
                     <td className="um-col--id">{user.id}</td>
                     <td className="um-col--name">{user.name}</td>
@@ -212,12 +224,22 @@ export default function UserMaster() {
           </table>
         </div>
 
+        {/* ── Pagination ── */}
+        {!initLoading && filtered.length > 0 && (
+          <Pagination
+            currentPage={safePage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
+        )}
+
         {/* ── Footer: row count ── */}
         {!initLoading && users.length > 0 && (
           <div className="um-footer">
-            Showing&nbsp;<strong>{filtered.length}</strong>&nbsp;of&nbsp;
-            <strong>{users.length}</strong>&nbsp;
-            user{users.length !== 1 ? 's' : ''}
+            Showing&nbsp;<strong>{pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filtered.length)}</strong>&nbsp;of&nbsp;
+            <strong>{filtered.length}</strong>&nbsp;
+            user{filtered.length !== 1 ? 's' : ''}
+            {search && <span>&nbsp;(filtered from {users.length} total)</span>}
           </div>
         )}
 

@@ -14,6 +14,7 @@ import {
   syncLocationsFromMaster,
   updateLocationStatus,
 } from './locationService';
+import Pagination from '../../components/Pagination/Pagination';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TABLE_COLUMNS = [
@@ -27,6 +28,7 @@ const TABLE_COLUMNS = [
 
 const SKELETON_ROW_COUNT = 5;
 const BANNER_DISMISS_MS  = 4500;
+const PAGE_SIZE          = 20;
 
 /** @typedef {'idle'|'loading'|'success'|'error'} FetchStatus */
 
@@ -41,6 +43,7 @@ export default function LocationMaster() {
   const [search,      setSearch]      = useState('');
   const [initLoading, setInitLoading] = useState(true);
   const [loadError,   setLoadError]   = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   /** @type {[FetchStatus, Function]} */
   const [syncStatus,  setSyncStatus]  = useState('idle');
@@ -120,6 +123,15 @@ export default function LocationMaster() {
         );
       })
     : locations;
+
+  // Reset to first page whenever search changes
+  useEffect(() => { setCurrentPage(1); }, [search]);
+
+  // ── Pagination ───────────────────────────────────────────────────────────
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage   = Math.min(currentPage, totalPages);
+  const pageStart  = (safePage - 1) * PAGE_SIZE;
+  const paginated  = filtered.slice(pageStart, pageStart + PAGE_SIZE);
 
   const isSyncing = syncStatus === 'loading';
 
@@ -219,7 +231,7 @@ export default function LocationMaster() {
                   </td>
                 </tr>
               ) : (
-                filtered.map((loc) => (
+                paginated.map((loc) => (
                   <tr key={loc.code}>
                     <td className="lm-col--code">{loc.code}</td>
                     <td className="lm-col--name">
@@ -251,12 +263,22 @@ export default function LocationMaster() {
           </table>
         </div>
 
+        {/* ── Pagination ── */}
+        {!initLoading && filtered.length > 0 && (
+          <Pagination
+            currentPage={safePage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
+        )}
+
         {/* ── Footer: row count ── */}
         {!initLoading && locations.length > 0 && (
           <div className="lm-footer">
-            Showing&nbsp;<strong>{filtered.length}</strong>&nbsp;of&nbsp;
-            <strong>{locations.length}</strong>&nbsp;
-            location{locations.length !== 1 ? 's' : ''}
+            Showing&nbsp;<strong>{pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filtered.length)}</strong>&nbsp;of&nbsp;
+            <strong>{filtered.length}</strong>&nbsp;
+            location{filtered.length !== 1 ? 's' : ''}
+            {search && <span>&nbsp;(filtered from {locations.length} total)</span>}
           </div>
         )}
 
