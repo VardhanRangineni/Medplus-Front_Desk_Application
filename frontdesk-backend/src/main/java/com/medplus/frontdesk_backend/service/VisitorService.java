@@ -1,6 +1,7 @@
 package com.medplus.frontdesk_backend.service;
 
 import com.medplus.frontdesk_backend.dto.EmployeeLookupResponseDto;
+import com.medplus.frontdesk_backend.dto.PagedResponseDto;
 import com.medplus.frontdesk_backend.dto.PersonToMeetDto;
 import com.medplus.frontdesk_backend.dto.VisitorMemberDto;
 import com.medplus.frontdesk_backend.dto.VisitorMemberRequestDto;
@@ -123,56 +124,85 @@ public class VisitorService {
     }
 
     /**
-     * Returns entries filtered by date, location (admin-override), and department.
+     * Returns a paginated page of entries.
      *
-     * Role rules:
+     * Date is optional — when null ALL dates are included (cross-date view for the
+     * Check-In/Check-Out table).
+     *
+     * Role rules (same as before):
      *  - RECEPTIONIST: always scoped to their own location; locationIdParam ignored.
      *  - PRIMARY_ADMIN / REGIONAL_ADMIN:
-     *      - if locationIdParam supplied → filter to that location
-     *      - if locationIdParam blank/null → return ALL locations for that date
+     *      - locationIdParam supplied → that location only
+     *      - locationIdParam blank/null → all locations
+     *
+     * @param page 0-based page index
+     * @param size records per page (default 20)
      */
-    public List<VisitorResponseDto> getEntries(String callerEmployeeId, LocalDate date,
-                                               String locationIdParam, String department,
-                                               Authentication auth) {
-        LocalDate queryDate = date != null ? date : LocalDate.now();
-        String dept = (department != null && !department.isBlank()) ? department : null;
+    public PagedResponseDto<VisitorResponseDto> getEntries(String callerEmployeeId,
+                                                           LocalDate date,
+                                                           String locationIdParam,
+                                                           String department,
+                                                           int page, int size,
+                                                           Authentication auth) {
+        String dept   = (department != null && !department.isBlank()) ? department : null;
+        int    offset = page * size;
 
         if (isAdmin(auth)) {
             String locId = (locationIdParam != null && !locationIdParam.isBlank()) ? locationIdParam : null;
-            List<Visitor> visitors = (locId != null)
-                    ? visitorRepository.findByLocationAndDate(locId, queryDate, dept)
-                    : visitorRepository.findAllByDate(queryDate, dept);
-            return visitors.stream().map(this::buildResponse).toList();
+            List<Visitor> rows  = visitorRepository.findPaged(locId, date, dept, offset, size);
+            long          total = visitorRepository.countFiltered(locId, date, dept);
+            return PagedResponseDto.of(rows.stream().map(this::buildResponse).toList(), page, size, total);
         }
 
         String locationId = getUserLocation(callerEmployeeId);
-        return visitorRepository.findByLocationAndDate(locationId, queryDate, dept)
-                .stream().map(this::buildResponse).toList();
+        List<Visitor> rows  = visitorRepository.findPaged(locationId, date, dept, offset, size);
+        long          total = visitorRepository.countFiltered(locationId, date, dept);
+        return PagedResponseDto.of(rows.stream().map(this::buildResponse).toList(), page, size, total);
     }
 
     /**
-     * Full-text search over entries — respects the same admin/location rules as getEntries.
+     * Full-text search over entries — paginated, same role/location rules as getEntries.
+     * When query is blank, delegates to {@link #getEntries}.
      */
-    public List<VisitorResponseDto> searchEntries(String callerEmployeeId, LocalDate date,
-                                                  String query, String locationIdParam,
-                                                  String department, Authentication auth) {
-        LocalDate queryDate = date != null ? date : LocalDate.now();
-        String dept = (department != null && !department.isBlank()) ? department : null;
-
+    public PagedResponseDto<VisitorResponseDto> searchEntries(String callerEmployeeId,
+                                                              LocalDate date,
+                                                              String query,
+                                                              String locationIdParam,
+                                                              String department,
+                                                              int page, int size,
+                                                              Authentication auth) {
         if (query == null || query.isBlank()) {
-            return getEntries(callerEmployeeId, date, locationIdParam, department, auth);
+            return getEntries(callerEmployeeId, date, locationIdParam, department, page, size, auth);
         }
 
+        String dept   = (department != null && !department.isBlank()) ? department : null;
+        int    offset = page * size;
+
         if (isAdmin(auth)) {
-            String locId = (locationIdParam != null && !locationIdParam.isBlank()) ? locationIdParam : null;
-            List<Visitor> visitors = (locId != null)
-                    ? visitorRepository.searchByLocationAndDate(locId, queryDate, query, dept)
-                    : visitorRepository.searchAllByDate(queryDate, query, dept);
-            return visitors.stream().map(this::buildResponse).toList();
+            String locId  = (locationIdParam != null && !locationIdParam.isBlank()) ? locationIdParam : null;
+            List<Visitor> rows  = visitorRepository.searchPaged(locId, date, query, dept, offset, size);
+            long          total = visitorRepository.countSearch(locId, date, query, dept);
+            return PagedResponseDto.of(rows.stream().map(this::buildResponse).toList(), page, size, total);
         }
 
         String locationId = getUserLocation(callerEmployeeId);
-        return visitorRepository.searchByLocationAndDate(locationId, queryDate, query, dept)
+        List<Visitor> rows  = visitorRepository.searchPaged(locationId, date, query, dept, offset, size);
+        long          total = visitorRepository.countSearch(locationId, date, query, dept);
+        return PagedResponseDto.of(rows.stream().map(this::buildResponse).toList(), page, size, total);
+    }
+
+    /**
+     * Returns the most recent 20 visitor/employee entries for the caller's location.
+     * Admins with no location filter receive the latest 20 entries across all locations.
+     * Used by the Dashboard "Recent Visitors" widget.
+     */
+    public List<VisitorResponseDto> getRecentEntries(String callerEmployeeId, Authentication auth) {
+        if (isAdmin(auth)) {
+            return visitorRepository.findRecentAll(20)
+                    .stream().map(this::buildResponse).toList();
+        }
+        String locationId = getUserLocation(callerEmployeeId);
+        return visitorRepository.findRecent(locationId, 20)
                 .stream().map(this::buildResponse).toList();
     }
 
@@ -192,12 +222,26 @@ public class VisitorService {
     }
 
     /**
-     * Exports visitor entries as a CSV byte array.
-     * Applies the same admin/location/department/date filters as getEntries.
+     * Exports visitor entries for a given date as a UTF-8 CSV.
+     * Date defaults to today when null so the export remains focused.
+     * Applies the same admin/location/department rules as getEntries.
      */
     public byte[] exportCsv(String callerEmployeeId, LocalDate date,
                             String locationIdParam, String department, Authentication auth) {
-        List<VisitorResponseDto> entries = getEntries(callerEmployeeId, date, locationIdParam, department, auth);
+        LocalDate exportDate = date != null ? date : LocalDate.now();
+        String    dept       = (department != null && !department.isBlank()) ? department : null;
+
+        // Fetch all matching rows (no pagination) for the export
+        List<Visitor> rows;
+        if (isAdmin(auth)) {
+            String locId = (locationIdParam != null && !locationIdParam.isBlank()) ? locationIdParam : null;
+            rows = visitorRepository.findPaged(locId, exportDate, dept, 0, Integer.MAX_VALUE);
+        } else {
+            String locationId = getUserLocation(callerEmployeeId);
+            rows = visitorRepository.findPaged(locationId, exportDate, dept, 0, Integer.MAX_VALUE);
+        }
+
+        List<VisitorResponseDto> entries = rows.stream().map(this::buildResponse).toList();
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm");
 
         StringBuilder sb = new StringBuilder();

@@ -380,6 +380,181 @@ public class VisitorRepository {
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
+    // ── Paginated queries (all-dates or date-scoped) ──────────────────────────
+
+    /**
+     * Returns a single page of visitor entries.
+     * All filter parameters are optional (null = no filter applied for that dimension).
+     *
+     * @param locationId restrict to a single location; null = all locations
+     * @param date       restrict to a single calendar day; null = all dates
+     * @param department restrict to a department name; null = all departments
+     * @param offset     OFFSET for SQL (page * size)
+     * @param limit      LIMIT for SQL (page size)
+     */
+    public List<Visitor> findPaged(String locationId, java.time.LocalDate date,
+                                   String department, int offset, int limit) {
+        StringBuilder sql = new StringBuilder("""
+                SELECT visitorId, visitType, entryType, name, mobile, empId,
+                       status, personToMeet, personName, department,
+                       locationId, cardNumber, govtIdType, govtIdNumber, imageUrl,
+                       checkInTime, checkOutTime, reasonForVisit, createdBy
+                FROM visitorlog
+                WHERE 1=1
+                """);
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        if (locationId != null) {
+            sql.append("  AND locationId = :locationId\n");
+            params.addValue("locationId", locationId);
+        }
+        if (date != null) {
+            sql.append("  AND checkInTime >= :start AND checkInTime < :end\n");
+            params.addValue("start", date.atStartOfDay());
+            params.addValue("end",   date.plusDays(1).atStartOfDay());
+        }
+        if (department != null) {
+            sql.append("  AND department = :department\n");
+            params.addValue("department", department);
+        }
+        sql.append("ORDER BY checkInTime DESC\nLIMIT :limit OFFSET :offset");
+        params.addValue("limit", limit).addValue("offset", offset);
+        return jdbc.query(sql.toString(), params, this::mapVisitorRow);
+    }
+
+    /**
+     * Returns the total count of records matching the same optional filters used by
+     * {@link #findPaged}. Used to calculate total pages.
+     */
+    public long countFiltered(String locationId, java.time.LocalDate date, String department) {
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM visitorlog WHERE 1=1\n");
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        if (locationId != null) {
+            sql.append("  AND locationId = :locationId\n");
+            params.addValue("locationId", locationId);
+        }
+        if (date != null) {
+            sql.append("  AND checkInTime >= :start AND checkInTime < :end\n");
+            params.addValue("start", date.atStartOfDay());
+            params.addValue("end",   date.plusDays(1).atStartOfDay());
+        }
+        if (department != null) {
+            sql.append("  AND department = :department\n");
+            params.addValue("department", department);
+        }
+        Long count = jdbc.queryForObject(sql.toString(), params, Long.class);
+        return count == null ? 0L : count;
+    }
+
+    /**
+     * Full-text search within a paginated result set.
+     * Searches name, mobile, empId, and personName.
+     * All filter parameters are optional (null = no filter).
+     */
+    public List<Visitor> searchPaged(String locationId, java.time.LocalDate date,
+                                     String query, String department, int offset, int limit) {
+        String like = "%" + query.trim().toLowerCase() + "%";
+        StringBuilder sql = new StringBuilder("""
+                SELECT visitorId, visitType, entryType, name, mobile, empId,
+                       status, personToMeet, personName, department,
+                       locationId, cardNumber, govtIdType, govtIdNumber, imageUrl,
+                       checkInTime, checkOutTime, reasonForVisit, createdBy
+                FROM visitorlog
+                WHERE (
+                    LOWER(name)       LIKE :q
+                 OR LOWER(mobile)     LIKE :q
+                 OR LOWER(empId)      LIKE :q
+                 OR LOWER(personName) LIKE :q
+                )
+                """);
+        MapSqlParameterSource params = new MapSqlParameterSource("q", like);
+        if (locationId != null) {
+            sql.append("  AND locationId = :locationId\n");
+            params.addValue("locationId", locationId);
+        }
+        if (date != null) {
+            sql.append("  AND checkInTime >= :start AND checkInTime < :end\n");
+            params.addValue("start", date.atStartOfDay());
+            params.addValue("end",   date.plusDays(1).atStartOfDay());
+        }
+        if (department != null) {
+            sql.append("  AND department = :department\n");
+            params.addValue("department", department);
+        }
+        sql.append("ORDER BY checkInTime DESC\nLIMIT :limit OFFSET :offset");
+        params.addValue("limit", limit).addValue("offset", offset);
+        return jdbc.query(sql.toString(), params, this::mapVisitorRow);
+    }
+
+    /**
+     * Count of search matches — mirrors the filters in {@link #searchPaged}.
+     */
+    public long countSearch(String locationId, java.time.LocalDate date,
+                            String query, String department) {
+        String like = "%" + query.trim().toLowerCase() + "%";
+        StringBuilder sql = new StringBuilder("""
+                SELECT COUNT(*) FROM visitorlog
+                WHERE (
+                    LOWER(name)       LIKE :q
+                 OR LOWER(mobile)     LIKE :q
+                 OR LOWER(empId)      LIKE :q
+                 OR LOWER(personName) LIKE :q
+                )
+                """);
+        MapSqlParameterSource params = new MapSqlParameterSource("q", like);
+        if (locationId != null) {
+            sql.append("  AND locationId = :locationId\n");
+            params.addValue("locationId", locationId);
+        }
+        if (date != null) {
+            sql.append("  AND checkInTime >= :start AND checkInTime < :end\n");
+            params.addValue("start", date.atStartOfDay());
+            params.addValue("end",   date.plusDays(1).atStartOfDay());
+        }
+        if (department != null) {
+            sql.append("  AND department = :department\n");
+            params.addValue("department", department);
+        }
+        Long count = jdbc.queryForObject(sql.toString(), params, Long.class);
+        return count == null ? 0L : count;
+    }
+
+    /**
+     * Returns the most recent {@code limit} entries at a specific location.
+     * Used by the dashboard "Recent Visitors" widget.
+     */
+    public List<Visitor> findRecent(String locationId, int limit) {
+        String sql = """
+                SELECT visitorId, visitType, entryType, name, mobile, empId,
+                       status, personToMeet, personName, department,
+                       locationId, cardNumber, govtIdType, govtIdNumber, imageUrl,
+                       checkInTime, checkOutTime, reasonForVisit, createdBy
+                FROM visitorlog
+                WHERE locationId = :locationId
+                ORDER BY checkInTime DESC
+                LIMIT :limit
+                """;
+        return jdbc.query(sql, new MapSqlParameterSource()
+                .addValue("locationId", locationId)
+                .addValue("limit",      limit), this::mapVisitorRow);
+    }
+
+    /**
+     * Returns the most recent {@code limit} entries across all locations.
+     * Used by admins' dashboard "Recent Visitors" widget.
+     */
+    public List<Visitor> findRecentAll(int limit) {
+        String sql = """
+                SELECT visitorId, visitType, entryType, name, mobile, empId,
+                       status, personToMeet, personName, department,
+                       locationId, cardNumber, govtIdType, govtIdNumber, imageUrl,
+                       checkInTime, checkOutTime, reasonForVisit, createdBy
+                FROM visitorlog
+                ORDER BY checkInTime DESC
+                LIMIT :limit
+                """;
+        return jdbc.query(sql, new MapSqlParameterSource("limit", limit), this::mapVisitorRow);
+    }
+
     // ── Person-to-meet search ─────────────────────────────────────────────────
 
     /**

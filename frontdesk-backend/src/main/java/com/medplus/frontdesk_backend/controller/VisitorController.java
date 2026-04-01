@@ -2,6 +2,7 @@ package com.medplus.frontdesk_backend.controller;
 
 import com.medplus.frontdesk_backend.dto.ApiResponse;
 import com.medplus.frontdesk_backend.dto.EmployeeLookupResponseDto;
+import com.medplus.frontdesk_backend.dto.PagedResponseDto;
 import com.medplus.frontdesk_backend.dto.PersonToMeetDto;
 import com.medplus.frontdesk_backend.dto.VisitorMemberDto;
 import com.medplus.frontdesk_backend.dto.VisitorRequestDto;
@@ -83,27 +84,42 @@ public class VisitorController {
     // ── GET /api/visitors ─────────────────────────────────────────────────────
 
     /**
-     * Returns check-in/check-out entries for the given date, with optional filters.
+     * Returns a paginated page of check-in/check-out entries.
      *
      * Query params:
-     *   date       (optional) — ISO date, e.g. 2026-03-28  (defaults to today)
-     *   locationId (optional) — restrict to a specific location;
-     *                           PRIMARY_ADMIN / REGIONAL_ADMIN only — receptionists always
-     *                           see their own location regardless of this param.
+     *   date       (optional) — ISO date, e.g. 2026-03-28.
+     *                           When omitted, entries across ALL dates are returned.
+     *   locationId (optional) — restrict to a specific location (admin-level override).
+     *                           Receptionists always see their own location.
      *                           If omitted by an admin, all locations are returned.
-     *   department (optional) — filter entries by the host department name
+     *   department (optional) — filter entries by the host department name.
+     *   page       (optional) — 0-based page index (default 0).
+     *   size       (optional) — records per page (default 20).
+     *
+     * Response body (data field):
+     * {
+     *   "content":       [...],
+     *   "page":          0,
+     *   "size":          20,
+     *   "totalElements": 143,
+     *   "totalPages":    8,
+     *   "first":         true,
+     *   "last":          false
+     * }
      */
     @GetMapping
-    public ResponseEntity<ApiResponse<List<VisitorResponseDto>>> getEntries(
+    public ResponseEntity<ApiResponse<PagedResponseDto<VisitorResponseDto>>> getEntries(
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) String locationId,
             @RequestParam(required = false) String department,
+            @RequestParam(defaultValue = "0")  int page,
+            @RequestParam(defaultValue = "20") int size,
             Authentication auth) {
 
-        List<VisitorResponseDto> entries =
-                visitorService.getEntries(auth.getName(), date, locationId, department, auth);
-        return ResponseEntity.ok(ApiResponse.success("Entries retrieved successfully.", entries));
+        PagedResponseDto<VisitorResponseDto> result =
+                visitorService.getEntries(auth.getName(), date, locationId, department, page, size, auth);
+        return ResponseEntity.ok(ApiResponse.success("Entries retrieved successfully.", result));
     }
 
     // ── GET /api/visitors/{visitorId} ─────────────────────────────────────────
@@ -123,29 +139,48 @@ public class VisitorController {
         return ResponseEntity.ok(ApiResponse.success("Entry retrieved.", entry));
     }
 
+    // ── GET /api/visitors/recent ──────────────────────────────────────────────
+
+    /**
+     * Returns the 20 most recent visitor/employee entries for the caller's location.
+     * Admins with no location filter see the 20 most recent entries across all locations.
+     * Used by the Dashboard "Recent Visitors" widget.
+     */
+    @GetMapping("/recent")
+    public ResponseEntity<ApiResponse<List<VisitorResponseDto>>> getRecentEntries(
+            Authentication auth) {
+
+        List<VisitorResponseDto> entries = visitorService.getRecentEntries(auth.getName(), auth);
+        return ResponseEntity.ok(ApiResponse.success("Recent entries retrieved.", entries));
+    }
+
     // ── GET /api/visitors/search ──────────────────────────────────────────────
 
     /**
-     * Full-text search within entries (scoped by role/location same as GET /api/visitors).
+     * Full-text paginated search within entries (scoped by role/location).
      * Searches visitor name, mobile, empId, and person-to-meet name.
      *
      * Query params:
      *   q          — search term
-     *   date       — ISO date (optional, defaults to today)
+     *   date       — ISO date (optional; omit for all dates)
      *   locationId — admin-level location override (optional)
      *   department — department filter (optional)
+     *   page       — 0-based page index (default 0)
+     *   size       — records per page (default 20)
      */
     @GetMapping("/search")
-    public ResponseEntity<ApiResponse<List<VisitorResponseDto>>> searchEntries(
+    public ResponseEntity<ApiResponse<PagedResponseDto<VisitorResponseDto>>> searchEntries(
             @RequestParam(defaultValue = "") String q,
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) String locationId,
             @RequestParam(required = false) String department,
+            @RequestParam(defaultValue = "0")  int page,
+            @RequestParam(defaultValue = "20") int size,
             Authentication auth) {
 
-        List<VisitorResponseDto> results =
-                visitorService.searchEntries(auth.getName(), date, q, locationId, department, auth);
+        PagedResponseDto<VisitorResponseDto> results =
+                visitorService.searchEntries(auth.getName(), date, q, locationId, department, page, size, auth);
         return ResponseEntity.ok(ApiResponse.success("Search results.", results));
     }
 
