@@ -7,7 +7,6 @@ import {
   IconMail,
   IconCreditCard,
   IconCamera,
-  IconMapPin,
   IconBuilding,
   IconPlus,
   IconTrash,
@@ -18,7 +17,6 @@ import {
 import {
   sendOtp,
   verifyOtp,
-  getLocations,
   getPersonsToMeet,
   getDepartments,
   createVisitorEntry,
@@ -163,12 +161,12 @@ function Step1({ state, dispatch }) {
 // ─── Step 2 — Visitor details ─────────────────────────────────────────────────
 function Step2({ state, dispatch, refData }) {
   const {
-    visitType, location, fullName, email, govtIdType, govtIdNumber,
+    visitType, fullName, email, govtIdType, govtIdNumber,
     personToMeet, hostDepartment, reasonForVisit,
     cardNumber, leadCardNumber, members,
   } = state;
 
-  const { locations, persons, departments } = refData;
+  const { persons, departments } = refData;
 
   const addMember    = () => dispatch({ type: 'ADD_MEMBER' });
   const removeMember = (id) => dispatch({ type: 'REMOVE_MEMBER', id });
@@ -197,17 +195,6 @@ function Step2({ state, dispatch, refData }) {
             </label>
           ))}
         </div>
-      </Field>
-
-      {/* Location */}
-      <Field label="Location">
-        <SelectField
-          icon={<IconMapPin size={14} />}
-          placeholder="Select a location for this entry"
-          value={location}
-          onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'location', value: v })}
-          options={locations}
-        />
       </Field>
 
       {/* Full name */}
@@ -437,7 +424,6 @@ const initialState = {
   otpError:      '',
   // Step 2
   visitType:      'individual',
-  location:       '',
   fullName:       '',
   email:          '',
   govtIdType:     '',
@@ -460,7 +446,6 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
   const [submitError,   setSubmitError]   = useState('');
 
   // Reference data (populated on mount)
-  const [locations,    setLocations]    = useState([]);
   const [persons,      setPersons]      = useState([]);
   const [departments,  setDepartments]  = useState([]);
   const [refLoading,   setRefLoading]   = useState(true);
@@ -479,9 +464,8 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
   useEffect(() => {
     setRefLoading(true);
     setRefError('');
-    Promise.all([getLocations(), getPersonsToMeet(), getDepartments()])
-      .then(([locs, pers, depts]) => {
-        setLocations(locs);
+    Promise.all([getPersonsToMeet(), getDepartments()])
+      .then(([pers, depts]) => {
         setPersons(pers);
         setDepartments(depts);
         if (pers.length === 0) {
@@ -657,7 +641,6 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
       const payload = {
         mobile:         formState.mobile,
         visitType:      formState.visitType,
-        location:       formState.location,
         fullName:       formState.fullName,
         email:          formState.email,
         govtIdType:     formState.govtIdType,
@@ -734,7 +717,7 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
               <Step2
                 state={formState}
                 dispatch={dispatch}
-                refData={{ locations, persons, departments }}
+                refData={{ persons, departments }}
               />
             </>
           )}

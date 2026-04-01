@@ -1,7 +1,9 @@
 package com.medplus.frontdesk_backend.repository;
 
+import com.medplus.frontdesk_backend.dto.DashboardStatsDto;
 import com.medplus.frontdesk_backend.dto.PersonToMeetDto;
 import com.medplus.frontdesk_backend.dto.StatusCountsDto;
+import com.medplus.frontdesk_backend.dto.VisitorFlowPointDto;
 import com.medplus.frontdesk_backend.model.EntryType;
 import com.medplus.frontdesk_backend.model.GovtIdType;
 import com.medplus.frontdesk_backend.model.VisitStatus;
@@ -694,6 +696,100 @@ public class VisitorRepository {
                         .build()
         );
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    // ── Dashboard queries ─────────────────────────────────────────────────────
+
+    /**
+     * Returns aggregated check-in / check-out / active counts for today,
+     * broken down by entry type (EMPLOYEE vs VISITOR).
+     *
+     * @param locationId restrict to a specific location; null = all locations
+     */
+    public DashboardStatsDto findDashboardStats(String locationId) {
+        java.time.LocalDate today = java.time.LocalDate.now();
+        LocalDateTime start = today.atStartOfDay();
+        LocalDateTime end   = today.plusDays(1).atStartOfDay();
+
+        String sql = """
+                SELECT
+                    COUNT(*)                                                                             AS total_checkins,
+                    SUM(CASE WHEN entryType = 'EMPLOYEE' THEN 1 ELSE 0 END)                            AS emp_checkins,
+                    SUM(CASE WHEN entryType = 'VISITOR'  THEN 1 ELSE 0 END)                            AS non_emp_checkins,
+                    SUM(CASE WHEN status = 'CHECKED_OUT' THEN 1 ELSE 0 END)                            AS total_checkouts,
+                    SUM(CASE WHEN status = 'CHECKED_OUT' AND entryType = 'EMPLOYEE' THEN 1 ELSE 0 END) AS emp_checkouts,
+                    SUM(CASE WHEN status = 'CHECKED_OUT' AND entryType = 'VISITOR'  THEN 1 ELSE 0 END) AS non_emp_checkouts,
+                    SUM(CASE WHEN status = 'CHECKED_IN'  THEN 1 ELSE 0 END)                            AS total_active,
+                    SUM(CASE WHEN status = 'CHECKED_IN'  AND entryType = 'EMPLOYEE' THEN 1 ELSE 0 END) AS emp_active,
+                    SUM(CASE WHEN status = 'CHECKED_IN'  AND entryType = 'VISITOR'  THEN 1 ELSE 0 END) AS non_emp_active
+                FROM visitorlog
+                WHERE checkInTime >= :start AND checkInTime < :end
+                """ + (locationId != null ? "  AND locationId = :locationId\n" : "");
+
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("start", start)
+                .addValue("end",   end);
+        if (locationId != null) params.addValue("locationId", locationId);
+
+        DashboardStatsDto result = jdbc.queryForObject(sql, params, (rs, rowNum) ->
+                DashboardStatsDto.builder()
+                        .todayCheckinsAll(rs.getLong("total_checkins"))
+                        .todayCheckinsEmp(rs.getLong("emp_checkins"))
+                        .todayCheckinsNonEmp(rs.getLong("non_emp_checkins"))
+                        .todayCheckoutsAll(rs.getLong("total_checkouts"))
+                        .todayCheckoutsEmp(rs.getLong("emp_checkouts"))
+                        .todayCheckoutsNonEmp(rs.getLong("non_emp_checkouts"))
+                        .activeInBuildingAll(rs.getLong("total_active"))
+                        .activeInBuildingEmp(rs.getLong("emp_active"))
+                        .activeInBuildingNonEmp(rs.getLong("non_emp_active"))
+                        .pendingSignouts(rs.getLong("total_active"))
+                        .build());
+
+        return result == null ? DashboardStatsDto.builder().build() : result;
+    }
+
+    /**
+     * Returns per-hour check-in counts for today (only hours with ≥ 1 entry).
+     * Used to populate the visitor-flow sparkline on the dashboard.
+     *
+     * @param locationId restrict to a specific location; null = all locations
+     */
+    public List<VisitorFlowPointDto> findHourlyFlow(String locationId) {
+        java.time.LocalDate today = java.time.LocalDate.now();
+        LocalDateTime start = today.atStartOfDay();
+        LocalDateTime end   = today.plusDays(1).atStartOfDay();
+
+        String sql = """
+                SELECT
+                    HOUR(checkInTime)                                                    AS hour,
+                    COUNT(*)                                                             AS all_count,
+                    SUM(CASE WHEN entryType = 'EMPLOYEE' THEN 1 ELSE 0 END)             AS emp_count,
+                    SUM(CASE WHEN entryType = 'VISITOR'  THEN 1 ELSE 0 END)             AS non_emp_count
+                FROM visitorlog
+                WHERE checkInTime >= :start AND checkInTime < :end
+                """ + (locationId != null ? "  AND locationId = :locationId\n" : "") + """
+                GROUP BY HOUR(checkInTime)
+                ORDER BY HOUR(checkInTime)
+                """;
+
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("start", start)
+                .addValue("end",   end);
+        if (locationId != null) params.addValue("locationId", locationId);
+
+        return jdbc.query(sql, params, (rs, rowNum) -> VisitorFlowPointDto.builder()
+                .label(formatHour(rs.getInt("hour")))
+                .all(rs.getLong("all_count"))
+                .employee(rs.getLong("emp_count"))
+                .nonEmployee(rs.getLong("non_emp_count"))
+                .build());
+    }
+
+    private static String formatHour(int hour) {
+        if (hour == 0)  return "12am";
+        if (hour < 12)  return hour + "am";
+        if (hour == 12) return "12pm";
+        return (hour - 12) + "pm";
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

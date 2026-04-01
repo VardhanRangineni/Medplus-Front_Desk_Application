@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import './Dashboard.css';
 import AppHeader       from '../../components/AppHeader/AppHeader';
 import AppSidebar      from '../../components/AppSidebar/AppSidebar';
@@ -7,25 +7,10 @@ import LocationMaster  from '../LocationMaster/LocationMaster';
 import CheckInOut      from '../CheckInOut/CheckInOut';
 import UserManagement  from '../UserManagement/UserManagement';
 import { IconPlus, IconMapPin } from '../../components/Icons/Icons';
-
-/* ── Mock data ───────────────────────────────────────────────────────────── */
-const VISITOR_FLOW_POINTS = [
-  { label: '8am',  y: 8  },
-  { label: '10am', y: 22 },
-  { label: '12pm', y: 26 },
-  { label: '2pm',  y: 16 },
-  { label: '4pm',  y: 24 },
-  { label: '6pm',  y: 10 },
-];
-
-const RECENT_VISITORS = [
-  { type: 'Visitor',  name: 'Sameer Jain',   contact: '9823456789', location: 'Corporate Office', status: 'Checked-in',  meet: 'Sunita Reddy', card: '104', checkIn: 'Mar 26, 2026, 2:00 PM'  },
-  { type: 'Employee', name: 'Priya Sharma',  contact: 'EMP-0045',   location: 'Corporate Office', status: 'Checked-in',  meet: '—',            card: '—',   checkIn: 'Mar 27, 2026, 9:30 AM'  },
-  { type: 'Visitor',  name: 'Rahul Mehta',   contact: '9912345678', location: 'Corporate Office', status: 'Checked-out', meet: 'Arjun Das',    card: '87',  checkIn: 'Mar 27, 2026, 11:00 AM' },
-  { type: 'Visitor',  name: 'Ananya Singh',  contact: '8845678901', location: 'Corporate Office', status: 'Checked-in',  meet: 'Kavita Rao',   card: '112', checkIn: 'Mar 27, 2026, 12:45 PM' },
-];
+import { getDashboardStats, getRecentVisitors } from './dashboardService';
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
+
 function getGreeting() {
   const h = new Date().getHours();
   if (h < 12) return 'Good morning';
@@ -33,18 +18,42 @@ function getGreeting() {
   return 'Good evening';
 }
 
+function formatCheckIn(date) {
+  if (!date) return '—';
+  return date.toLocaleString('en-IN', {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  });
+}
+
 /* ── Visitor Flow SVG chart ──────────────────────────────────────────────── */
-function VisitorFlowChart() {
+
+function VisitorFlowChart({ points = [] }) {
+  if (!points.length) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        height: '100%', color: '#ccc', fontSize: 13,
+      }}>
+        No visitor data yet today
+      </div>
+    );
+  }
+
   const W = 420; const H = 120; const PAD = { t: 12, b: 28, l: 8, r: 8 };
   const chartW = W - PAD.l - PAD.r;
   const chartH = H - PAD.t - PAD.b;
-  const maxY   = 30;
-  const n      = VISITOR_FLOW_POINTS.length;
-  const xs     = VISITOR_FLOW_POINTS.map((_, i) => PAD.l + (i / (n - 1)) * chartW);
-  const ys     = VISITOR_FLOW_POINTS.map(p  => PAD.t + chartH - (p.y / maxY) * chartH);
+  const maxY   = Math.max(...points.map(p => p.all), 1);
+  const n      = points.length;
+  const xs     = n === 1
+    ? [PAD.l + chartW / 2]
+    : points.map((_, i) => PAD.l + (i / (n - 1)) * chartW);
+  const ys     = points.map(p => PAD.t + chartH - (p.all / maxY) * chartH);
 
   const linePath = xs.map((x, i) => `${i === 0 ? 'M' : 'L'}${x},${ys[i]}`).join(' ');
-  const areaPath = `${linePath} L${xs[n-1]},${H - PAD.b} L${xs[0]},${H - PAD.b} Z`;
+  const areaPath = n > 1
+    ? `${linePath} L${xs[n - 1]},${H - PAD.b} L${xs[0]},${H - PAD.b} Z`
+    : `M${xs[0]},${ys[0]} L${xs[0]},${H - PAD.b} Z`;
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="100%" preserveAspectRatio="none">
@@ -59,7 +68,7 @@ function VisitorFlowChart() {
       {xs.map((x, i) => (
         <circle key={i} cx={x} cy={ys[i]} r="3.5" fill="#C2181D" stroke="#fff" strokeWidth="1.5" />
       ))}
-      {VISITOR_FLOW_POINTS.map((p, i) => (
+      {points.map((p, i) => (
         <text key={i} x={xs[i]} y={H - 6} textAnchor="middle" fontSize="9" fill="#aaa">{p.label}</text>
       ))}
     </svg>
@@ -67,8 +76,14 @@ function VisitorFlowChart() {
 }
 
 /* ── Stat Card ───────────────────────────────────────────────────────────── */
-function StatCard({ title, value, live = false }) {
+
+function StatCard({ title, values = {}, live = false }) {
   const [active, setActive] = useState('All');
+
+  const current = active === 'All'    ? (values.all    ?? 0)
+                : active === 'Emp'    ? (values.emp    ?? 0)
+                :                       (values.nonEmp ?? 0);
+
   return (
     <div className="db-stat-card">
       <div className="db-stat-card__top">
@@ -86,7 +101,7 @@ function StatCard({ title, value, live = false }) {
         </div>
       </div>
       <div className="db-stat-card__bottom">
-        <span className="db-stat-card__value">{value}</span>
+        <span className="db-stat-card__value">{current}</span>
         {live && (
           <span className="db-stat-live">
             <span className="db-stat-live__dot" />
@@ -99,6 +114,7 @@ function StatCard({ title, value, live = false }) {
 }
 
 /* ── Page content router ─────────────────────────────────────────────────── */
+
 function PageContent({ activeNav, session }) {
   switch (activeNav) {
     case 'home':            return <CheckInOut />;
@@ -109,103 +125,186 @@ function PageContent({ activeNav, session }) {
   }
 }
 
-/* ── Dashboard home content (extracted so the shell stays clean) ─────────── */
+/* ── Dashboard home content ─────────────────────────────────────────────── */
+
 function DashboardHome({ session }) {
   const firstName = session?.fullName?.split(' ')[0] ?? session?.employeeId;
+
+  const [stats,    setStats]    = useState(null);
+  const [visitors, setVisitors] = useState([]);
+  const [loading,  setLoading]  = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const [s, v] = await Promise.all([getDashboardStats(), getRecentVisitors()]);
+        if (!cancelled) {
+          setStats(s);
+          setVisitors(v);
+        }
+      } catch (err) {
+        console.error('Dashboard load error:', err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  const peakPoint = stats?.visitorFlow?.reduce(
+    (best, p) => (p.all > (best?.all ?? 0) ? p : best),
+    null,
+  );
+
+  const pending = stats?.pendingSignouts ?? 0;
 
   return (
     <main className="db-content">
 
-          {/* Stats row */}
-          <div className="db-stats-row">
-            <StatCard title="Today Check-in's"   value="23" />
-            <StatCard title="Today Check-out's"  value="8"  />
-            <StatCard title="Active in Building" value="15" live />
-          </div>
+      {/* Stats row */}
+      <div className="db-stats-row">
+        <StatCard
+          title="Today Check-in's"
+          values={{
+            all:    stats?.todayCheckinsAll    ?? 0,
+            emp:    stats?.todayCheckinsEmp    ?? 0,
+            nonEmp: stats?.todayCheckinsNonEmp ?? 0,
+          }}
+        />
+        <StatCard
+          title="Today Check-out's"
+          values={{
+            all:    stats?.todayCheckoutsAll    ?? 0,
+            emp:    stats?.todayCheckoutsEmp    ?? 0,
+            nonEmp: stats?.todayCheckoutsNonEmp ?? 0,
+          }}
+        />
+        <StatCard
+          title="Active in Building"
+          values={{
+            all:    stats?.activeInBuildingAll    ?? 0,
+            emp:    stats?.activeInBuildingEmp    ?? 0,
+            nonEmp: stats?.activeInBuildingNonEmp ?? 0,
+          }}
+          live
+        />
+      </div>
 
-          {/* Middle row: summary + chart */}
-          <div className="db-mid-row">
+      {/* Middle row: summary + chart */}
+      <div className="db-mid-row">
 
-            {/* Summary banner */}
-            <div className="db-summary">
-              <div className="db-summary__progress" />
-              <span className="db-summary__badge">TODAY&apos;S SUMMARY</span>
-              <h2 className="db-summary__greeting">{getGreeting()},<br />{firstName}.</h2>
-              <p className="db-summary__sub">
-                You have <strong>8</strong> pending sign-outs and{' '}
-                <strong>3</strong> scheduled visits in the next hour.
+        {/* Summary banner */}
+        <div className="db-summary">
+          <div className="db-summary__progress" />
+          <span className="db-summary__badge">TODAY&apos;S SUMMARY</span>
+          <h2 className="db-summary__greeting">{getGreeting()},<br />{firstName}.</h2>
+          <p className="db-summary__sub">
+            {loading
+              ? 'Loading summary\u2026'
+              : pending > 0
+                ? <>You have <strong>{pending}</strong> pending sign-out{pending !== 1 ? 's' : ''} today.</>
+                : 'All visitors have signed out today.'
+            }
+          </p>
+          <button className="db-summary__btn">
+            <IconPlus size={14} />
+            Register Visitor
+          </button>
+        </div>
+
+        {/* Visitor flow chart */}
+        <div className="db-chart-card">
+          <div className="db-chart-card__header">
+            <div>
+              <p className="db-chart-card__title">Visitor Flow</p>
+              <p className="db-chart-card__sub">
+                {loading
+                  ? 'Loading\u2026'
+                  : peakPoint
+                    ? `Today \u00b7 Peak at ${peakPoint.label} (${peakPoint.all} visitor${peakPoint.all !== 1 ? 's' : ''})`
+                    : 'Today \u00b7 No visitors yet'
+                }
               </p>
-              <button className="db-summary__btn">
-                <IconPlus size={14} />
-                Register Visitor
-              </button>
             </div>
-
-            {/* Visitor flow chart */}
-            <div className="db-chart-card">
-              <div className="db-chart-card__header">
-                <div>
-                  <p className="db-chart-card__title">Visitor Flow</p>
-                  <p className="db-chart-card__sub">Today · Peak at 3pm (26 visitors)</p>
-                </div>
-                <span className="db-chart-live">
-                  <span className="db-chart-live__dot" />
-                </span>
-              </div>
-              <div className="db-chart-area">
-                <VisitorFlowChart />
-              </div>
-            </div>
+            <span className="db-chart-live">
+              <span className="db-chart-live__dot" />
+            </span>
           </div>
-
-          {/* Recent Visitors table */}
-          <div className="db-table-card">
-            <div className="db-table-card__header">
-              <span className="db-table-card__title">Recent Visitors</span>
-              <button className="db-table-card__viewall">View all</button>
-            </div>
-
-            <div className="db-table-wrap">
-              <table className="db-table">
-                <thead>
-                  <tr>
-                    {['TYPE','NAME','MOBILE / EMP ID','LOCATION','STATUS','PERSON TO MEET','CARD(S)','CHECK-IN'].map(h => (
-                      <th key={h}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {RECENT_VISITORS.map((v, i) => (
-                    <tr key={i}>
-                      <td><span className="db-type-badge">{v.type}</span></td>
-                      <td className="db-table__name">{v.name}</td>
-                      <td>{v.contact}</td>
-                      <td>
-                        <span className="db-loc">
-                          <IconMapPin size={12} />
-                          {v.location}
-                        </span>
-                      </td>
-                      <td>
-                        <span className={`db-status db-status--${v.status === 'Checked-in' ? 'in' : 'out'}`}>
-                          {v.status}
-                        </span>
-                      </td>
-                      <td>{v.meet}</td>
-                      <td>{v.card}</td>
-                      <td className="db-table__checkin">{v.checkIn}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <div className="db-chart-area">
+            <VisitorFlowChart points={stats?.visitorFlow ?? []} />
           </div>
+        </div>
+      </div>
+
+      {/* Recent Visitors table */}
+      <div className="db-table-card">
+        <div className="db-table-card__header">
+          <span className="db-table-card__title">Recent Visitors</span>
+          <button className="db-table-card__viewall">View all</button>
+        </div>
+
+        <div className="db-table-wrap">
+          <table className="db-table">
+            <thead>
+              <tr>
+                {['TYPE', 'NAME', 'MOBILE / EMP ID', 'LOCATION', 'STATUS', 'PERSON TO MEET', 'CARD(S)', 'CHECK-IN'].map(h => (
+                  <th key={h}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={8} style={{ textAlign: 'center', color: '#aaa', padding: 20 }}>
+                    Loading&hellip;
+                  </td>
+                </tr>
+              ) : visitors.length === 0 ? (
+                <tr>
+                  <td colSpan={8} style={{ textAlign: 'center', color: '#aaa', padding: 20 }}>
+                    No recent visitors
+                  </td>
+                </tr>
+              ) : visitors.map((v, i) => (
+                <tr key={i}>
+                  <td>
+                    <span className="db-type-badge">
+                      {v.type === 'EMPLOYEE' ? 'Employee' : 'Visitor'}
+                    </span>
+                  </td>
+                  <td className="db-table__name">{v.name}</td>
+                  <td>{v.type === 'EMPLOYEE' ? (v.empId ?? '—') : (v.mobile ?? '—')}</td>
+                  <td>
+                    <span className="db-loc">
+                      <IconMapPin size={12} />
+                      {v.locationName ?? v.locationId ?? '—'}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={`db-status db-status--${v.status === 'checked-in' ? 'in' : 'out'}`}>
+                      {v.status === 'checked-in' ? 'Checked-in' : 'Checked-out'}
+                    </span>
+                  </td>
+                  <td>{v.personToMeet ?? '—'}</td>
+                  <td>{v.card ?? '—'}</td>
+                  <td className="db-table__checkin">{formatCheckIn(v.checkIn)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
     </main>
   );
 }
 
 /* ── App shell — shared header + sidebar, routes content ─────────────────── */
+
 export default function Dashboard({ session, onLogout }) {
   const [activeNav, setActiveNav] = useState('dashboard');
 
