@@ -62,9 +62,8 @@ function DetailRow({ icon, label, value }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ViewEntryModal({ entry, onClose, onEdit }) {
-  const [detail,   setDetail]   = useState(null);
+  const [detail,   setDetail]   = useState(entry);   // pre-fill immediately; enriched when API ready
   const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState('');
   const [photoSrc, setPhotoSrc] = useState(null);
 
   // Close on Escape
@@ -78,8 +77,8 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
   useEffect(() => {
     setLoading(true);
     getEntryDetail(entry.id)
-      .then(setDetail)
-      .catch(() => { /* API not ready yet — display from entry prop */ })
+      .then((d) => { if (d) setDetail(d); })   // ignore null/falsy responses
+      .catch(() => { /* API not ready yet — keep displaying entry prop data */ })
       .finally(() => setLoading(false));
   }, [entry.id]);
 
@@ -95,9 +94,8 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
 
   const isVisitor  = entry.type === 'VISITOR';
   const isIn       = entry.status === 'checked-in';
-  const isGroup    = detail
-    ? (detail.visitType ?? '').toUpperCase() === 'GROUP'
-    : entry.members.length > 0;
+  const isGroup    = (detail?.visitType ?? '').toUpperCase() === 'GROUP'
+    || entry.members.length > 0;
 
   const handleOverlayClick = (e) => {
     if (e.target === e.currentTarget) onClose();

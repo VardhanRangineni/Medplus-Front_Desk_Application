@@ -12,6 +12,7 @@ import {
   IconEye,
   IconEyeOff,
 } from '../../components/Icons/Icons';
+import Pagination from '../../components/Pagination/Pagination';
 import {
   getManagedUsers,
   createManagedUser,
@@ -33,6 +34,7 @@ const EMPTY_FORM = {
 };
 
 const SKELETON_ROW_COUNT = 6;
+const PAGE_SIZE          = 20;
 
 // ─── Add / Edit Modal ─────────────────────────────────────────────────────────
 function UserModal({ user, onClose, onSave, saving, saveError }) {
@@ -354,6 +356,7 @@ export default function UserManagement() {
   const [saving,      setSaving]      = useState(false);
   const [error,       setError]       = useState('');   // page-level error banner
   const [saveError,   setSaveError]   = useState('');   // modal-level save error
+  const [currentPage, setCurrentPage] = useState(1);
 
   // ── Load on mount ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -419,6 +422,15 @@ export default function UserManagement() {
         );
       })
     : users;
+
+  // Reset to first page whenever search changes
+  useEffect(() => { setCurrentPage(1); }, [search]);
+
+  // ── Pagination ───────────────────────────────────────────────────────────
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage   = Math.min(currentPage, totalPages);
+  const pageStart  = (safePage - 1) * PAGE_SIZE;
+  const paginated  = filtered.slice(pageStart, pageStart + PAGE_SIZE);
 
   return (
     <div className="umg-page">
@@ -503,7 +515,7 @@ export default function UserManagement() {
                   </td>
                 </tr>
               ) : (
-                filtered.map((user) => (
+                paginated.map((user) => (
                   <tr key={user.id}>
                     <td className="umg-col--id">{user.id}</td>
                     <td className="umg-col--name">{user.name}</td>
@@ -541,11 +553,21 @@ export default function UserManagement() {
           </table>
         </div>
 
+        {/* ── Pagination ── */}
+        {!initLoading && filtered.length > 0 && (
+          <Pagination
+            currentPage={safePage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
+        )}
+
         {/* Footer */}
         {!initLoading && users.length > 0 && (
           <div className="umg-footer">
-            Showing&nbsp;<strong>{filtered.length}</strong>&nbsp;of&nbsp;
-            <strong>{users.length}</strong>&nbsp;user{users.length !== 1 ? 's' : ''}
+            Showing&nbsp;<strong>{pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filtered.length)}</strong>&nbsp;of&nbsp;
+            <strong>{filtered.length}</strong>&nbsp;user{filtered.length !== 1 ? 's' : ''}
+            {search && <span>&nbsp;(filtered from {users.length} total)</span>}
           </div>
         )}
 

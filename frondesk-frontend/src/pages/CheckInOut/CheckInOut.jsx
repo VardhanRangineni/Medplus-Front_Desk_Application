@@ -14,6 +14,7 @@ import {
   IconUser,
   IconBuilding,
 } from '../../components/Icons/Icons';
+import Pagination from '../../components/Pagination/Pagination';
 import { getEntries, checkOutEntry, checkOutMember } from './checkInOutService';
 import AddVisitorModal   from './AddVisitorModal/AddVisitorModal';
 import AddEmployeeModal  from './AddEmployeeModal/AddEmployeeModal';
@@ -25,6 +26,7 @@ import EditEmployeeModal from './EditEmployeeModal/EditEmployeeModal';
 const TAB_ALL        = 'all';
 const TAB_CHECKED_IN = 'checked-in';
 const TAB_CHECKED_OUT= 'checked-out';
+const PAGE_SIZE      = 20;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatDateTime(date) {
@@ -149,6 +151,9 @@ function EntryRow({ entry, expanded, onToggleExpand, onCheckOut, onMemberCheckOu
         {/* Check-in time */}
         <td className="ci-col--time">{formatDateTime(entry.checkIn)}</td>
 
+        {/* Check-out time */}
+        <td className="ci-col--time">{entry.checkOut ? formatDateTime(entry.checkOut) : '—'}</td>
+
         {/* Actions */}
         <td>
           <div className="ci-actions">
@@ -269,6 +274,7 @@ export default function CheckInOut() {
   const [entryTypeModalOpen,  setEntryTypeModalOpen]  = useState(false);
   const [addVisitorOpen,      setAddVisitorOpen]      = useState(false);
   const [addEmployeeOpen,     setAddEmployeeOpen]     = useState(false);
+  const [currentPage,         setCurrentPage]         = useState(1);
   // View / Edit state
   const [viewEntry,           setViewEntry]           = useState(null);
   const [editEntry,           setEditEntry]           = useState(null);
@@ -413,6 +419,15 @@ export default function CheckInOut() {
     return matchTab && matchSearch;
   });
 
+  // Reset to first page whenever search or tab changes
+  useEffect(() => { setCurrentPage(1); }, [search, activeTab]);
+
+  // ── Pagination ───────────────────────────────────────────────────────────
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage   = Math.min(currentPage, totalPages);
+  const pageStart  = (safePage - 1) * PAGE_SIZE;
+  const paginated  = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+
   return (
     <div className="ci-page">
 
@@ -516,6 +531,7 @@ export default function CheckInOut() {
                 <th scope="col">Person to Meet</th>
                 <th scope="col">Card(s)</th>
                 <th scope="col">Check-in</th>
+                <th scope="col">Check-out</th>
                 <th scope="col">Actions</th>
               </tr>
             </thead>
@@ -523,7 +539,7 @@ export default function CheckInOut() {
               {initLoading ? (
                 Array.from({ length: 5 }, (_, i) => (
                   <tr key={i} className="ci-row--skeleton">
-                    {Array.from({ length: 9 }, (_, j) => (
+                    {Array.from({ length: 10 }, (_, j) => (
                       <td key={j}><span className="ci-skeleton" /></td>
                     ))}
                   </tr>
@@ -537,7 +553,7 @@ export default function CheckInOut() {
                   </td>
                 </tr>
               ) : (
-                filtered.map((entry) => (
+                paginated.map((entry) => (
                   <EntryRow
                     key={entry.id}
                     entry={entry}
@@ -554,9 +570,19 @@ export default function CheckInOut() {
           </table>
         </div>
 
+        {/* ── Pagination ── */}
+        {!initLoading && filtered.length > 0 && (
+          <Pagination
+            currentPage={safePage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
+        )}
+
         {/* Footer */}
         {!initLoading && (
           <div className="ci-footer">
+            Showing&nbsp;<strong>{filtered.length > 0 ? pageStart + 1 : 0}–{Math.min(pageStart + PAGE_SIZE, filtered.length)}</strong>&nbsp;of&nbsp;
             <strong>{filtered.length}</strong>&nbsp;
             {filtered.length === 1 ? 'entry' : 'entries'}
             {activeTab !== TAB_ALL && ` · ${filtered.length} of ${countAll} total`}
