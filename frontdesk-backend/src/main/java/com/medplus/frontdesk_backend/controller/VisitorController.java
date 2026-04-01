@@ -4,6 +4,7 @@ import com.medplus.frontdesk_backend.dto.ApiResponse;
 import com.medplus.frontdesk_backend.dto.EmployeeLookupResponseDto;
 import com.medplus.frontdesk_backend.dto.PagedResponseDto;
 import com.medplus.frontdesk_backend.dto.PersonToMeetDto;
+import com.medplus.frontdesk_backend.dto.StatusCountsDto;
 import com.medplus.frontdesk_backend.dto.VisitorMemberDto;
 import com.medplus.frontdesk_backend.dto.VisitorRequestDto;
 import com.medplus.frontdesk_backend.dto.VisitorResponseDto;
@@ -93,6 +94,7 @@ public class VisitorController {
      *                           Receptionists always see their own location.
      *                           If omitted by an admin, all locations are returned.
      *   department (optional) — filter entries by the host department name.
+     *   status     (optional) — "checked-in" or "checked-out"; omit for all entries.
      *   page       (optional) — 0-based page index (default 0).
      *   size       (optional) — records per page (default 20).
      *
@@ -113,12 +115,13 @@ public class VisitorController {
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) String locationId,
             @RequestParam(required = false) String department,
+            @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0")  int page,
             @RequestParam(defaultValue = "20") int size,
             Authentication auth) {
 
         PagedResponseDto<VisitorResponseDto> result =
-                visitorService.getEntries(auth.getName(), date, locationId, department, page, size, auth);
+                visitorService.getEntries(auth.getName(), date, locationId, department, status, page, size, auth);
         return ResponseEntity.ok(ApiResponse.success("Entries retrieved successfully.", result));
     }
 
@@ -165,6 +168,7 @@ public class VisitorController {
      *   date       — ISO date (optional; omit for all dates)
      *   locationId — admin-level location override (optional)
      *   department — department filter (optional)
+     *   status     — "checked-in" or "checked-out" (optional)
      *   page       — 0-based page index (default 0)
      *   size       — records per page (default 20)
      */
@@ -175,13 +179,33 @@ public class VisitorController {
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) String locationId,
             @RequestParam(required = false) String department,
+            @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0")  int page,
             @RequestParam(defaultValue = "20") int size,
             Authentication auth) {
 
         PagedResponseDto<VisitorResponseDto> results =
-                visitorService.searchEntries(auth.getName(), date, q, locationId, department, page, size, auth);
+                visitorService.searchEntries(auth.getName(), date, q, locationId, department, status, page, size, auth);
         return ResponseEntity.ok(ApiResponse.success("Search results.", results));
+    }
+
+    // ── GET /api/visitors/status-counts ──────────────────────────────────────
+
+    /**
+     * Returns aggregate counts grouped by visit status for the caller's scope.
+     * Used to populate the All / Checked-in / Checked-out tab badges.
+     *
+     * Response body (data field):
+     * { "total": 234, "checkedIn": 45, "checkedOut": 189 }
+     */
+    @GetMapping("/status-counts")
+    public ResponseEntity<ApiResponse<StatusCountsDto>> getStatusCounts(
+            @RequestParam(required = false) String locationId,
+            Authentication auth) {
+
+        StatusCountsDto counts =
+                visitorService.getStatusCounts(auth.getName(), locationId, auth);
+        return ResponseEntity.ok(ApiResponse.success("Status counts.", counts));
     }
 
     // ── GET /api/visitors/log-departments ────────────────────────────────────

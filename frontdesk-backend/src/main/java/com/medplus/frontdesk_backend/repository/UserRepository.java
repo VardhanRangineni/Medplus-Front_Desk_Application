@@ -159,6 +159,150 @@ public class UserRepository {
         );
     }
 
+    /**
+     * Returns one page of UserDtos, optionally filtered by a search term.
+     * Search covers employeeid, fullName, department, and worklocation (case-insensitive).
+     *
+     * @param search case-insensitive substring; null / blank = no filter
+     * @param offset SQL OFFSET  (page * size)
+     * @param limit  SQL LIMIT   (page size)
+     */
+    public List<UserDto> findUserDtosPaged(String search, int offset, int limit) {
+        boolean hasSearch = search != null && !search.isBlank();
+        String like = hasSearch ? "%" + search.trim().toLowerCase() + "%" : null;
+
+        StringBuilder sql = new StringBuilder("""
+                SELECT um.employeeid,
+                       COALESCE(umgmt.fullName, um.fullName) AS displayName,
+                       um.workemail, um.phone,
+                       um.designation, um.worklocation, um.department,
+                       um.role    AS hr_role,
+                       umgmt.role AS sys_role
+                FROM usermaster um
+                LEFT JOIN usermanagement umgmt ON um.employeeid = umgmt.employeeid
+                """);
+
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        if (hasSearch) {
+            sql.append("""
+                    WHERE (
+                        LOWER(um.employeeid)   LIKE :q
+                     OR LOWER(um.fullName)     LIKE :q
+                     OR LOWER(um.department)   LIKE :q
+                     OR LOWER(um.worklocation) LIKE :q
+                    )
+                    """);
+            params.addValue("q", like);
+        }
+
+        sql.append("ORDER BY displayName\nLIMIT :limit OFFSET :offset");
+        params.addValue("limit", limit).addValue("offset", offset);
+
+        return namedParameterJdbcTemplate.query(sql.toString(), params, (rs, rowNum) -> {
+            String hrRole  = rs.getString("hr_role");
+            String sysRole = rs.getString("sys_role");
+            String displayRole = (hrRole != null && !hrRole.isBlank()) ? hrRole
+                    : (sysRole != null ? sysRole : "");
+            return UserDto.builder()
+                    .id(rs.getString("employeeid"))
+                    .name(rs.getString("displayName"))
+                    .role(displayRole)
+                    .designation(rs.getString("designation"))
+                    .dept(rs.getString("department"))
+                    .workLocation(rs.getString("worklocation"))
+                    .email(rs.getString("workemail"))
+                    .phone(rs.getString("phone"))
+                    .build();
+        });
+    }
+
+    /** Total count matching the same optional search — used for totalPages calculation. */
+    public long countUserDtos(String search) {
+        boolean hasSearch = search != null && !search.isBlank();
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM usermaster um ");
+        if (hasSearch) {
+            sql.append("""
+                    WHERE (
+                        LOWER(um.employeeid)   LIKE :q
+                     OR LOWER(um.fullName)     LIKE :q
+                     OR LOWER(um.department)   LIKE :q
+                     OR LOWER(um.worklocation) LIKE :q
+                    )
+                    """);
+            params.addValue("q", "%" + search.trim().toLowerCase() + "%");
+        }
+        Long count = namedParameterJdbcTemplate.queryForObject(sql.toString(), params, Long.class);
+        return count == null ? 0L : count;
+    }
+
+    /**
+     * Returns one page of ManagedUserDtos, optionally filtered by a search term.
+     * Search covers employeeid, fullName, ipaddress, macaddress (case-insensitive).
+     */
+    public List<ManagedUserDto> findManagedUsersPaged(String search, int offset, int limit) {
+        boolean hasSearch = search != null && !search.isBlank();
+        String like = hasSearch ? "%" + search.trim().toLowerCase() + "%" : null;
+
+        StringBuilder sql = new StringBuilder("""
+                SELECT um.employeeid,
+                       um.fullName,
+                       COALESCE(lm.descriptiveName, um.location) AS location,
+                       um.ipaddress,
+                       um.macaddress,
+                       um.status
+                FROM usermanagement um
+                LEFT JOIN locationmaster lm ON um.location = lm.LocationId
+                """);
+
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        if (hasSearch) {
+            sql.append("""
+                    WHERE (
+                        LOWER(um.employeeid) LIKE :q
+                     OR LOWER(um.fullName)   LIKE :q
+                     OR LOWER(um.ipaddress)  LIKE :q
+                     OR LOWER(um.macaddress) LIKE :q
+                    )
+                    """);
+            params.addValue("q", like);
+        }
+
+        sql.append("ORDER BY um.fullName\nLIMIT :limit OFFSET :offset");
+        params.addValue("limit", limit).addValue("offset", offset);
+
+        return namedParameterJdbcTemplate.query(sql.toString(), params, (rs, rowNum) ->
+                ManagedUserDto.builder()
+                        .id(rs.getString("employeeid"))
+                        .name(rs.getString("fullName"))
+                        .location(rs.getString("location"))
+                        .ipAddress(rs.getString("ipaddress"))
+                        .macAddress(rs.getString("macaddress"))
+                        .status("ACTIVE".equalsIgnoreCase(rs.getString("status")))
+                        .build()
+        );
+    }
+
+    /** Total count of managed users matching the same optional search. */
+    public long countManagedUsers(String search) {
+        boolean hasSearch = search != null && !search.isBlank();
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM usermanagement um ");
+        if (hasSearch) {
+            sql.append("""
+                    WHERE (
+                        LOWER(um.employeeid) LIKE :q
+                     OR LOWER(um.fullName)   LIKE :q
+                     OR LOWER(um.ipaddress)  LIKE :q
+                     OR LOWER(um.macaddress) LIKE :q
+                    )
+                    """);
+            params.addValue("q", "%" + search.trim().toLowerCase() + "%");
+        }
+        Long count = namedParameterJdbcTemplate.queryForObject(sql.toString(), params, Long.class);
+        return count == null ? 0L : count;
+    }
+
     public boolean existsInUserMaster(String employeeId) {
         String sql = "SELECT COUNT(*) FROM usermaster WHERE employeeid = :employeeId";
         MapSqlParameterSource params = new MapSqlParameterSource("employeeId", employeeId);

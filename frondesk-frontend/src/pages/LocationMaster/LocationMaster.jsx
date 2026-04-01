@@ -29,6 +29,7 @@ const TABLE_COLUMNS = [
 const SKELETON_ROW_COUNT = 5;
 const BANNER_DISMISS_MS  = 4500;
 const PAGE_SIZE          = 20;
+const SEARCH_DEBOUNCE    = 350; // ms
 
 /** @typedef {'idle'|'loading'|'success'|'error'} FetchStatus */
 
@@ -39,32 +40,55 @@ function formatTime(date) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function LocationMaster() {
-  const [locations,   setLocations]   = useState([]);
+
+  // ── Server-side data ────────────────────────────────────────────────────────
+  const [locations,     setLocations]     = useState([]);
+  const [totalElements, setTotalElements] = useState(0);
+  const [totalPages,    setTotalPages]    = useState(1);
+  const [currentPage,   setCurrentPage]   = useState(1);
+
+  // ── UI state ────────────────────────────────────────────────────────────────
   const [search,      setSearch]      = useState('');
   const [initLoading, setInitLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(false);
   const [loadError,   setLoadError]   = useState(null);
-  const [currentPage, setCurrentPage] = useState(1);
 
   /** @type {[FetchStatus, Function]} */
-  const [syncStatus,  setSyncStatus]  = useState('idle');
-  const [syncError,   setSyncError]   = useState(null);
-  const [syncCount,   setSyncCount]   = useState(null);
-  const [lastSynced,  setLastSynced]  = useState(null);
+  const [syncStatus, setSyncStatus] = useState('idle');
+  const [syncError,  setSyncError]  = useState(null);
+  const [syncCount,  setSyncCount]  = useState(null);
+  const [lastSynced, setLastSynced] = useState(null);
 
-  const bannerTimer = useRef(null);
+  const bannerTimer    = useRef(null);
+  const searchTimerRef = useRef(null);
 
-  // ── Load from local DB on mount ─────────────────────────────────────────
-  useEffect(() => {
-    let active = true;
+  // ── Core fetch function ─────────────────────────────────────────────────────
+  const fetchPage = useCallback(async (page, q, isInitial = false) => {
+    if (isInitial) setInitLoading(true);
+    else           setPageLoading(true);
     setLoadError(null);
-    getLocations()
-      .then((data) => { if (active) setLocations(data ?? []); })
-      .catch((err) => { if (active) setLoadError(err.message ?? 'Failed to load locations.'); })
-      .finally(()  => { if (active) setInitLoading(false); });
-    return () => { active = false; };
+
+    try {
+      const data = await getLocations({ page: page - 1, size: PAGE_SIZE, search: q });
+      setLocations(data?.content        ?? []);
+      setTotalElements(data?.totalElements ?? 0);
+      setTotalPages(data?.totalPages    ?? 1);
+      setCurrentPage(page);
+    } catch (err) {
+      setLoadError(err?.message ?? 'Failed to load locations.');
+    } finally {
+      if (isInitial) setInitLoading(false);
+      else           setPageLoading(false);
+    }
   }, []);
 
-  // ── Auto-dismiss success / error banner ─────────────────────────────────
+  // ── Initial load ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    fetchPage(1, '', true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Auto-dismiss banner ─────────────────────────────────────────────────────
   useEffect(() => {
     if (syncStatus === 'success' || syncStatus === 'error') {
       clearTimeout(bannerTimer.current);
@@ -73,67 +97,59 @@ export default function LocationMaster() {
     return () => clearTimeout(bannerTimer.current);
   }, [syncStatus]);
 
-  // ── Sync from master DB via backend ─────────────────────────────────────
+  // ── Sync from master DB ─────────────────────────────────────────────────────
   const handleSync = useCallback(async () => {
     if (syncStatus === 'loading') return;
     setSyncStatus('loading');
     setSyncError(null);
     try {
       const synced = await syncLocationsFromMaster();
-      setLocations(synced);
-      setSyncCount(synced.length);
+      setSyncCount(synced?.length ?? 0);
       setLastSynced(new Date());
       setSyncStatus('success');
+      // Reload page 1 after sync
+      setSearch('');
+      fetchPage(1, '');
     } catch (err) {
       setSyncError(err?.message ?? 'Failed to sync. Please try again.');
       setSyncStatus('error');
     }
-  }, [syncStatus]);
+  }, [syncStatus, fetchPage]);
 
-  // ── Toggle status — optimistic update with rollback on failure ───────────
+  // ── Search (debounced) ──────────────────────────────────────────────────────
+  const handleSearchChange = useCallback((value) => {
+    setSearch(value);
+    clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      fetchPage(1, value);
+    }, SEARCH_DEBOUNCE);
+  }, [fetchPage]);
+
+  // ── Page change ─────────────────────────────────────────────────────────────
+  const handlePageChange = useCallback((page) => {
+    fetchPage(page, search);
+  }, [search, fetchPage]);
+
+  // ── Toggle status — optimistic update with rollback on failure ──────────────
   const handleToggle = useCallback(async (code) => {
     const original = locations.find((l) => l.code === code);
     if (!original) return;
     const next = !original.status;
 
-    setLocations((prev) =>
-      prev.map((l) => (l.code === code ? { ...l, status: next } : l))
-    );
+    setLocations((prev) => prev.map((l) => l.code === code ? { ...l, status: next } : l));
 
     try {
       await updateLocationStatus(code, next);
     } catch (err) {
-      // Roll back the optimistic update and surface the error via the sync banner
-      setLocations((prev) =>
-        prev.map((l) => (l.code === code ? { ...l, status: original.status } : l))
-      );
+      setLocations((prev) => prev.map((l) => l.code === code ? original : l));
       setSyncError(err.message ?? 'Failed to update status. Please try again.');
       setSyncStatus('error');
     }
   }, [locations]);
 
-  // ── Filtered rows ────────────────────────────────────────────────────────
-  const filtered = search.trim()
-    ? locations.filter((l) => {
-        const q = search.toLowerCase();
-        return (
-          (l.code ?? '').toLowerCase().includes(q) ||
-          (l.name ?? '').toLowerCase().includes(q) ||
-          (l.city ?? '').toLowerCase().includes(q)
-        );
-      })
-    : locations;
-
-  // Reset to first page whenever search changes
-  useEffect(() => { setCurrentPage(1); }, [search]);
-
-  // ── Pagination ───────────────────────────────────────────────────────────
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const safePage   = Math.min(currentPage, totalPages);
-  const pageStart  = (safePage - 1) * PAGE_SIZE;
-  const paginated  = filtered.slice(pageStart, pageStart + PAGE_SIZE);
-
   const isSyncing = syncStatus === 'loading';
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const pageEnd   = Math.min(pageStart + locations.length, pageStart + PAGE_SIZE);
 
   return (
     <div className="lm-page">
@@ -159,7 +175,7 @@ export default function LocationMaster() {
         </div>
       )}
 
-      {/* ── Feedback banner ─────────────────────────────────────────────── */}
+      {/* ── Sync feedback banner ─────────────────────────────────────────── */}
       {syncStatus === 'success' && (
         <div className="lm-banner lm-banner--success" role="status" aria-live="polite">
           <IconCheckCircle size={15} />
@@ -177,9 +193,9 @@ export default function LocationMaster() {
       )}
 
       {/* ── Table card ──────────────────────────────────────────────────── */}
-      <div className="lm-card">
+      <div className={`lm-card${pageLoading ? ' lm-card--loading' : ''}`}>
 
-        {/* ── Toolbar: search (left) · fetch button (right) ── */}
+        {/* ── Toolbar ─────────────────────────────────────────────────── */}
         <div className="lm-toolbar">
           <label className="lm-search" aria-label="Search locations">
             <IconSearch size={15} />
@@ -188,7 +204,7 @@ export default function LocationMaster() {
               type="search"
               placeholder="Search by name, code or city…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
             />
           </label>
 
@@ -203,7 +219,7 @@ export default function LocationMaster() {
           </button>
         </div>
 
-        {/* ── Table ── */}
+        {/* ── Table ─────────────────────────────────────────────────────── */}
         <div className="lm-table-wrap">
           <table className="lm-table" aria-label="Location list">
             <thead>
@@ -222,7 +238,7 @@ export default function LocationMaster() {
                     ))}
                   </tr>
                 ))
-              ) : filtered.length === 0 ? (
+              ) : locations.length === 0 ? (
                 <tr>
                   <td colSpan={TABLE_COLUMNS.length} className="lm-empty">
                     {search
@@ -231,7 +247,7 @@ export default function LocationMaster() {
                   </td>
                 </tr>
               ) : (
-                paginated.map((loc) => (
+                locations.map((loc) => (
                   <tr key={loc.code}>
                     <td className="lm-col--code">{loc.code}</td>
                     <td className="lm-col--name">
@@ -263,22 +279,22 @@ export default function LocationMaster() {
           </table>
         </div>
 
-        {/* ── Pagination ── */}
-        {!initLoading && filtered.length > 0 && (
+        {/* ── Pagination ─────────────────────────────────────────────────── */}
+        {!initLoading && totalElements > 0 && (
           <Pagination
-            currentPage={safePage}
+            currentPage={currentPage}
             totalPages={totalPages}
-            onPageChange={setCurrentPage}
+            onPageChange={handlePageChange}
           />
         )}
 
-        {/* ── Footer: row count ── */}
-        {!initLoading && locations.length > 0 && (
+        {/* ── Footer ─────────────────────────────────────────────────────── */}
+        {!initLoading && totalElements > 0 && (
           <div className="lm-footer">
-            Showing&nbsp;<strong>{pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filtered.length)}</strong>&nbsp;of&nbsp;
-            <strong>{filtered.length}</strong>&nbsp;
-            location{filtered.length !== 1 ? 's' : ''}
-            {search && <span>&nbsp;(filtered from {locations.length} total)</span>}
+            Showing&nbsp;
+            <strong>{pageStart + 1}–{pageEnd}</strong>
+            &nbsp;of&nbsp;<strong>{totalElements}</strong>&nbsp;
+            location{totalElements !== 1 ? 's' : ''}
           </div>
         )}
 

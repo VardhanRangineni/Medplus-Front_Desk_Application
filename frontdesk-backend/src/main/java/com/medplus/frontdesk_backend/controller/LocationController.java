@@ -3,6 +3,7 @@ package com.medplus.frontdesk_backend.controller;
 import com.medplus.frontdesk_backend.dto.ApiResponse;
 import com.medplus.frontdesk_backend.dto.LocationDto;
 import com.medplus.frontdesk_backend.dto.LocationStatusRequestDto;
+import com.medplus.frontdesk_backend.dto.PagedResponseDto;
 import com.medplus.frontdesk_backend.service.LocationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -49,13 +50,23 @@ public class LocationController {
     /**
      * GET /api/locations
      *
-     * Returns all locations from the local locationmaster table.
+     * Returns a paginated page of locations from the local locationmaster table.
+     * Supports optional full-text search over LocationId, descriptive name, and city.
      * Requires any authenticated user.
+     *
+     * Query params:
+     *   q    (optional) — case-insensitive search term
+     *   page (optional) — 0-based page index (default 0)
+     *   size (optional) — records per page (default 20)
      */
     @GetMapping
-    public ResponseEntity<ApiResponse<List<LocationDto>>> getLocations() {
-        List<LocationDto> locations = locationService.getAllLocations();
-        return ResponseEntity.ok(ApiResponse.success("Locations retrieved successfully", locations));
+    public ResponseEntity<ApiResponse<PagedResponseDto<LocationDto>>> getLocations(
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "0")  int page,
+            @RequestParam(defaultValue = "20") int size) {
+
+        PagedResponseDto<LocationDto> result = locationService.getLocationsPaged(q, page, size);
+        return ResponseEntity.ok(ApiResponse.success("Locations retrieved successfully", result));
     }
 
     /**

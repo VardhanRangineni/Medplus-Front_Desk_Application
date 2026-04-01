@@ -11,19 +11,20 @@ import Pagination from '../../components/Pagination/Pagination';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TABLE_COLUMNS = [
-  { key: 'id',           label: 'Employee ID'    },
-  { key: 'name',         label: 'Employee Name'  },
-  { key: 'role',         label: 'Role'           },
-  { key: 'designation',  label: 'Designation'    },
-  { key: 'dept',         label: 'Dept'           },
-  { key: 'workLocation', label: 'Work Location'  },
-  { key: 'email',        label: 'Work Email'     },
-  { key: 'phone',        label: 'Phone'          },
+  { key: 'id',           label: 'Employee ID'   },
+  { key: 'name',         label: 'Employee Name' },
+  { key: 'role',         label: 'Role'          },
+  { key: 'designation',  label: 'Designation'   },
+  { key: 'dept',         label: 'Dept'          },
+  { key: 'workLocation', label: 'Work Location' },
+  { key: 'email',        label: 'Work Email'    },
+  { key: 'phone',        label: 'Phone'         },
 ];
 
 const SKELETON_ROW_COUNT = 6;
 const BANNER_DISMISS_MS  = 4500;
 const PAGE_SIZE          = 20;
+const SEARCH_DEBOUNCE    = 350; // ms
 
 /** @typedef {'idle'|'loading'|'success'|'error'} SyncStatus */
 
@@ -34,11 +35,18 @@ function formatTime(date) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function UserMaster() {
-  const [users,       setUsers]       = useState([]);
+
+  // ── Server-side data ────────────────────────────────────────────────────────
+  const [users,         setUsers]         = useState([]);
+  const [totalElements, setTotalElements] = useState(0);
+  const [totalPages,    setTotalPages]    = useState(1);
+  const [currentPage,   setCurrentPage]   = useState(1);
+
+  // ── UI state ────────────────────────────────────────────────────────────────
   const [search,      setSearch]      = useState('');
   const [initLoading, setInitLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(false);
   const [loadError,   setLoadError]   = useState(null);
-  const [currentPage, setCurrentPage] = useState(1);
 
   /** @type {[SyncStatus, Function]} */
   const [syncStatus, setSyncStatus] = useState('idle');
@@ -46,20 +54,36 @@ export default function UserMaster() {
   const [syncCount,  setSyncCount]  = useState(null);
   const [lastSynced, setLastSynced] = useState(null);
 
-  const bannerTimer = useRef(null);
+  const bannerTimer    = useRef(null);
+  const searchTimerRef = useRef(null);
 
-  // ── Load from local DB on mount ─────────────────────────────────────────
-  useEffect(() => {
-    let active = true;
+  // ── Core fetch function ─────────────────────────────────────────────────────
+  const fetchPage = useCallback(async (page, q, isInitial = false) => {
+    if (isInitial) setInitLoading(true);
+    else           setPageLoading(true);
     setLoadError(null);
-    getUsers()
-      .then((data)  => { if (active) setUsers(data ?? []); })
-      .catch((err)  => { if (active) setLoadError(err.message ?? 'Failed to load users.'); })
-      .finally(()   => { if (active) setInitLoading(false); });
-    return () => { active = false; };
+
+    try {
+      const data = await getUsers({ page: page - 1, size: PAGE_SIZE, search: q });
+      setUsers(data?.content        ?? []);
+      setTotalElements(data?.totalElements ?? 0);
+      setTotalPages(data?.totalPages    ?? 1);
+      setCurrentPage(page);
+    } catch (err) {
+      setLoadError(err?.message ?? 'Failed to load users.');
+    } finally {
+      if (isInitial) setInitLoading(false);
+      else           setPageLoading(false);
+    }
   }, []);
 
-  // ── Auto-dismiss success / error banner ─────────────────────────────────
+  // ── Initial load ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    fetchPage(1, '', true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Auto-dismiss banner ─────────────────────────────────────────────────────
   useEffect(() => {
     if (syncStatus === 'success' || syncStatus === 'error') {
       clearTimeout(bannerTimer.current);
@@ -68,48 +92,42 @@ export default function UserMaster() {
     return () => clearTimeout(bannerTimer.current);
   }, [syncStatus]);
 
-  // ── Sync from master DB via backend ─────────────────────────────────────
+  // ── Sync from master DB ─────────────────────────────────────────────────────
   const handleSync = useCallback(async () => {
     if (syncStatus === 'loading') return;
     setSyncStatus('loading');
     setSyncError(null);
     try {
       const synced = await syncUsersFromMaster();
-      setUsers(synced);
-      setSyncCount(synced.length);
+      setSyncCount(synced?.length ?? 0);
       setLastSynced(new Date());
       setSyncStatus('success');
+      // Reload page 1 after sync (search is reset to show all new data)
+      setSearch('');
+      fetchPage(1, '');
     } catch (err) {
       setSyncError(err?.message ?? 'Failed to sync. Please try again.');
       setSyncStatus('error');
     }
-  }, [syncStatus]);
+  }, [syncStatus, fetchPage]);
 
-  // ── Filtered rows ────────────────────────────────────────────────────────
-  const filtered = search.trim()
-    ? users.filter((u) => {
-        const q = search.toLowerCase();
-        return (
-          (u.id           ?? '').toLowerCase().includes(q) ||
-          (u.name         ?? '').toLowerCase().includes(q) ||
-          (u.role         ?? '').toLowerCase().includes(q) ||
-          (u.dept         ?? '').toLowerCase().includes(q) ||
-          (u.workLocation ?? '').toLowerCase().includes(q) ||
-          (u.email        ?? '').toLowerCase().includes(q)
-        );
-      })
-    : users;
+  // ── Search (debounced) ──────────────────────────────────────────────────────
+  const handleSearchChange = useCallback((value) => {
+    setSearch(value);
+    clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      fetchPage(1, value);
+    }, SEARCH_DEBOUNCE);
+  }, [fetchPage]);
 
-  // Reset to first page whenever search changes
-  useEffect(() => { setCurrentPage(1); }, [search]);
+  // ── Page change ─────────────────────────────────────────────────────────────
+  const handlePageChange = useCallback((page) => {
+    fetchPage(page, search);
+  }, [search, fetchPage]);
 
-  // ── Pagination ───────────────────────────────────────────────────────────
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const safePage   = Math.min(currentPage, totalPages);
-  const pageStart  = (safePage - 1) * PAGE_SIZE;
-  const paginated  = filtered.slice(pageStart, pageStart + PAGE_SIZE);
-
-  const isSyncing = syncStatus === 'loading';
+  const isSyncing  = syncStatus === 'loading';
+  const pageStart  = (currentPage - 1) * PAGE_SIZE;
+  const pageEnd    = Math.min(pageStart + users.length, pageStart + PAGE_SIZE);
 
   return (
     <div className="um-page">
@@ -135,7 +153,7 @@ export default function UserMaster() {
         </div>
       )}
 
-      {/* ── Feedback banner ─────────────────────────────────────────────── */}
+      {/* ── Sync feedback banner ─────────────────────────────────────────── */}
       {syncStatus === 'success' && (
         <div className="um-banner um-banner--success" role="status" aria-live="polite">
           <IconCheckCircle size={15} />
@@ -153,9 +171,9 @@ export default function UserMaster() {
       )}
 
       {/* ── Table card ──────────────────────────────────────────────────── */}
-      <div className="um-card">
+      <div className={`um-card${pageLoading ? ' um-card--loading' : ''}`}>
 
-        {/* ── Toolbar: search (left) · fetch button (right) ── */}
+        {/* ── Toolbar ─────────────────────────────────────────────────── */}
         <div className="um-toolbar">
           <label className="um-search" aria-label="Search users">
             <IconSearch size={15} />
@@ -164,7 +182,7 @@ export default function UserMaster() {
               type="search"
               placeholder="Search by name, ID, role, dept or email…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
             />
           </label>
 
@@ -179,7 +197,7 @@ export default function UserMaster() {
           </button>
         </div>
 
-        {/* ── Table ── */}
+        {/* ── Table ─────────────────────────────────────────────────────── */}
         <div className="um-table-wrap">
           <table className="um-table" aria-label="User list">
             <thead>
@@ -198,7 +216,7 @@ export default function UserMaster() {
                     ))}
                   </tr>
                 ))
-              ) : filtered.length === 0 ? (
+              ) : users.length === 0 ? (
                 <tr>
                   <td colSpan={TABLE_COLUMNS.length} className="um-empty">
                     {search
@@ -207,7 +225,7 @@ export default function UserMaster() {
                   </td>
                 </tr>
               ) : (
-                paginated.map((user) => (
+                users.map((user) => (
                   <tr key={user.id}>
                     <td className="um-col--id">{user.id}</td>
                     <td className="um-col--name">{user.name}</td>
@@ -224,22 +242,22 @@ export default function UserMaster() {
           </table>
         </div>
 
-        {/* ── Pagination ── */}
-        {!initLoading && filtered.length > 0 && (
+        {/* ── Pagination ─────────────────────────────────────────────────── */}
+        {!initLoading && totalElements > 0 && (
           <Pagination
-            currentPage={safePage}
+            currentPage={currentPage}
             totalPages={totalPages}
-            onPageChange={setCurrentPage}
+            onPageChange={handlePageChange}
           />
         )}
 
-        {/* ── Footer: row count ── */}
-        {!initLoading && users.length > 0 && (
+        {/* ── Footer ─────────────────────────────────────────────────────── */}
+        {!initLoading && totalElements > 0 && (
           <div className="um-footer">
-            Showing&nbsp;<strong>{pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filtered.length)}</strong>&nbsp;of&nbsp;
-            <strong>{filtered.length}</strong>&nbsp;
-            user{filtered.length !== 1 ? 's' : ''}
-            {search && <span>&nbsp;(filtered from {users.length} total)</span>}
+            Showing&nbsp;
+            <strong>{pageStart + 1}–{pageEnd}</strong>
+            &nbsp;of&nbsp;<strong>{totalElements}</strong>&nbsp;
+            user{totalElements !== 1 ? 's' : ''}
           </div>
         )}
 

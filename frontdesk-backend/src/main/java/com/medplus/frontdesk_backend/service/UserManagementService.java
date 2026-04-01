@@ -3,6 +3,7 @@ package com.medplus.frontdesk_backend.service;
 import com.medplus.frontdesk_backend.dto.DeviceResetRequestDto;
 import com.medplus.frontdesk_backend.dto.DeviceResetResponseDto;
 import com.medplus.frontdesk_backend.dto.ManagedUserDto;
+import com.medplus.frontdesk_backend.dto.PagedResponseDto;
 import com.medplus.frontdesk_backend.dto.UserLookupDto;
 import com.medplus.frontdesk_backend.exception.InvalidCredentialsException;
 import com.medplus.frontdesk_backend.exception.UnauthorizedOperationException;
@@ -31,6 +32,21 @@ public class UserManagementService {
 
     public List<ManagedUserDto> getManagedUsers() {
         return userRepository.findAllManagedUsers();
+    }
+
+    /**
+     * Returns a single page of managed users, optionally filtered by a search term.
+     *
+     * @param search case-insensitive substring across id / name / ip / mac
+     * @param page   0-based page index
+     * @param size   records per page
+     */
+    public PagedResponseDto<ManagedUserDto> getManagedUsersPaged(String search, int page, int size) {
+        int    offset = page * size;
+        String q      = (search != null && !search.isBlank()) ? search : null;
+        List<ManagedUserDto> rows  = userRepository.findManagedUsersPaged(q, offset, size);
+        long                 total = userRepository.countManagedUsers(q);
+        return PagedResponseDto.of(rows, page, size, total);
     }
 
     // ── Search / Lookup ───────────────────────────────────────────────────────

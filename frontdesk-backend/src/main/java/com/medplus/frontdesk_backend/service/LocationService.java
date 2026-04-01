@@ -1,6 +1,7 @@
 package com.medplus.frontdesk_backend.service;
 
 import com.medplus.frontdesk_backend.dto.LocationDto;
+import com.medplus.frontdesk_backend.dto.PagedResponseDto;
 import com.medplus.frontdesk_backend.exception.UnauthorizedOperationException;
 import com.medplus.frontdesk_backend.model.Location;
 import com.medplus.frontdesk_backend.repository.LocationRepository;
@@ -19,12 +20,29 @@ public class LocationService {
     private final SyncService syncService;
 
     /**
-     * Returns all locations from the local locationmaster table.
+     * Returns all locations from the local locationmaster table (used by sync response).
      */
     public List<LocationDto> getAllLocations() {
         return locationRepository.findAll().stream()
                 .map(this::toDto)
                 .toList();
+    }
+
+    /**
+     * Returns a single page of locations, optionally filtered by a search term.
+     *
+     * @param search case-insensitive substring across LocationId, name, and city
+     * @param page   0-based page index
+     * @param size   records per page
+     */
+    public PagedResponseDto<LocationDto> getLocationsPaged(String search, int page, int size) {
+        int    offset = page * size;
+        String q      = (search != null && !search.isBlank()) ? search : null;
+        List<LocationDto> rows  = locationRepository.findAllPaged(q, offset, size).stream()
+                .map(this::toDto)
+                .toList();
+        long total = locationRepository.countAll(q);
+        return PagedResponseDto.of(rows, page, size, total);
     }
 
     /**

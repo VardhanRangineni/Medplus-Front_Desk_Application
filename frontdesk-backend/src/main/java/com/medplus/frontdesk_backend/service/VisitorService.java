@@ -3,6 +3,7 @@ package com.medplus.frontdesk_backend.service;
 import com.medplus.frontdesk_backend.dto.EmployeeLookupResponseDto;
 import com.medplus.frontdesk_backend.dto.PagedResponseDto;
 import com.medplus.frontdesk_backend.dto.PersonToMeetDto;
+import com.medplus.frontdesk_backend.dto.StatusCountsDto;
 import com.medplus.frontdesk_backend.dto.VisitorMemberDto;
 import com.medplus.frontdesk_backend.dto.VisitorMemberRequestDto;
 import com.medplus.frontdesk_backend.dto.VisitorRequestDto;
@@ -129,34 +130,37 @@ public class VisitorService {
      * Date is optional — when null ALL dates are included (cross-date view for the
      * Check-In/Check-Out table).
      *
-     * Role rules (same as before):
+     * Role rules:
      *  - RECEPTIONIST: always scoped to their own location; locationIdParam ignored.
      *  - PRIMARY_ADMIN / REGIONAL_ADMIN:
      *      - locationIdParam supplied → that location only
      *      - locationIdParam blank/null → all locations
      *
-     * @param page 0-based page index
-     * @param size records per page (default 20)
+     * @param status    optional tab filter: "checked-in", "checked-out"; null = all
+     * @param page      0-based page index
+     * @param size      records per page (default 20)
      */
     public PagedResponseDto<VisitorResponseDto> getEntries(String callerEmployeeId,
                                                            LocalDate date,
                                                            String locationIdParam,
                                                            String department,
+                                                           String status,
                                                            int page, int size,
                                                            Authentication auth) {
-        String dept   = (department != null && !department.isBlank()) ? department : null;
-        int    offset = page * size;
+        String dept    = blankToNull(department);
+        String dbStatus = labelToDbStatus(status);
+        int    offset  = page * size;
 
         if (isAdmin(auth)) {
-            String locId = (locationIdParam != null && !locationIdParam.isBlank()) ? locationIdParam : null;
-            List<Visitor> rows  = visitorRepository.findPaged(locId, date, dept, offset, size);
-            long          total = visitorRepository.countFiltered(locId, date, dept);
+            String locId = blankToNull(locationIdParam);
+            List<Visitor> rows  = visitorRepository.findPaged(locId, date, dept, dbStatus, offset, size);
+            long          total = visitorRepository.countFiltered(locId, date, dept, dbStatus);
             return PagedResponseDto.of(rows.stream().map(this::buildResponse).toList(), page, size, total);
         }
 
-        String locationId = getUserLocation(callerEmployeeId);
-        List<Visitor> rows  = visitorRepository.findPaged(locationId, date, dept, offset, size);
-        long          total = visitorRepository.countFiltered(locationId, date, dept);
+        String locationId     = getUserLocation(callerEmployeeId);
+        List<Visitor> rows  = visitorRepository.findPaged(locationId, date, dept, dbStatus, offset, size);
+        long          total = visitorRepository.countFiltered(locationId, date, dept, dbStatus);
         return PagedResponseDto.of(rows.stream().map(this::buildResponse).toList(), page, size, total);
     }
 
@@ -169,26 +173,43 @@ public class VisitorService {
                                                               String query,
                                                               String locationIdParam,
                                                               String department,
+                                                              String status,
                                                               int page, int size,
                                                               Authentication auth) {
         if (query == null || query.isBlank()) {
-            return getEntries(callerEmployeeId, date, locationIdParam, department, page, size, auth);
+            return getEntries(callerEmployeeId, date, locationIdParam, department, status, page, size, auth);
         }
 
-        String dept   = (department != null && !department.isBlank()) ? department : null;
-        int    offset = page * size;
+        String dept     = blankToNull(department);
+        String dbStatus = labelToDbStatus(status);
+        int    offset   = page * size;
 
         if (isAdmin(auth)) {
-            String locId  = (locationIdParam != null && !locationIdParam.isBlank()) ? locationIdParam : null;
-            List<Visitor> rows  = visitorRepository.searchPaged(locId, date, query, dept, offset, size);
-            long          total = visitorRepository.countSearch(locId, date, query, dept);
+            String locId  = blankToNull(locationIdParam);
+            List<Visitor> rows  = visitorRepository.searchPaged(locId, date, query, dept, dbStatus, offset, size);
+            long          total = visitorRepository.countSearch(locId, date, query, dept, dbStatus);
             return PagedResponseDto.of(rows.stream().map(this::buildResponse).toList(), page, size, total);
         }
 
         String locationId = getUserLocation(callerEmployeeId);
-        List<Visitor> rows  = visitorRepository.searchPaged(locationId, date, query, dept, offset, size);
-        long          total = visitorRepository.countSearch(locationId, date, query, dept);
+        List<Visitor> rows  = visitorRepository.searchPaged(locationId, date, query, dept, dbStatus, offset, size);
+        long          total = visitorRepository.countSearch(locationId, date, query, dept, dbStatus);
         return PagedResponseDto.of(rows.stream().map(this::buildResponse).toList(), page, size, total);
+    }
+
+    /**
+     * Returns per-status counts scoped to the caller's location for the tab badges.
+     * Admins with no location override see counts across all locations.
+     */
+    public StatusCountsDto getStatusCounts(String callerEmployeeId,
+                                           String locationIdParam,
+                                           Authentication auth) {
+        if (isAdmin(auth)) {
+            String locId = blankToNull(locationIdParam);
+            return visitorRepository.findStatusCounts(locId);
+        }
+        String locationId = getUserLocation(callerEmployeeId);
+        return visitorRepository.findStatusCounts(locationId);
     }
 
     /**
@@ -207,18 +228,19 @@ public class VisitorService {
     }
 
     /**
-     * Returns distinct department names found in the log for the given date/location.
+     * Returns distinct department names found in the visitor log.
+     *
+     * When {@code date} is {@code null} departments across ALL dates are returned.
      * Used to build the dynamic "Filter by Dept" dropdown on the home page.
      */
     public List<String> getDepartmentsInLog(String callerEmployeeId, LocalDate date,
                                             String locationIdParam, Authentication auth) {
-        LocalDate queryDate = date != null ? date : LocalDate.now();
         if (isAdmin(auth)) {
             String locId = (locationIdParam != null && !locationIdParam.isBlank()) ? locationIdParam : null;
-            return visitorRepository.findDistinctDepartmentsInLog(locId, queryDate);
+            return visitorRepository.findDistinctDepartmentsInLog(locId, date);
         }
         String locationId = getUserLocation(callerEmployeeId);
-        return visitorRepository.findDistinctDepartmentsInLog(locationId, queryDate);
+        return visitorRepository.findDistinctDepartmentsInLog(locationId, date);
     }
 
     /**
@@ -234,11 +256,11 @@ public class VisitorService {
         // Fetch all matching rows (no pagination) for the export
         List<Visitor> rows;
         if (isAdmin(auth)) {
-            String locId = (locationIdParam != null && !locationIdParam.isBlank()) ? locationIdParam : null;
-            rows = visitorRepository.findPaged(locId, exportDate, dept, 0, Integer.MAX_VALUE);
+            String locId = blankToNull(locationIdParam);
+            rows = visitorRepository.findPaged(locId, exportDate, dept, null, 0, Integer.MAX_VALUE);
         } else {
             String locationId = getUserLocation(callerEmployeeId);
-            rows = visitorRepository.findPaged(locationId, exportDate, dept, 0, Integer.MAX_VALUE);
+            rows = visitorRepository.findPaged(locationId, exportDate, dept, null, 0, Integer.MAX_VALUE);
         }
 
         List<VisitorResponseDto> entries = rows.stream().map(this::buildResponse).toList();
@@ -426,6 +448,25 @@ public class VisitorService {
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    private static String blankToNull(String value) {
+        return (value != null && !value.isBlank()) ? value : null;
+    }
+
+    /**
+     * Converts the UI label sent by the frontend to the DB enum name.
+     * "checked-in"  → "CHECKED_IN"
+     * "checked-out" → "CHECKED_OUT"
+     * null / other  → null (no filter)
+     */
+    private static String labelToDbStatus(String label) {
+        if (label == null) return null;
+        return switch (label.toLowerCase()) {
+            case "checked-in"  -> "CHECKED_IN";
+            case "checked-out" -> "CHECKED_OUT";
+            default            -> null;
+        };
+    }
 
     private static String maskPhone(String phone) {
         if (phone == null || phone.length() < 4) return "****";

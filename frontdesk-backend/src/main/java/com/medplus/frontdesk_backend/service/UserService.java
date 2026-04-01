@@ -1,5 +1,6 @@
 package com.medplus.frontdesk_backend.service;
 
+import com.medplus.frontdesk_backend.dto.PagedResponseDto;
 import com.medplus.frontdesk_backend.dto.UserDto;
 import com.medplus.frontdesk_backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -14,13 +15,28 @@ import java.util.List;
 public class UserService {
 
     private final UserRepository userRepository;
-    private final SyncService syncService;
+    private final SyncService    syncService;
 
     /**
-     * Returns all users from the local usermaster table.
+     * Returns all users from the local usermaster table (used by sync response).
      */
     public List<UserDto> getAllUsers() {
         return userRepository.findAllUserDtos();
+    }
+
+    /**
+     * Returns a single page of users, optionally filtered by a search term.
+     *
+     * @param search case-insensitive substring across id / name / dept / location
+     * @param page   0-based page index
+     * @param size   records per page
+     */
+    public PagedResponseDto<UserDto> getUsersPaged(String search, int page, int size) {
+        int    offset = page * size;
+        String q      = (search != null && !search.isBlank()) ? search : null;
+        List<UserDto> rows  = userRepository.findUserDtosPaged(q, offset, size);
+        long          total = userRepository.countUserDtos(q);
+        return PagedResponseDto.of(rows, page, size, total);
     }
 
     /**

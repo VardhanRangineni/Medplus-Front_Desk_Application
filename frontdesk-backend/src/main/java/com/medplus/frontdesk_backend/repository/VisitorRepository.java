@@ -1,6 +1,7 @@
 package com.medplus.frontdesk_backend.repository;
 
 import com.medplus.frontdesk_backend.dto.PersonToMeetDto;
+import com.medplus.frontdesk_backend.dto.StatusCountsDto;
 import com.medplus.frontdesk_backend.model.EntryType;
 import com.medplus.frontdesk_backend.model.GovtIdType;
 import com.medplus.frontdesk_backend.model.VisitStatus;
@@ -277,28 +278,27 @@ public class VisitorRepository {
     }
 
     /**
-     * Returns distinct department names present in visitorlog for a given location + date.
-     * Used to build the dynamic "Filter by Department" dropdown on the home page.
+     * Returns distinct, non-null department names present in visitorlog.
+     *
+     * @param locationId restrict to a specific location; null = all locations
+     * @param date       restrict to a single calendar day; null = all dates
      */
     public List<String> findDistinctDepartmentsInLog(String locationId, java.time.LocalDate date) {
-        LocalDateTime start = date.atStartOfDay();
-        LocalDateTime end   = date.plusDays(1).atStartOfDay();
-        String sql = (locationId != null)
-                ? """
-                  SELECT DISTINCT department FROM visitorlog
-                  WHERE locationId = :locationId AND checkInTime >= :start AND checkInTime < :end
-                  ORDER BY department
-                  """
-                : """
-                  SELECT DISTINCT department FROM visitorlog
-                  WHERE checkInTime >= :start AND checkInTime < :end
-                  ORDER BY department
-                  """;
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("start", start)
-                .addValue("end",   end);
-        if (locationId != null) params.addValue("locationId", locationId);
-        return jdbc.queryForList(sql, params, String.class);
+        StringBuilder sql = new StringBuilder(
+                "SELECT DISTINCT department FROM visitorlog WHERE department IS NOT NULL\n");
+        MapSqlParameterSource params = new MapSqlParameterSource();
+
+        if (locationId != null) {
+            sql.append("  AND locationId = :locationId\n");
+            params.addValue("locationId", locationId);
+        }
+        if (date != null) {
+            sql.append("  AND checkInTime >= :start AND checkInTime < :end\n");
+            params.addValue("start", date.atStartOfDay());
+            params.addValue("end",   date.plusDays(1).atStartOfDay());
+        }
+        sql.append("ORDER BY department");
+        return jdbc.queryForList(sql.toString(), params, String.class);
     }
 
     /**
@@ -384,16 +384,17 @@ public class VisitorRepository {
 
     /**
      * Returns a single page of visitor entries.
-     * All filter parameters are optional (null = no filter applied for that dimension).
+     * All filter parameters are optional (null = no filter for that dimension).
      *
      * @param locationId restrict to a single location; null = all locations
      * @param date       restrict to a single calendar day; null = all dates
      * @param department restrict to a department name; null = all departments
+     * @param status     restrict by visit status ("CHECKED_IN" / "CHECKED_OUT"); null = all
      * @param offset     OFFSET for SQL (page * size)
      * @param limit      LIMIT for SQL (page size)
      */
     public List<Visitor> findPaged(String locationId, java.time.LocalDate date,
-                                   String department, int offset, int limit) {
+                                   String department, String status, int offset, int limit) {
         StringBuilder sql = new StringBuilder("""
                 SELECT visitorId, visitType, entryType, name, mobile, empId,
                        status, personToMeet, personName, department,
@@ -416,6 +417,10 @@ public class VisitorRepository {
             sql.append("  AND department = :department\n");
             params.addValue("department", department);
         }
+        if (status != null) {
+            sql.append("  AND status = :status\n");
+            params.addValue("status", status);
+        }
         sql.append("ORDER BY checkInTime DESC\nLIMIT :limit OFFSET :offset");
         params.addValue("limit", limit).addValue("offset", offset);
         return jdbc.query(sql.toString(), params, this::mapVisitorRow);
@@ -425,7 +430,8 @@ public class VisitorRepository {
      * Returns the total count of records matching the same optional filters used by
      * {@link #findPaged}. Used to calculate total pages.
      */
-    public long countFiltered(String locationId, java.time.LocalDate date, String department) {
+    public long countFiltered(String locationId, java.time.LocalDate date,
+                              String department, String status) {
         StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM visitorlog WHERE 1=1\n");
         MapSqlParameterSource params = new MapSqlParameterSource();
         if (locationId != null) {
@@ -441,6 +447,10 @@ public class VisitorRepository {
             sql.append("  AND department = :department\n");
             params.addValue("department", department);
         }
+        if (status != null) {
+            sql.append("  AND status = :status\n");
+            params.addValue("status", status);
+        }
         Long count = jdbc.queryForObject(sql.toString(), params, Long.class);
         return count == null ? 0L : count;
     }
@@ -451,7 +461,8 @@ public class VisitorRepository {
      * All filter parameters are optional (null = no filter).
      */
     public List<Visitor> searchPaged(String locationId, java.time.LocalDate date,
-                                     String query, String department, int offset, int limit) {
+                                     String query, String department, String status,
+                                     int offset, int limit) {
         String like = "%" + query.trim().toLowerCase() + "%";
         StringBuilder sql = new StringBuilder("""
                 SELECT visitorId, visitType, entryType, name, mobile, empId,
@@ -480,6 +491,10 @@ public class VisitorRepository {
             sql.append("  AND department = :department\n");
             params.addValue("department", department);
         }
+        if (status != null) {
+            sql.append("  AND status = :status\n");
+            params.addValue("status", status);
+        }
         sql.append("ORDER BY checkInTime DESC\nLIMIT :limit OFFSET :offset");
         params.addValue("limit", limit).addValue("offset", offset);
         return jdbc.query(sql.toString(), params, this::mapVisitorRow);
@@ -489,7 +504,7 @@ public class VisitorRepository {
      * Count of search matches — mirrors the filters in {@link #searchPaged}.
      */
     public long countSearch(String locationId, java.time.LocalDate date,
-                            String query, String department) {
+                            String query, String department, String status) {
         String like = "%" + query.trim().toLowerCase() + "%";
         StringBuilder sql = new StringBuilder("""
                 SELECT COUNT(*) FROM visitorlog
@@ -514,8 +529,39 @@ public class VisitorRepository {
             sql.append("  AND department = :department\n");
             params.addValue("department", department);
         }
+        if (status != null) {
+            sql.append("  AND status = :status\n");
+            params.addValue("status", status);
+        }
         Long count = jdbc.queryForObject(sql.toString(), params, Long.class);
         return count == null ? 0L : count;
+    }
+
+    /**
+     * Returns per-status counts for the Check-In/Check-Out tab badges.
+     * Scoped to the given location (pass null for all-locations admin view).
+     */
+    public StatusCountsDto findStatusCounts(String locationId) {
+        StringBuilder sql = new StringBuilder("""
+                SELECT
+                    COUNT(*)                                                      AS total,
+                    SUM(CASE WHEN status = 'CHECKED_IN'  THEN 1 ELSE 0 END)      AS checkedIn,
+                    SUM(CASE WHEN status = 'CHECKED_OUT' THEN 1 ELSE 0 END)      AS checkedOut
+                FROM visitorlog
+                WHERE 1=1
+                """);
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        if (locationId != null) {
+            sql.append("  AND locationId = :locationId\n");
+            params.addValue("locationId", locationId);
+        }
+        return jdbc.queryForObject(sql.toString(), params, (rs, rowNum) ->
+                StatusCountsDto.builder()
+                        .total(rs.getLong("total"))
+                        .checkedIn(rs.getLong("checkedIn"))
+                        .checkedOut(rs.getLong("checkedOut"))
+                        .build()
+        );
     }
 
     /**

@@ -4,6 +4,7 @@ import com.medplus.frontdesk_backend.dto.ApiResponse;
 import com.medplus.frontdesk_backend.dto.DeviceResetRequestDto;
 import com.medplus.frontdesk_backend.dto.DeviceResetResponseDto;
 import com.medplus.frontdesk_backend.dto.ManagedUserDto;
+import com.medplus.frontdesk_backend.dto.PagedResponseDto;
 import com.medplus.frontdesk_backend.dto.UserLookupDto;
 import com.medplus.frontdesk_backend.dto.UserStatusRequestDto;
 import com.medplus.frontdesk_backend.service.UserManagementService;
@@ -59,14 +60,24 @@ public class UserManagementController {
     // ── GET /api/managed-users ────────────────────────────────────────────────
 
     /**
-     * Returns all usermanagement records with location resolved to descriptive name.
+     * Returns a paginated page of usermanagement records with location resolved to
+     * descriptive name.  Supports optional full-text search over id, name, ip, and mac.
      * Accessible to PRIMARY_ADMIN and REGIONAL_ADMIN.
+     *
+     * Query params:
+     *   q    (optional) — case-insensitive search term
+     *   page (optional) — 0-based page index (default 0)
+     *   size (optional) — records per page (default 20)
      */
     @GetMapping
     @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
-    public ResponseEntity<ApiResponse<List<ManagedUserDto>>> getManagedUsers() {
-        List<ManagedUserDto> users = userManagementService.getManagedUsers();
-        return ResponseEntity.ok(ApiResponse.success("Users retrieved successfully.", users));
+    public ResponseEntity<ApiResponse<PagedResponseDto<ManagedUserDto>>> getManagedUsers(
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "0")  int page,
+            @RequestParam(defaultValue = "20") int size) {
+
+        PagedResponseDto<ManagedUserDto> result = userManagementService.getManagedUsersPaged(q, page, size);
+        return ResponseEntity.ok(ApiResponse.success("Users retrieved successfully.", result));
     }
 
     // ── POST /api/managed-users ───────────────────────────────────────────────

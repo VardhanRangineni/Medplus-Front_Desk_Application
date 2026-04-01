@@ -81,14 +81,21 @@ export async function searchLocations(q = '') {
 }
 
 /**
- * Returns all locations currently stored in the local locationmaster table.
+ * Returns one page of locations from the local locationmaster table.
+ * Supports optional full-text search over LocationId, name, and city.
  *
- * Endpoint: GET /api/locations
+ * Endpoint: GET /api/locations?page=&size=&q=
  *
- * @returns {Promise<Location[]>}
+ * @param {Object} [options]
+ * @param {number} [options.page=0]   0-based page index
+ * @param {number} [options.size=20]  records per page
+ * @param {string} [options.search]   optional search term
+ * @returns {Promise<{ content: Location[], totalElements: number, totalPages: number, page: number }>}
  */
-export async function getLocations() {
-  return request('GET', '/api/locations');
+export async function getLocations({ page = 0, size = 20, search = '' } = {}) {
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  if (search.trim()) params.set('q', search.trim());
+  return request('GET', `/api/locations?${params}`);
 }
 
 /**

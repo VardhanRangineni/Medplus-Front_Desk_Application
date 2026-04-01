@@ -15,7 +15,14 @@ import {
   IconBuilding,
 } from '../../components/Icons/Icons';
 import Pagination from '../../components/Pagination/Pagination';
-import { getEntries, checkOutEntry, checkOutMember } from './checkInOutService';
+import {
+  getEntries,
+  getStatusCounts,
+  getDepartments,
+  checkOutEntry,
+  checkOutMember,
+  exportToExcel,
+} from './checkInOutService';
 import AddVisitorModal   from './AddVisitorModal/AddVisitorModal';
 import AddEmployeeModal  from './AddEmployeeModal/AddEmployeeModal';
 import ViewEntryModal    from './ViewEntryModal/ViewEntryModal';
@@ -23,33 +30,41 @@ import EditVisitorModal  from './EditVisitorModal/EditVisitorModal';
 import EditEmployeeModal from './EditEmployeeModal/EditEmployeeModal';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const TAB_ALL        = 'all';
-const TAB_CHECKED_IN = 'checked-in';
-const TAB_CHECKED_OUT= 'checked-out';
-const PAGE_SIZE      = 20;
+const TAB_ALL         = 'all';
+const TAB_CHECKED_IN  = 'checked-in';
+const TAB_CHECKED_OUT = 'checked-out';
+const PAGE_SIZE       = 20;
+const SEARCH_DEBOUNCE = 350; // ms
+const COL_COUNT       = 11;  // expand + type + name + contact + dept + status + person + card + in + out + actions
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatDateTime(date) {
   if (!date) return '—';
-  return date.toLocaleDateString('en-IN', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  }) + ', ' + date.toLocaleTimeString('en-IN', {
-    hour: '2-digit', minute: '2-digit', hour12: true,
-  });
+  return (
+    date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) +
+    ', ' +
+    date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+  );
 }
 
-/** Returns { label, variant } for the status badge */
 function resolveStatus(entry) {
   if (entry.members.length > 0) {
-    const total      = 1 + entry.members.length;
-    const checkedIn  = (entry.status === 'checked-in' ? 1 : 0)
-                     + entry.members.filter((m) => m.status === 'checked-in').length;
+    const total     = 1 + entry.members.length;
+    const checkedIn = (entry.status === 'checked-in' ? 1 : 0)
+                    + entry.members.filter((m) => m.status === 'checked-in').length;
     if (checkedIn === 0) return { label: 'Checked-out', variant: 'out' };
     return { label: `Checked-in (${checkedIn}/${total})`, variant: 'in' };
   }
   return entry.status === 'checked-in'
     ? { label: 'Checked-in',  variant: 'in'  }
     : { label: 'Checked-out', variant: 'out' };
+}
+
+/** Maps a TAB constant to the `status` query param value expected by the backend. */
+function tabToStatus(tab) {
+  if (tab === TAB_CHECKED_IN)  return 'checked-in';
+  if (tab === TAB_CHECKED_OUT) return 'checked-out';
+  return null;
 }
 
 // ─── Sub-component: member sub-row ────────────────────────────────────────────
@@ -61,6 +76,7 @@ function MemberRow({ member, entryId, onCheckOut }) {
       <td><span className="ci-type-badge ci-type-badge--member">Member</span></td>
       <td className="ci-col--name ci-col--name-sub">{member.name}</td>
       <td className="ci-col--contact">—</td>
+      <td>—</td>
       <td>
         <span className={`ci-status-badge ci-status-badge--${isIn ? 'in' : 'out'}`}>
           {isIn ? 'Checked-in' : 'Checked-out'}
@@ -68,6 +84,7 @@ function MemberRow({ member, entryId, onCheckOut }) {
       </td>
       <td>—</td>
       <td>{member.card ?? '—'}</td>
+      <td>—</td>
       <td>—</td>
       <td>
         <div className="ci-actions">
@@ -99,7 +116,6 @@ function EntryRow({ entry, expanded, onToggleExpand, onCheckOut, onMemberCheckOu
     <>
       <tr className={`ci-row ci-row--main${isIn ? '' : ' ci-row--out'}`}>
 
-        {/* Expand toggle */}
         <td className="ci-col--expand">
           {hasMembers && (
             <button
@@ -113,48 +129,43 @@ function EntryRow({ entry, expanded, onToggleExpand, onCheckOut, onMemberCheckOu
           )}
         </td>
 
-        {/* Type badge */}
         <td>
           <span className={`ci-type-badge ci-type-badge--${entry.type.toLowerCase()}`}>
             {entry.type === 'EMPLOYEE' ? 'Employee' : 'Visitor'}
           </span>
         </td>
 
-        {/* Name + member count pill */}
         <td className="ci-col--name">
           {entry.name}
-          {hasMembers && (
-            <span className="ci-member-count">+{entry.members.length}</span>
-          )}
+          {hasMembers && <span className="ci-member-count">+{entry.members.length}</span>}
         </td>
 
-        {/* Mobile / Emp ID */}
         <td className={`ci-col--contact${isEmp ? ' ci-col--empid' : ''}`}>
           {contact ?? '—'}
         </td>
 
-        {/* Status */}
+        <td className="ci-col--dept">
+          {entry.department
+            ? <span className="ci-dept-badge">{entry.department}</span>
+            : <span className="ci-col--muted">—</span>
+          }
+        </td>
+
         <td>
           <span className={`ci-status-badge ci-status-badge--${status.variant}`}>
             {status.label}
           </span>
         </td>
 
-        {/* Person to meet */}
         <td className="ci-col--person">{entry.personToMeet || '—'}</td>
 
-        {/* Card */}
         <td className="ci-col--card">
           {isEmp ? 'N/A' : (entry.card ?? '—')}
         </td>
 
-        {/* Check-in time */}
         <td className="ci-col--time">{formatDateTime(entry.checkIn)}</td>
-
-        {/* Check-out time */}
         <td className="ci-col--time">{entry.checkOut ? formatDateTime(entry.checkOut) : '—'}</td>
 
-        {/* Actions */}
         <td>
           <div className="ci-actions">
             <button
@@ -189,7 +200,6 @@ function EntryRow({ entry, expanded, onToggleExpand, onCheckOut, onMemberCheckOu
         </td>
       </tr>
 
-      {/* Member sub-rows */}
       {expanded && entry.members.map((m) => (
         <MemberRow
           key={m.id}
@@ -204,12 +214,8 @@ function EntryRow({ entry, expanded, onToggleExpand, onCheckOut, onMemberCheckOu
 
 // ─── Entry Type Selection Modal ───────────────────────────────────────────────
 function EntryTypeModal({ onClose, onSelect }) {
-  // Close on overlay click
-  const handleOverlayClick = (e) => {
-    if (e.target === e.currentTarget) onClose();
-  };
+  const handleOverlayClick = (e) => { if (e.target === e.currentTarget) onClose(); };
 
-  // Close on Escape key
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', handler);
@@ -225,7 +231,6 @@ function EntryTypeModal({ onClose, onSelect }) {
       onClick={handleOverlayClick}
     >
       <div className="etm-dialog">
-        {/* Header */}
         <div className="etm-header">
           <div>
             <h2 className="etm-title" id="etm-title">Select Entry Type</h2>
@@ -236,22 +241,14 @@ function EntryTypeModal({ onClose, onSelect }) {
           </button>
         </div>
 
-        {/* Option cards */}
         <div className="etm-options">
-          <button
-            className="etm-option-card"
-            onClick={() => onSelect('visitor')}
-          >
+          <button className="etm-option-card" onClick={() => onSelect('visitor')}>
             <span className="etm-option-icon etm-option-icon--visitor">
               <IconUser size={28} />
             </span>
             <span className="etm-option-label">Visitor</span>
           </button>
-
-          <button
-            className="etm-option-card"
-            onClick={() => onSelect('employee')}
-          >
+          <button className="etm-option-card" onClick={() => onSelect('employee')}>
             <span className="etm-option-icon etm-option-icon--employee">
               <IconBuilding size={28} />
             </span>
@@ -265,33 +262,99 @@ function EntryTypeModal({ onClose, onSelect }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function CheckInOut() {
-  const [entries,             setEntries]             = useState([]);
-  const [initLoading,         setInitLoading]         = useState(true);
-  const [activeTab,           setActiveTab]           = useState(TAB_ALL);
-  const [search,              setSearch]              = useState('');
-  const [expandedRows,        setExpandedRows]        = useState(new Set());
-  const [filterOpen,          setFilterOpen]          = useState(false);
-  const [entryTypeModalOpen,  setEntryTypeModalOpen]  = useState(false);
-  const [addVisitorOpen,      setAddVisitorOpen]      = useState(false);
-  const [addEmployeeOpen,     setAddEmployeeOpen]     = useState(false);
-  const [currentPage,         setCurrentPage]         = useState(1);
-  // View / Edit state
-  const [viewEntry,           setViewEntry]           = useState(null);
-  const [editEntry,           setEditEntry]           = useState(null);
-  const filterRef = useRef(null);
 
-  // ── Load entries on mount ───────────────────────────────────────────────
+  // ── Server-side data ────────────────────────────────────────────────────────
+  const [entries,       setEntries]       = useState([]);
+  const [totalElements, setTotalElements] = useState(0);
+  const [totalPages,    setTotalPages]    = useState(1);
+  const [statusCounts,  setStatusCounts]  = useState({ total: 0, checkedIn: 0, checkedOut: 0 });
+  const [departments,   setDepartments]   = useState([]);
+
+  // ── Loading states ──────────────────────────────────────────────────────────
+  const [initLoading, setInitLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(false);
+
+  // ── Filter / UI state ───────────────────────────────────────────────────────
+  const [activeTab,    setActiveTab]    = useState(TAB_ALL);
+  const [search,       setSearch]       = useState('');
+  const [selectedDept, setSelectedDept] = useState(null);
+  const [filterOpen,   setFilterOpen]   = useState(false);
+  const [currentPage,  setCurrentPage]  = useState(1);
+  const [expandedRows, setExpandedRows] = useState(new Set());
+
+  // ── Modal state ─────────────────────────────────────────────────────────────
+  const [entryTypeModalOpen, setEntryTypeModalOpen] = useState(false);
+  const [addVisitorOpen,     setAddVisitorOpen]      = useState(false);
+  const [addEmployeeOpen,    setAddEmployeeOpen]     = useState(false);
+  const [viewEntry,          setViewEntry]           = useState(null);
+  const [editEntry,          setEditEntry]           = useState(null);
+
+  const filterRef     = useRef(null);
+  const searchTimerRef = useRef(null);
+
+  // ── Core fetch function ─────────────────────────────────────────────────────
+  // Accepts explicit params to avoid stale-closure issues in callbacks.
+  const fetchPage = useCallback(async (page, tab, q, dept, isInitial = false) => {
+    if (isInitial) setInitLoading(true);
+    else           setPageLoading(true);
+
+    try {
+      const result = await getEntries({
+        page:       page - 1,          // service expects 0-based; UI uses 1-based
+        size:       PAGE_SIZE,
+        search:     q,
+        status:     tabToStatus(tab),
+        department: dept,
+      });
+      setEntries(result.entries);
+      setTotalElements(result.totalElements);
+      setTotalPages(result.totalPages || 1);
+      setCurrentPage(page);
+    } catch {
+      // Leave stale data; UI stays usable
+    } finally {
+      if (isInitial) setInitLoading(false);
+      else           setPageLoading(false);
+    }
+  }, []);
+
+  const refreshCounts = useCallback(() => {
+    getStatusCounts()
+      .then(setStatusCounts)
+      .catch(() => {});
+  }, []);
+
+  const refreshDepartments = useCallback(() => {
+    getDepartments()
+      .then(setDepartments)
+      .catch(() => {});
+  }, []);
+
+  // ── Initial load — run all three requests in parallel ───────────────────────
   useEffect(() => {
     let active = true;
-    const today = new Date().toISOString().split('T')[0];
-    getEntries(today)
-      .then((data) => { if (active) setEntries(data); })
+    setInitLoading(true);
+
+    Promise.all([
+      getEntries({ page: 0, size: PAGE_SIZE }),
+      getStatusCounts(),
+      getDepartments(),
+    ])
+      .then(([pageData, counts, depts]) => {
+        if (!active) return;
+        setEntries(pageData.entries);
+        setTotalElements(pageData.totalElements);
+        setTotalPages(pageData.totalPages || 1);
+        setStatusCounts(counts);
+        setDepartments(depts);
+      })
       .catch(() => {})
       .finally(() => { if (active) setInitLoading(false); });
+
     return () => { active = false; };
   }, []);
 
-  // ── Close filter dropdown on outside click ──────────────────────────────
+  // ── Close filter dropdown on outside click ──────────────────────────────────
   useEffect(() => {
     if (!filterOpen) return;
     const handler = (e) => {
@@ -303,24 +366,66 @@ export default function CheckInOut() {
     return () => document.removeEventListener('mousedown', handler);
   }, [filterOpen]);
 
-  // ── Check-out main entry (optimistic) ──────────────────────────────────
+  // ── Tab change ──────────────────────────────────────────────────────────────
+  const handleTabChange = useCallback((tab) => {
+    setActiveTab(tab);
+    fetchPage(1, tab, search, selectedDept);
+  }, [search, selectedDept, fetchPage]);
+
+  // ── Search (debounced) ──────────────────────────────────────────────────────
+  const handleSearchChange = useCallback((value) => {
+    setSearch(value);
+    clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      fetchPage(1, activeTab, value, selectedDept);
+    }, SEARCH_DEBOUNCE);
+  }, [activeTab, selectedDept, fetchPage]);
+
+  // ── Department filter ───────────────────────────────────────────────────────
+  const handleSelectDept = useCallback((dept) => {
+    setSelectedDept(dept);
+    setFilterOpen(false);
+    fetchPage(1, activeTab, search, dept);
+  }, [activeTab, search, fetchPage]);
+
+  const handleClearDept = useCallback((e) => {
+    e.stopPropagation();
+    setSelectedDept(null);
+    fetchPage(1, activeTab, search, null);
+  }, [activeTab, search, fetchPage]);
+
+  // ── Page change ─────────────────────────────────────────────────────────────
+  const handlePageChange = useCallback((page) => {
+    fetchPage(page, activeTab, search, selectedDept);
+    setExpandedRows(new Set()); // collapse all on page turn
+  }, [activeTab, search, selectedDept, fetchPage]);
+
+  // ── Optimistic check-out ────────────────────────────────────────────────────
   const handleCheckOut = useCallback(async (id) => {
     const original = entries.find((e) => e.id === id);
     if (!original) return;
 
-    setEntries((prev) =>
-      prev.map((e) => e.id === id ? { ...e, status: 'checked-out', checkOut: new Date() } : e)
-    );
+    // Optimistic: update status; if on "checked-in" tab remove the row
+    setEntries((prev) => {
+      const updated = prev.map((e) =>
+        e.id === id ? { ...e, status: 'checked-out', checkOut: new Date() } : e
+      );
+      return activeTab === TAB_CHECKED_IN ? updated.filter((e) => e.id !== id) : updated;
+    });
+    if (activeTab === TAB_CHECKED_IN) {
+      setTotalElements((n) => Math.max(0, n - 1));
+    }
+
     try {
       await checkOutEntry(id);
+      refreshCounts();
     } catch {
-      setEntries((prev) =>
-        prev.map((e) => e.id === id ? original : e)
-      );
+      // Rollback: re-fetch the current page
+      fetchPage(currentPage, activeTab, search, selectedDept);
     }
-  }, [entries]);
+  }, [entries, activeTab, currentPage, search, selectedDept, fetchPage, refreshCounts]);
 
-  // ── Check-out member (optimistic) ───────────────────────────────────────
+  // ── Optimistic member check-out ─────────────────────────────────────────────
   const handleMemberCheckOut = useCallback(async (entryId, memberId) => {
     const entryOrig = entries.find((e) => e.id === entryId);
     if (!entryOrig) return;
@@ -335,59 +440,44 @@ export default function CheckInOut() {
         }
       )
     );
+
     try {
       await checkOutMember(entryId, memberId);
+      refreshCounts();
     } catch {
-      setEntries((prev) =>
-        prev.map((e) => e.id === entryId ? entryOrig : e)
-      );
+      fetchPage(currentPage, activeTab, search, selectedDept);
     }
-  }, [entries]);
+  }, [entries, currentPage, activeTab, search, selectedDept, fetchPage, refreshCounts]);
 
-  // ── Entry type modal handlers ────────────────────────────────────────────
+  // ── Entry type modal ────────────────────────────────────────────────────────
   const handleEntryTypeSelect = useCallback((type) => {
     setEntryTypeModalOpen(false);
     if (type === 'visitor')  setAddVisitorOpen(true);
     if (type === 'employee') setAddEmployeeOpen(true);
   }, []);
 
-  // Visitor modal
+  // After a successful add/edit: go to page 1, refresh counts & departments
+  const afterMutation = useCallback(() => {
+    fetchPage(1, activeTab, search, selectedDept);
+    refreshCounts();
+    refreshDepartments();
+  }, [activeTab, search, selectedDept, fetchPage, refreshCounts, refreshDepartments]);
+
   const handleCloseAddVisitor  = useCallback(() => setAddVisitorOpen(false), []);
-  const handleVisitorSuccess   = useCallback(() => {
-    setAddVisitorOpen(false);
-    const today = new Date().toISOString().split('T')[0];
-    getEntries(today).then(setEntries).catch(() => {});
-  }, []);
+  const handleVisitorSuccess   = useCallback(() => { setAddVisitorOpen(false);  afterMutation(); }, [afterMutation]);
 
-  // Employee modal
   const handleCloseAddEmployee = useCallback(() => setAddEmployeeOpen(false), []);
-  const handleEmployeeBack     = useCallback(() => {
-    setAddEmployeeOpen(false);
-    setEntryTypeModalOpen(true);   // go back to type-selection
-  }, []);
-  const handleEmployeeSuccess  = useCallback(() => {
-    setAddEmployeeOpen(false);
-    const today = new Date().toISOString().split('T')[0];
-    getEntries(today).then(setEntries).catch(() => {});
-  }, []);
+  const handleEmployeeBack     = useCallback(() => { setAddEmployeeOpen(false); setEntryTypeModalOpen(true); }, []);
+  const handleEmployeeSuccess  = useCallback(() => { setAddEmployeeOpen(false); afterMutation(); }, [afterMutation]);
 
-  // ── View entry ──────────────────────────────────────────────────────────
-  const handleView = useCallback((entry) => setViewEntry(entry), []);
+  // ── View / Edit ─────────────────────────────────────────────────────────────
+  const handleView      = useCallback((entry) => setViewEntry(entry), []);
   const handleCloseView = useCallback(() => setViewEntry(null), []);
+  const handleEdit      = useCallback((entry) => { setViewEntry(null); setEditEntry(entry); }, []);
+  const handleCloseEdit = useCallback(() => setEditEntry(null), []);
+  const handleEditSuccess = useCallback(() => { setEditEntry(null); afterMutation(); }, [afterMutation]);
 
-  // ── Edit entry ───────────────────────────────────────────────────────────
-  const handleEdit = useCallback((entry) => {
-    setViewEntry(null);   // close view modal if open
-    setEditEntry(entry);
-  }, []);
-  const handleCloseEdit  = useCallback(() => setEditEntry(null), []);
-  const handleEditSuccess = useCallback(() => {
-    setEditEntry(null);
-    const today = new Date().toISOString().split('T')[0];
-    getEntries(today).then(setEntries).catch(() => {});
-  }, []);
-
-  // ── Toggle expand row ────────────────────────────────────────────────────
+  // ── Expand / collapse row ───────────────────────────────────────────────────
   const toggleExpand = useCallback((id) => {
     setExpandedRows((prev) => {
       const next = new Set(prev);
@@ -396,113 +486,140 @@ export default function CheckInOut() {
     });
   }, []);
 
-  // ── Derived counts ───────────────────────────────────────────────────────
-  const countAll       = entries.length;
-  const countCheckedIn = entries.filter((e) => e.status === 'checked-in').length;
-  const countCheckedOut= entries.filter((e) => e.status === 'checked-out').length;
+  // ── Export current page ─────────────────────────────────────────────────────
+  const handleExport = useCallback(() => {
+    if (entries.length === 0) return;
+    const today = new Date().toISOString().split('T')[0];
+    exportToExcel(entries, `visitors_${today}.xlsx`);
+  }, [entries]);
 
-  // ── Filtered rows ────────────────────────────────────────────────────────
-  const filtered = entries.filter((e) => {
-    const matchTab =
-      activeTab === TAB_ALL        ? true :
-      activeTab === TAB_CHECKED_IN ? e.status === 'checked-in' :
-                                     e.status === 'checked-out';
+  // ── Pagination helpers ──────────────────────────────────────────────────────
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const pageEnd   = Math.min(pageStart + entries.length, pageStart + PAGE_SIZE);
 
-    const q = search.trim().toLowerCase();
-    const matchSearch = !q || (
-      e.name.toLowerCase().includes(q)              ||
-      (e.mobile  ?? '').toLowerCase().includes(q)   ||
-      (e.empId   ?? '').toLowerCase().includes(q)   ||
-      e.personToMeet.toLowerCase().includes(q)
-    );
-
-    return matchTab && matchSearch;
-  });
-
-  // Reset to first page whenever search or tab changes
-  useEffect(() => { setCurrentPage(1); }, [search, activeTab]);
-
-  // ── Pagination ───────────────────────────────────────────────────────────
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const safePage   = Math.min(currentPage, totalPages);
-  const pageStart  = (safePage - 1) * PAGE_SIZE;
-  const paginated  = filtered.slice(pageStart, pageStart + PAGE_SIZE);
-
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="ci-page">
 
-      {/* ── Page header ───────────────────────────────────────────────── */}
+      {/* ── Page header ─────────────────────────────────────────────────── */}
       <header className="ci-page__header">
         <h1 className="ci-page__title">Check-In / Check-Out</h1>
-        <p className="ci-page__sub">Manage visitor, member, and employee entries for today.</p>
+        <p className="ci-page__sub">Manage visitor, member, and employee entries.</p>
       </header>
 
-      {/* ── Toolbar ───────────────────────────────────────────────────── */}
+      {/* ── Toolbar ─────────────────────────────────────────────────────── */}
       <div className="ci-toolbar">
 
-        {/* Filter tabs */}
+        {/* Status tabs */}
         <div className="ci-tabs" role="tablist">
           <button
             className={`ci-tab${activeTab === TAB_ALL ? ' ci-tab--active' : ''}`}
-            onClick={() => setActiveTab(TAB_ALL)}
+            onClick={() => handleTabChange(TAB_ALL)}
             role="tab"
             aria-selected={activeTab === TAB_ALL}
           >
-            All <span className="ci-tab__count">{countAll}</span>
+            All <span className="ci-tab__count">{statusCounts.total}</span>
           </button>
           <button
             className={`ci-tab${activeTab === TAB_CHECKED_IN ? ' ci-tab--active' : ''}`}
-            onClick={() => setActiveTab(TAB_CHECKED_IN)}
+            onClick={() => handleTabChange(TAB_CHECKED_IN)}
             role="tab"
             aria-selected={activeTab === TAB_CHECKED_IN}
           >
-            Checked-in <span className="ci-tab__count">{countCheckedIn}</span>
+            Checked-in <span className="ci-tab__count">{statusCounts.checkedIn}</span>
           </button>
           <button
             className={`ci-tab${activeTab === TAB_CHECKED_OUT ? ' ci-tab--active' : ''}`}
-            onClick={() => setActiveTab(TAB_CHECKED_OUT)}
+            onClick={() => handleTabChange(TAB_CHECKED_OUT)}
             role="tab"
             aria-selected={activeTab === TAB_CHECKED_OUT}
           >
-            Checked-out <span className="ci-tab__count">{countCheckedOut}</span>
+            Checked-out <span className="ci-tab__count">{statusCounts.checkedOut}</span>
           </button>
         </div>
 
         {/* Right actions */}
         <div className="ci-toolbar__right">
+
+          {/* Search */}
           <label className="ci-search" aria-label="Search entries">
             <IconSearch size={14} />
             <input
               className="ci-search__input"
               type="search"
-              placeholder="Search by name…"
+              placeholder="Search name, mobile, dept…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
             />
           </label>
 
+          {/* Filter Dept dropdown */}
           <div className="ci-filter-wrap" ref={filterRef}>
             <button
-              className={`ci-icon-btn${filterOpen ? ' ci-icon-btn--active' : ''}`}
+              className={`ci-icon-btn${filterOpen || selectedDept ? ' ci-icon-btn--active' : ''}`}
               onClick={() => setFilterOpen((v) => !v)}
               aria-haspopup="true"
               aria-expanded={filterOpen}
+              aria-label="Filter by department"
             >
               <IconFilter size={14} />
               <span>Filter Dept</span>
+              {selectedDept && (
+                <span
+                  className="ci-filter-clear"
+                  onClick={handleClearDept}
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Clear department filter"
+                  onKeyDown={(e) => e.key === 'Enter' && handleClearDept(e)}
+                >
+                  <IconX size={10} />
+                </span>
+              )}
             </button>
+
             {filterOpen && (
-              <div className="ci-filter-dropdown" role="menu">
-                {['All Departments', 'Operations', 'Security', 'HR', 'IT', 'Finance'].map((d) => (
-                  <button key={d} className="ci-filter-option" role="menuitem">
-                    {d}
+              <div className="ci-filter-dropdown" role="menu" aria-label="Department filter options">
+                <button
+                  className={`ci-filter-option${!selectedDept ? ' ci-filter-option--active' : ''}`}
+                  role="menuitemradio"
+                  aria-checked={!selectedDept}
+                  onClick={() => handleSelectDept(null)}
+                >
+                  <span>All Departments</span>
+                  {!selectedDept && <span className="ci-filter-check">✓</span>}
+                </button>
+
+                {departments.length > 0 && <div className="ci-filter-divider" role="separator" />}
+
+                {departments.length === 0 && !initLoading && (
+                  <div className="ci-filter-empty">No departments found</div>
+                )}
+
+                {departments.map((dept) => (
+                  <button
+                    key={dept}
+                    className={`ci-filter-option${selectedDept === dept ? ' ci-filter-option--active' : ''}`}
+                    role="menuitemradio"
+                    aria-checked={selectedDept === dept}
+                    onClick={() => handleSelectDept(dept)}
+                  >
+                    <span>{dept}</span>
+                    {selectedDept === dept && <span className="ci-filter-check">✓</span>}
                   </button>
                 ))}
               </div>
             )}
           </div>
 
-          <button className="ci-icon-btn">
+          {/* Export */}
+          <button
+            className="ci-icon-btn"
+            onClick={handleExport}
+            disabled={entries.length === 0}
+            aria-label="Export current page to Excel"
+            title="Export to Excel (.xlsx)"
+          >
             <IconDownload size={14} />
             <span>Export</span>
           </button>
@@ -517,8 +634,23 @@ export default function CheckInOut() {
         </div>
       </div>
 
-      {/* ── Table card ────────────────────────────────────────────────── */}
-      <div className="ci-card">
+      {/* ── Active filter pill ───────────────────────────────────────────── */}
+      {selectedDept && (
+        <div className="ci-active-filters">
+          <span className="ci-active-filter-label">Filtered by:</span>
+          <button
+            className="ci-active-filter-pill"
+            onClick={() => handleSelectDept(null)}
+            aria-label={`Remove department filter: ${selectedDept}`}
+          >
+            {selectedDept}
+            <IconX size={10} />
+          </button>
+        </div>
+      )}
+
+      {/* ── Table card ──────────────────────────────────────────────────── */}
+      <div className={`ci-card${pageLoading ? ' ci-card--loading' : ''}`}>
         <div className="ci-table-wrap">
           <table className="ci-table" aria-label="Check-in/Check-out entries">
             <thead>
@@ -527,6 +659,7 @@ export default function CheckInOut() {
                 <th scope="col">Type</th>
                 <th scope="col">Name</th>
                 <th scope="col">Mobile / Emp ID</th>
+                <th scope="col">Department</th>
                 <th scope="col">Status</th>
                 <th scope="col">Person to Meet</th>
                 <th scope="col">Card(s)</th>
@@ -539,21 +672,23 @@ export default function CheckInOut() {
               {initLoading ? (
                 Array.from({ length: 5 }, (_, i) => (
                   <tr key={i} className="ci-row--skeleton">
-                    {Array.from({ length: 10 }, (_, j) => (
+                    {Array.from({ length: COL_COUNT }, (_, j) => (
                       <td key={j}><span className="ci-skeleton" /></td>
                     ))}
                   </tr>
                 ))
-              ) : filtered.length === 0 ? (
+              ) : entries.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="ci-empty">
+                  <td colSpan={COL_COUNT} className="ci-empty">
                     {search
                       ? `No entries match "${search}".`
-                      : 'No entries found for the selected filter.'}
+                      : selectedDept
+                        ? `No entries for department "${selectedDept}".`
+                        : 'No entries found for the selected filter.'}
                   </td>
                 </tr>
               ) : (
-                paginated.map((entry) => (
+                entries.map((entry) => (
                   <EntryRow
                     key={entry.id}
                     entry={entry}
@@ -570,27 +705,35 @@ export default function CheckInOut() {
           </table>
         </div>
 
-        {/* ── Pagination ── */}
-        {!initLoading && filtered.length > 0 && (
+        {/* Pagination */}
+        {!initLoading && totalElements > 0 && (
           <Pagination
-            currentPage={safePage}
+            currentPage={currentPage}
             totalPages={totalPages}
-            onPageChange={setCurrentPage}
+            onPageChange={handlePageChange}
           />
         )}
 
         {/* Footer */}
         {!initLoading && (
           <div className="ci-footer">
-            Showing&nbsp;<strong>{filtered.length > 0 ? pageStart + 1 : 0}–{Math.min(pageStart + PAGE_SIZE, filtered.length)}</strong>&nbsp;of&nbsp;
-            <strong>{filtered.length}</strong>&nbsp;
-            {filtered.length === 1 ? 'entry' : 'entries'}
-            {activeTab !== TAB_ALL && ` · ${filtered.length} of ${countAll} total`}
+            {totalElements > 0 ? (
+              <>
+                Showing&nbsp;
+                <strong>{pageStart + 1}–{pageEnd}</strong>
+                &nbsp;of&nbsp;<strong>{totalElements}</strong>&nbsp;
+                {totalElements === 1 ? 'entry' : 'entries'}
+                {(activeTab !== TAB_ALL || selectedDept || search) &&
+                  ` (filtered from ${statusCounts.total} total)`}
+              </>
+            ) : (
+              'No entries to display'
+            )}
           </div>
         )}
       </div>
 
-      {/* ── Entry Type Modal ───────────────────────────────────────────── */}
+      {/* ── Entry Type Modal ─────────────────────────────────────────────── */}
       {entryTypeModalOpen && (
         <EntryTypeModal
           onClose={() => setEntryTypeModalOpen(false)}
@@ -598,7 +741,6 @@ export default function CheckInOut() {
         />
       )}
 
-      {/* ── Add Visitor (3-step) Modal ─────────────────────────────────── */}
       {addVisitorOpen && (
         <AddVisitorModal
           onClose={handleCloseAddVisitor}
@@ -606,7 +748,6 @@ export default function CheckInOut() {
         />
       )}
 
-      {/* ── Add Employee (3-step) Modal ────────────────────────────────── */}
       {addEmployeeOpen && (
         <AddEmployeeModal
           onClose={handleCloseAddEmployee}
@@ -615,7 +756,6 @@ export default function CheckInOut() {
         />
       )}
 
-      {/* ── View Entry Modal ───────────────────────────────────────────── */}
       {viewEntry && (
         <ViewEntryModal
           entry={viewEntry}
@@ -624,7 +764,6 @@ export default function CheckInOut() {
         />
       )}
 
-      {/* ── Edit Entry Modals ──────────────────────────────────────────── */}
       {editEntry && editEntry.type === 'VISITOR' && (
         <EditVisitorModal
           entry={editEntry}
@@ -632,6 +771,7 @@ export default function CheckInOut() {
           onSuccess={handleEditSuccess}
         />
       )}
+
       {editEntry && editEntry.type === 'EMPLOYEE' && (
         <EditEmployeeModal
           entry={editEntry}

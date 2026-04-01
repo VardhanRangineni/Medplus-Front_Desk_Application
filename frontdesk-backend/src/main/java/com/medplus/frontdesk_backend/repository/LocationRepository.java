@@ -35,6 +35,71 @@ public class LocationRepository {
     }
 
     /**
+     * Returns one page of locations, optionally filtered by a search term.
+     * Search covers LocationId, descriptiveName, city (case-insensitive).
+     *
+     * @param search case-insensitive substring; null / blank = no filter
+     * @param offset SQL OFFSET  (page * size)
+     * @param limit  SQL LIMIT   (page size)
+     */
+    public List<Location> findAllPaged(String search, int offset, int limit) {
+        boolean hasSearch = search != null && !search.isBlank();
+        String like = hasSearch ? "%" + search.trim().toLowerCase() + "%" : null;
+
+        StringBuilder sql = new StringBuilder("""
+                SELECT LocationId, descriptiveName, type, coordinates, address, city, state, pincode, status
+                FROM locationmaster
+                """);
+
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        if (hasSearch) {
+            sql.append("""
+                    WHERE (
+                        LOWER(LocationId)       LIKE :q
+                     OR LOWER(descriptiveName)  LIKE :q
+                     OR LOWER(city)             LIKE :q
+                    )
+                    """);
+            params.addValue("q", like);
+        }
+
+        sql.append("ORDER BY descriptiveName\nLIMIT :limit OFFSET :offset");
+        params.addValue("limit", limit).addValue("offset", offset);
+
+        return jdbc.query(sql.toString(), params, (rs, rowNum) -> Location.builder()
+                .locationId(rs.getString("LocationId"))
+                .descriptiveName(rs.getString("descriptiveName"))
+                .type(rs.getString("type"))
+                .coordinates(rs.getString("coordinates"))
+                .address(rs.getString("address"))
+                .city(rs.getString("city"))
+                .state(rs.getString("state"))
+                .pincode(rs.getString("pincode"))
+                .status(rs.getString("status"))
+                .build()
+        );
+    }
+
+    /** Total count of locations matching the same optional search. */
+    public long countAll(String search) {
+        boolean hasSearch = search != null && !search.isBlank();
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM locationmaster ");
+        if (hasSearch) {
+            sql.append("""
+                    WHERE (
+                        LOWER(LocationId)       LIKE :q
+                     OR LOWER(descriptiveName)  LIKE :q
+                     OR LOWER(city)             LIKE :q
+                    )
+                    """);
+            params.addValue("q", "%" + search.trim().toLowerCase() + "%");
+        }
+        Long count = jdbc.queryForObject(sql.toString(), params, Long.class);
+        return count == null ? 0L : count;
+    }
+
+    /**
      * Searches locationmaster by descriptiveName OR LocationId using a
      * case-insensitive LIKE.  Returns up to 20 matches ordered by descriptiveName.
      *

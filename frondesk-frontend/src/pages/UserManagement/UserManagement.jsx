@@ -35,6 +35,7 @@ const EMPTY_FORM = {
 
 const SKELETON_ROW_COUNT = 6;
 const PAGE_SIZE          = 20;
+const SEARCH_DEBOUNCE    = 350; // ms
 
 // ─── Add / Edit Modal ─────────────────────────────────────────────────────────
 function UserModal({ user, onClose, onSave, saving, saveError }) {
@@ -349,51 +350,92 @@ function UserModal({ user, onClose, onSave, saving, saveError }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function UserManagement() {
-  const [users,       setUsers]       = useState([]);
+
+  // ── Server-side data ────────────────────────────────────────────────────────
+  const [users,         setUsers]         = useState([]);
+  const [totalElements, setTotalElements] = useState(0);
+  const [totalPages,    setTotalPages]    = useState(1);
+  const [currentPage,   setCurrentPage]   = useState(1);
+
+  // ── UI state ────────────────────────────────────────────────────────────────
   const [search,      setSearch]      = useState('');
   const [initLoading, setInitLoading] = useState(true);
-  const [modal,       setModal]       = useState(null); // null | 'add' | user-object
+  const [pageLoading, setPageLoading] = useState(false);
+  const [modal,       setModal]       = useState(null);
   const [saving,      setSaving]      = useState(false);
-  const [error,       setError]       = useState('');   // page-level error banner
-  const [saveError,   setSaveError]   = useState('');   // modal-level save error
-  const [currentPage, setCurrentPage] = useState(1);
+  const [error,       setError]       = useState('');
+  const [saveError,   setSaveError]   = useState('');
 
-  // ── Load on mount ────────────────────────────────────────────────────────
-  useEffect(() => {
-    let active = true;
+  const searchTimerRef = useRef(null);
+
+  // ── Core fetch function ─────────────────────────────────────────────────────
+  const fetchPage = useCallback(async (page, q, isInitial = false) => {
+    if (isInitial) setInitLoading(true);
+    else           setPageLoading(true);
     setError('');
-    getManagedUsers()
-      .then((data) => { if (active) setUsers(data ?? []); })
-      .catch((err) => { if (active) setError(err.message ?? 'Failed to load users.'); })
-      .finally(() => { if (active) setInitLoading(false); });
-    return () => { active = false; };
+
+    try {
+      const data = await getManagedUsers({ page: page - 1, size: PAGE_SIZE, search: q });
+      setUsers(data?.content        ?? []);
+      setTotalElements(data?.totalElements ?? 0);
+      setTotalPages(data?.totalPages    ?? 1);
+      setCurrentPage(page);
+    } catch (err) {
+      setError(err?.message ?? 'Failed to load users.');
+    } finally {
+      if (isInitial) setInitLoading(false);
+      else           setPageLoading(false);
+    }
   }, []);
 
-  // ── Save (add / edit) ────────────────────────────────────────────────────
+  // ── Initial load ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    fetchPage(1, '', true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Search (debounced) ──────────────────────────────────────────────────────
+  const handleSearchChange = useCallback((value) => {
+    setSearch(value);
+    clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      fetchPage(1, value);
+    }, SEARCH_DEBOUNCE);
+  }, [fetchPage]);
+
+  // ── Page change ─────────────────────────────────────────────────────────────
+  const handlePageChange = useCallback((page) => {
+    fetchPage(page, search);
+  }, [search, fetchPage]);
+
+  // ── Save (add / edit) ────────────────────────────────────────────────────────
   const handleSave = useCallback(async (form) => {
     setSaving(true);
     setSaveError('');
     try {
       if (modal === 'add') {
-        const created = await createManagedUser(form);
-        setUsers((prev) => [created, ...prev]);
+        await createManagedUser(form);
+        setModal(null);
+        // Reload page 1 so the new user appears (sorted by name server-side)
+        fetchPage(1, search);
       } else {
         const updated = await updateManagedUser(form.id, form);
+        // Update in-place on current page without a full reload
         setUsers((prev) => prev.map((u) => u.id === updated.id ? updated : u));
+        setModal(null);
       }
-      setModal(null);
     } catch (err) {
       setSaveError(err.message ?? 'Failed to save. Please try again.');
     } finally {
       setSaving(false);
     }
-  }, [modal]);
+  }, [modal, search, fetchPage]);
 
   const handleModalClose = useCallback(() => {
     if (!saving) { setModal(null); setSaveError(''); }
   }, [saving]);
 
-  // ── Status toggle (optimistic UI, roll back on failure) ──────────────────
+  // ── Status toggle (optimistic, rollback on failure) ─────────────────────────
   const handleToggle = useCallback(async (id) => {
     const original = users.find((u) => u.id === id);
     if (!original) return;
@@ -409,28 +451,8 @@ export default function UserManagement() {
     }
   }, [users]);
 
-  // ── Filtered rows ────────────────────────────────────────────────────────
-  const filtered = search.trim()
-    ? users.filter((u) => {
-        const q = search.toLowerCase();
-        return (
-          u.id.toLowerCase().includes(q)         ||
-          u.name.toLowerCase().includes(q)       ||
-          u.location.toLowerCase().includes(q)   ||
-          u.ipAddress.toLowerCase().includes(q)  ||
-          u.macAddress.toLowerCase().includes(q)
-        );
-      })
-    : users;
-
-  // Reset to first page whenever search changes
-  useEffect(() => { setCurrentPage(1); }, [search]);
-
-  // ── Pagination ───────────────────────────────────────────────────────────
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const safePage   = Math.min(currentPage, totalPages);
-  const pageStart  = (safePage - 1) * PAGE_SIZE;
-  const paginated  = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const pageEnd   = Math.min(pageStart + users.length, pageStart + PAGE_SIZE);
 
   return (
     <div className="umg-page">
@@ -467,7 +489,7 @@ export default function UserManagement() {
       </header>
 
       {/* ── Table card ──────────────────────────────────────────────────── */}
-      <div className="umg-card">
+      <div className={`umg-card${pageLoading ? ' umg-card--loading' : ''}`}>
 
         {/* Toolbar */}
         <div className="umg-toolbar">
@@ -478,7 +500,7 @@ export default function UserManagement() {
               type="search"
               placeholder="Search by name, ID, location, IP or MAC…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
             />
           </label>
         </div>
@@ -506,7 +528,7 @@ export default function UserManagement() {
                     ))}
                   </tr>
                 ))
-              ) : filtered.length === 0 ? (
+              ) : users.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="umg-empty">
                     {search
@@ -515,7 +537,7 @@ export default function UserManagement() {
                   </td>
                 </tr>
               ) : (
-                paginated.map((user) => (
+                users.map((user) => (
                   <tr key={user.id}>
                     <td className="umg-col--id">{user.id}</td>
                     <td className="umg-col--name">{user.name}</td>
@@ -553,21 +575,20 @@ export default function UserManagement() {
           </table>
         </div>
 
-        {/* ── Pagination ── */}
-        {!initLoading && filtered.length > 0 && (
+        {/* ── Pagination ─────────────────────────────────────────────────── */}
+        {!initLoading && totalElements > 0 && (
           <Pagination
-            currentPage={safePage}
+            currentPage={currentPage}
             totalPages={totalPages}
-            onPageChange={setCurrentPage}
+            onPageChange={handlePageChange}
           />
         )}
 
         {/* Footer */}
-        {!initLoading && users.length > 0 && (
+        {!initLoading && totalElements > 0 && (
           <div className="umg-footer">
-            Showing&nbsp;<strong>{pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filtered.length)}</strong>&nbsp;of&nbsp;
-            <strong>{filtered.length}</strong>&nbsp;user{filtered.length !== 1 ? 's' : ''}
-            {search && <span>&nbsp;(filtered from {users.length} total)</span>}
+            Showing&nbsp;<strong>{pageStart + 1}–{pageEnd}</strong>&nbsp;of&nbsp;
+            <strong>{totalElements}</strong>&nbsp;user{totalElements !== 1 ? 's' : ''}
           </div>
         )}
 

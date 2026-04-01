@@ -92,14 +92,21 @@ export async function searchUsers(q = '') {
 }
 
 /**
- * Returns all managed users from the local database.
+ * Returns one page of managed users from the local database.
+ * Supports optional full-text search over id, name, ip, and mac.
  *
- * Endpoint: GET /api/managed-users
+ * Endpoint: GET /api/managed-users?page=&size=&q=
  *
- * @returns {Promise<ManagedUser[]>}
+ * @param {Object} [options]
+ * @param {number} [options.page=0]   0-based page index
+ * @param {number} [options.size=20]  records per page
+ * @param {string} [options.search]   optional search term
+ * @returns {Promise<{ content: ManagedUser[], totalElements: number, totalPages: number, page: number }>}
  */
-export async function getManagedUsers() {
-  return request('GET', '/api/managed-users');
+export async function getManagedUsers({ page = 0, size = 20, search = '' } = {}) {
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  if (search.trim()) params.set('q', search.trim());
+  return request('GET', `/api/managed-users?${params}`);
 }
 
 /**

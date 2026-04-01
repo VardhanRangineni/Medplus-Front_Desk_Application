@@ -70,14 +70,21 @@ export class ApiError extends Error {
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Returns all employees currently stored in the local usermaster table.
+ * Returns one page of employees from the local usermaster table.
+ * Supports optional full-text search over id, name, department, and work location.
  *
- * Endpoint: GET /api/users
+ * Endpoint: GET /api/users?page=&size=&q=
  *
- * @returns {Promise<User[]>}
+ * @param {Object} [options]
+ * @param {number} [options.page=0]   0-based page index
+ * @param {number} [options.size=20]  records per page
+ * @param {string} [options.search]   optional search term
+ * @returns {Promise<{ content: User[], totalElements: number, totalPages: number, page: number }>}
  */
-export async function getUsers() {
-  return request('GET', '/api/users');
+export async function getUsers({ page = 0, size = 20, search = '' } = {}) {
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  if (search.trim()) params.set('q', search.trim());
+  return request('GET', `/api/users?${params}`);
 }
 
 /**
