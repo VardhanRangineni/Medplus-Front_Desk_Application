@@ -112,7 +112,9 @@ public class VisitorController {
     @GetMapping
     public ResponseEntity<ApiResponse<PagedResponseDto<VisitorResponseDto>>> getEntries(
             @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String locationId,
             @RequestParam(required = false) String department,
             @RequestParam(required = false) String status,
@@ -121,7 +123,7 @@ public class VisitorController {
             Authentication auth) {
 
         PagedResponseDto<VisitorResponseDto> result =
-                visitorService.getEntries(auth.getName(), date, locationId, department, status, page, size, auth);
+                visitorService.getEntries(auth.getName(), from, to, locationId, department, status, page, size, auth);
         return ResponseEntity.ok(ApiResponse.success("Entries retrieved successfully.", result));
     }
 
@@ -176,7 +178,9 @@ public class VisitorController {
     public ResponseEntity<ApiResponse<PagedResponseDto<VisitorResponseDto>>> searchEntries(
             @RequestParam(defaultValue = "") String q,
             @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String locationId,
             @RequestParam(required = false) String department,
             @RequestParam(required = false) String status,
@@ -185,7 +189,7 @@ public class VisitorController {
             Authentication auth) {
 
         PagedResponseDto<VisitorResponseDto> results =
-                visitorService.searchEntries(auth.getName(), date, q, locationId, department, status, page, size, auth);
+                visitorService.searchEntries(auth.getName(), from, to, q, locationId, department, status, page, size, auth);
         return ResponseEntity.ok(ApiResponse.success("Search results.", results));
     }
 
@@ -282,13 +286,17 @@ public class VisitorController {
 
     /**
      * Checks out the primary visitor / employee entry.
+     * Accepts optional body {@code {"cardReturned": true|false}}.
+     * Defaults to {@code true} (card assumed returned) when body is absent.
      */
     @PatchMapping("/{visitorId}/checkout")
     public ResponseEntity<ApiResponse<VisitorResponseDto>> checkOut(
             @PathVariable String visitorId,
+            @RequestBody(required = false) java.util.Map<String, Object> body,
             Authentication auth) {
 
-        VisitorResponseDto result = visitorService.checkOut(visitorId, auth.getName());
+        boolean cardReturned = body == null || !Boolean.FALSE.equals(body.get("cardReturned"));
+        VisitorResponseDto result = visitorService.checkOut(visitorId, cardReturned, auth.getName());
         return ResponseEntity.ok(ApiResponse.success("Checked out successfully.", result));
     }
 
@@ -296,14 +304,18 @@ public class VisitorController {
 
     /**
      * Checks out a single member within a group visit entry.
+     * Accepts optional body {@code {"cardReturned": true|false}}.
      */
     @PatchMapping("/{visitorId}/members/{memberId}/checkout")
     public ResponseEntity<ApiResponse<VisitorMemberDto>> checkOutMember(
             @PathVariable String visitorId,
             @PathVariable String memberId,
+            @RequestBody(required = false) java.util.Map<String, Object> body,
             Authentication auth) {
 
-        VisitorMemberDto result = visitorService.checkOutMember(visitorId, memberId, auth.getName());
+        boolean cardReturned = body == null || !Boolean.FALSE.equals(body.get("cardReturned"));
+        VisitorMemberDto result = visitorService.checkOutMember(
+            visitorId, memberId, cardReturned, auth.getName());
         return ResponseEntity.ok(ApiResponse.success("Member checked out successfully.", result));
     }
 

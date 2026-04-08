@@ -1,0 +1,289 @@
+/* QrScanModal ── full redesign */
+
+.qsm-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.52);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.qsm-dialog {
+  background: #fff;
+  border-radius: 20px;
+  width: 100%; max-width: 500px;
+  box-shadow: 0 8px 48px rgba(0,0,0,0.22);
+  display: flex; flex-direction: column;
+  max-height: calc(100vh - 32px);
+  overflow: hidden;
+}
+
+/* ── Header ─────────────────────────────── */
+.qsm-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 20px 22px 14px;
+  border-bottom: 1px solid #f0f1f3;
+  flex-shrink: 0;
+}
+.qsm-title { font-size: 17px; font-weight: 700; color: #111; }
+.qsm-sub   { font-size: 12.5px; color: #888; margin-top: 2px; line-height: 1.4; max-width: 340px; }
+.qsm-close {
+  border: none; background: #f4f5f7; border-radius: 50%;
+  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: #555; flex-shrink: 0; margin-left: 10px;
+  transition: background 0.15s;
+}
+.qsm-close:hover { background: #e9eaed; color: #111; }
+
+/* ── Body ────────────────────────────────── */
+.qsm-body {
+  overflow-y: auto;
+  padding: 18px 20px 20px;
+  display: flex; flex-direction: column; gap: 14px;
+  flex: 1;
+}
+
+/* ── Camera ──────────────────────────────── */
+.qsm-camera-wrap {
+  position: relative; background: #0f0f0f;
+  border-radius: 14px; overflow: hidden;
+  aspect-ratio: 4/3; width: 100%;
+  display: flex; align-items: center; justify-content: center;
+}
+.qsm-video {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.qsm-camera-placeholder {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  color: #aaa; padding: 30px;
+  text-align: center; font-size: 13.5px; line-height: 1.5;
+}
+.qsm-scan-frame {
+  position: absolute; inset: 0;
+  border: 3px solid rgba(255,255,255,0.08); border-radius: 14px; pointer-events: none;
+}
+.qsm-scan-frame::before, .qsm-scan-frame::after {
+  content: ''; position: absolute; width: 36px; height: 36px;
+  border-color: #C2181D; border-style: solid;
+}
+.qsm-scan-frame::before { top: 14px; left: 14px; border-width: 3px 0 0 3px; }
+.qsm-scan-frame::after  { bottom: 14px; right: 14px; border-width: 0 3px 3px 0; }
+.qsm-scan-line {
+  position: absolute; left: 14px; right: 14px; height: 2px; background: #C2181D;
+  animation: scanSlide 2s ease-in-out infinite;
+  box-shadow: 0 0 8px #C2181D;
+}
+@keyframes scanSlide { 0%,100% { top: 14%; } 50% { top: 82%; } }
+
+/* ── Manual token ─────────────────────────── */
+.qsm-manual-toggle {
+  background: none; border: none; color: #888; font-size: 12.5px; cursor: pointer;
+  text-decoration: underline; align-self: center; padding: 2px 0;
+}
+.qsm-manual-wrap { display: flex; gap: 8px; }
+.qsm-manual-input {
+  flex: 1; padding: 9px 12px; border: 1.5px solid #dde0e5; border-radius: 8px;
+  font-size: 13.5px; font-family: monospace; outline: none;
+}
+.qsm-manual-input:focus { border-color: #C2181D; }
+.qsm-manual-btn {
+  padding: 9px 18px; background: #C2181D; color: #fff; border: none; border-radius: 8px;
+  font-size: 13.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.qsm-manual-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+/* ── Status message ──────────────────────── */
+.qsm-status { text-align: center; font-size: 14px; color: #777; padding: 10px 0; }
+.qsm-status--checking { color: #555; }
+
+/* ── Preview card ────────────────────────── */
+.qsm-preview { display: flex; flex-direction: column; gap: 14px; }
+
+.qsm-id-card {
+  border: 1.5px solid #f0f1f3; border-radius: 14px;
+  padding: 16px; background: #fafbfc;
+}
+.qsm-id-card__type { margin-bottom: 8px; }
+.qsm-type-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; font-weight: 700; padding: 3px 10px;
+  border-radius: 99px; letter-spacing: 0.3px;
+}
+.qsm-type-badge--visitor  { background: rgba(37,99,235,0.10); color: #1d4ed8; }
+.qsm-type-badge--employee { background: rgba(21,128,61,0.10);  color: #166534; }
+
+.qsm-id-card__name {
+  font-size: 22px; font-weight: 800; color: #111; line-height: 1.2; margin-bottom: 10px;
+}
+
+.qsm-id-card__aadhaar { margin-bottom: 10px; }
+.qsm-id-card__aadhaar-label {
+  font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase;
+  letter-spacing: 0.8px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px;
+}
+.qsm-id-card__aadhaar-num {
+  font-family: 'Courier New', monospace; font-size: 20px; font-weight: 700;
+  color: #111; letter-spacing: 2px;
+}
+.qsm-id-card__not-provided { font-size: 13px; color: #bbb; font-style: italic; font-family: inherit; letter-spacing: 0; }
+.qsm-toggle-mask {
+  background: none; border: 1px solid #dde0e5; border-radius: 5px;
+  font-size: 11px; color: #666; cursor: pointer; padding: 2px 7px;
+  font-weight: 600; transition: border-color 0.15s;
+}
+.qsm-toggle-mask:hover { border-color: #C2181D; color: #C2181D; }
+
+/* Employee verification row */
+.qsm-emp-verify {
+  display: flex; align-items: flex-start; gap: 10px;
+  border-radius: 9px; padding: 10px 12px; margin-bottom: 10px;
+}
+.qsm-emp-verify--found    { background: rgba(21,128,61,0.08); border: 1px solid rgba(21,128,61,0.2); }
+.qsm-emp-verify--notfound { background: rgba(194,24,29,0.07); border: 1px solid rgba(194,24,29,0.2); }
+.qsm-emp-verify__icon     { font-size: 18px; line-height: 1; }
+.qsm-emp-verify__label    { font-size: 11.5px; font-weight: 700; color: #444; }
+.qsm-emp-verify__detail   { font-size: 12.5px; color: #555; margin-top: 2px; }
+
+.qsm-id-card__details { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; }
+.qsm-id-detail { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; }
+.qsm-id-detail span  { color: #888; font-weight: 500; }
+.qsm-id-detail strong{ color: #333; font-weight: 600; }
+
+/* ── Person to Meet section ──────────────── */
+.qsm-ptm-section {
+  border: 1.5px solid #f0f1f3; border-radius: 14px;
+  padding: 14px 16px; background: #fff;
+  display: flex; flex-direction: column; gap: 9px;
+}
+
+.qsm-ptm-header { display: flex; align-items: center; justify-content: space-between; }
+.qsm-ptm-title  { font-size: 13px; font-weight: 700; color: #333; text-transform: uppercase; letter-spacing: 0.6px; }
+.qsm-ptm-status { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 99px; }
+.qsm-ptm-status--ok   { background: rgba(21,128,61,0.10); color: #166534; }
+.qsm-ptm-status--none { background: #f4f5f7; color: #888; }
+
+.qsm-ptm-typed { font-size: 12.5px; color: #777; }
+.qsm-ptm-typed em { color: #555; font-style: normal; font-weight: 600; }
+
+.qsm-ptm-selected {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(21,128,61,0.08); border: 1px solid rgba(21,128,61,0.22);
+  border-radius: 9px; padding: 8px 12px;
+}
+.qsm-ptm-selected__name { font-size: 14px; font-weight: 700; color: #166534; flex: 1; }
+.qsm-ptm-selected__dept { font-size: 12px; color: #5a8a6a; }
+.qsm-ptm-selected__clear {
+  background: none; border: none; cursor: pointer; color: #888; font-size: 14px;
+  padding: 0 4px; line-height: 1;
+}
+.qsm-ptm-selected__clear:hover { color: #C2181D; }
+
+.qsm-ptm-search-wrap { position: relative; }
+.qsm-ptm-search {
+  width: 100%; padding: 9px 12px 9px 36px;
+  border: 1.5px solid #dde0e5; border-radius: 9px;
+  font-size: 13.5px; outline: none; background: #f9fafc;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%23aaa' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.099zm-5.242 1.656a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: 11px center; background-size: 14px;
+  transition: border-color 0.15s;
+}
+.qsm-ptm-search:focus { border-color: #C2181D; background-color: #fff; }
+.qsm-ptm-searching { position: absolute; right: 11px; top: 50%; transform: translateY(-50%); font-size: 11.5px; color: #aaa; }
+
+.qsm-ptm-results {
+  display: flex; flex-direction: column; gap: 2px;
+  max-height: 160px; overflow-y: auto;
+  border: 1px solid #eee; border-radius: 9px; background: #fff;
+}
+.qsm-ptm-result {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px; border: none; background: none; cursor: pointer; text-align: left;
+  transition: background 0.12s;
+}
+.qsm-ptm-result:hover { background: #f9fafc; }
+.qsm-ptm-result--active { background: rgba(21,128,61,0.07); }
+.qsm-ptm-result--active:hover { background: rgba(21,128,61,0.11); }
+.qsm-ptm-result__check { width: 16px; font-size: 13px; color: #166534; font-weight: 700; flex-shrink: 0; }
+.qsm-ptm-result__name  { flex: 1; font-size: 13.5px; font-weight: 600; color: #222; }
+.qsm-ptm-result__dept  { font-size: 12px; color: #888; }
+
+.qsm-ptm-no-results { font-size: 12.5px; color: #aaa; padding: 4px 0; text-align: center; }
+
+/* ── Accept / Reject ─────────────────────── */
+.qsm-preview-actions {
+  display: grid; grid-template-columns: 1fr 2fr; gap: 10px;
+}
+.qsm-reject-btn {
+  padding: 12px; border: 2px solid #dde0e5; background: #fff;
+  border-radius: 11px; font-size: 14px; font-weight: 700; color: #555;
+  cursor: pointer; transition: border-color 0.15s, color 0.15s;
+}
+.qsm-reject-btn:hover { border-color: #C2181D; color: #C2181D; }
+.qsm-accept-btn {
+  padding: 12px; background: #16a34a; color: #fff;
+  border: none; border-radius: 11px;
+  font-size: 14px; font-weight: 700; cursor: pointer; transition: background 0.18s;
+}
+.qsm-accept-btn:hover:not(:disabled) { background: #15803d; }
+.qsm-accept-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+.qsm-emp-blocked {
+  background: rgba(194,24,29,0.08); border: 1.5px solid rgba(194,24,29,0.3);
+  color: #C2181D; border-radius: 10px; padding: 11px 14px;
+  font-size: 13px; font-weight: 600; line-height: 1.5;
+}
+.qsm-emp-blocked--duplicate {
+  background: rgba(180,100,0,0.08); border-color: rgba(180,100,0,0.35);
+  color: #92400e;
+}
+
+.qsm-preview-note { font-size: 11.5px; color: #aaa; text-align: center; line-height: 1.4; }
+
+/* ── Result: done / error ─────────────────── */
+.qsm-result { text-align: center; padding: 20px 10px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.qsm-result-icon  { font-size: 44px; }
+.qsm-result-title { font-size: 19px; font-weight: 800; color: #111; }
+.qsm-result-name  { font-size: 15px; font-weight: 700; color: #333; }
+.qsm-result-meta  { display: flex; gap: 8px; font-size: 13px; color: #777; flex-wrap: wrap; justify-content: center; }
+.qsm-result-id    { font-family: monospace; font-size: 12px; color: #bbb; }
+.qsm-result-msg   { font-size: 13.5px; color: #C2181D; max-width: 340px; line-height: 1.5; }
+.qsm-result-actions { display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; justify-content: center; }
+.qsm-result-btn {
+  padding: 10px 22px; border-radius: 9px; font-size: 14px; font-weight: 700; cursor: pointer; border: none;
+}
+.qsm-result-btn--done { background: #f4f5f7; color: #555; }
+.qsm-result-btn--done:hover { background: #e9eaed; }
+.qsm-result-btn--scan { background: #C2181D; color: #fff; }
+.qsm-result-btn--scan:hover { background: #a81317; }
+
+/* -- Card assigned indicator (done screen) -------------------------------- */
+.qsm-result-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  background: #f0fdf4;
+  border: 1.5px solid #bbf7d0;
+  border-radius: 10px;
+  padding: 10px 20px;
+  margin: 4px 0;
+}
+.qsm-result-card__label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: #16a34a;
+}
+.qsm-result-card__code {
+  font-size: 18px;
+  font-weight: 800;
+  font-family: monospace;
+  color: #111;
+  letter-spacing: 1px;
+}
+.qsm-result-card__hint {
+  font-size: 11px;
+  color: #6b7280;
+}

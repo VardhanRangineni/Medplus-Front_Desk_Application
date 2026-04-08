@@ -65,22 +65,6 @@ export async function verifyEmployeeOtp(empId, otp) {
   return { verified: false, message: 'Invalid OTP. Please enter the 6-digit code.' };
 }
 
-// ─── Image upload ─────────────────────────────────────────────────────────────
-
-/**
- * Uploads an employee check-in photo to the backend and returns the stored URL.
- *
- * Endpoint: POST /api/images/upload
- * TODO: when cloud storage is ready the backend will return a cloud URL — no changes needed here.
- *
- * @param {string} base64Image  data-URI string from canvas.toDataURL()
- * @returns {Promise<string>}   public image URL
- */
-async function uploadEmployeePhoto(base64Image) {
-  const data = await api('POST', '/api/images/upload', { imageData: base64Image });
-  return data.imageUrl;
-}
-
 // ─── Entry creation ───────────────────────────────────────────────────────────
 
 /**
@@ -94,30 +78,15 @@ async function uploadEmployeePhoto(base64Image) {
  * @returns {Promise<{ success: boolean, entryId: string }>}
  */
 export async function updateEmployeeEntry(id, data) {
-  const isGroup = data.visitType === 'group';
-
-  let imageUrl = data.imageUrl || null;
-  if (data.photo && data.photo.startsWith('data:')) {
-    imageUrl = await uploadEmployeePhoto(data.photo);
-  }
-
   const payload = {
-    visitType:      data.visitType.toUpperCase(),
+    visitType:      'INDIVIDUAL',
     entryType:      'EMPLOYEE',
     name:           data.name,
     empId:          data.empId,
-    imageUrl,
     personToMeetId: data.personToMeet,
-    cardNumber:     isGroup
-                      ? (data.leadCardNumber ? parseInt(data.leadCardNumber, 10) : null)
-                      : (data.cardNumber     ? parseInt(data.cardNumber,     10) : null),
+    cardNumber:     data.cardNumber ? parseInt(data.cardNumber, 10) : null,
     reasonForVisit: data.reasonForVisit || null,
-    members: isGroup
-      ? (data.members || []).map((m) => ({
-          name:       m.name,
-          cardNumber: m.card ? parseInt(m.card, 10) : null,
-        }))
-      : null,
+    members:        null,
   };
   const entry = await api('PUT', `/api/visitors/${encodeURIComponent(id)}`, payload);
   return { success: true, entryId: entry.id ?? id };
@@ -133,31 +102,16 @@ export async function updateEmployeeEntry(id, data) {
  * @returns {Promise<{ success: boolean, entryId: string }>}
  */
 export async function createEmployeeEntry(data) {
-  const isGroup = data.visitType === 'group';
-
-  let imageUrl = null;
-  if (data.photo && data.photo.startsWith('data:')) {
-    imageUrl = await uploadEmployeePhoto(data.photo);
-  }
-
   const payload = {
-    visitType:      data.visitType.toUpperCase(),
+    visitType:      'INDIVIDUAL',
     entryType:      'EMPLOYEE',
     name:           data.name,
     mobile:         null,
     empId:          data.empId,
-    imageUrl,
     personToMeetId: data.personToMeet,
-    cardNumber:     isGroup
-                      ? (data.leadCardNumber ? parseInt(data.leadCardNumber, 10) : null)
-                      : (data.cardNumber     ? parseInt(data.cardNumber,     10) : null),
+    cardNumber:     data.cardNumber ? parseInt(data.cardNumber, 10) : null,
     reasonForVisit: data.reasonForVisit || null,
-    members: isGroup
-      ? (data.members || []).map((m) => ({
-          name:       m.name,
-          cardNumber: m.card ? parseInt(m.card, 10) : null,
-        }))
-      : null,
+    members:        null,
   };
 
   const entry = await api('POST', '/api/visitors', payload);

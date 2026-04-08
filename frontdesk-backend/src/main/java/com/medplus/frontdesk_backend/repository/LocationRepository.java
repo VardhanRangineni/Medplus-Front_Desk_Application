@@ -35,26 +35,33 @@ public class LocationRepository {
     }
 
     /**
-     * Returns one page of locations, optionally filtered by a search term.
-     * Search covers LocationId, descriptiveName, city (case-insensitive).
+     * Returns one page of locations, optionally filtered by a search term and/or a
+     * specific {@code locationId} (used to scope REGIONAL_ADMIN to their own location).
      *
-     * @param search case-insensitive substring; null / blank = no filter
-     * @param offset SQL OFFSET  (page * size)
-     * @param limit  SQL LIMIT   (page size)
+     * @param search     case-insensitive substring; null / blank = no filter
+     * @param locationId restrict to a single location; null = all locations
+     * @param offset     SQL OFFSET (page * size)
+     * @param limit      SQL LIMIT  (page size)
      */
-    public List<Location> findAllPaged(String search, int offset, int limit) {
-        boolean hasSearch = search != null && !search.isBlank();
+    public List<Location> findAllPaged(String search, String locationId, int offset, int limit) {
+        boolean hasSearch   = search     != null && !search.isBlank();
+        boolean hasLocation = locationId != null && !locationId.isBlank();
         String like = hasSearch ? "%" + search.trim().toLowerCase() + "%" : null;
 
         StringBuilder sql = new StringBuilder("""
                 SELECT LocationId, descriptiveName, type, coordinates, address, city, state, pincode, status
                 FROM locationmaster
+                WHERE 1=1
                 """);
 
         MapSqlParameterSource params = new MapSqlParameterSource();
+        if (hasLocation) {
+            sql.append(" AND LocationId = :locationId");
+            params.addValue("locationId", locationId);
+        }
         if (hasSearch) {
             sql.append("""
-                    WHERE (
+                     AND (
                         LOWER(LocationId)       LIKE :q
                      OR LOWER(descriptiveName)  LIKE :q
                      OR LOWER(city)             LIKE :q
@@ -80,14 +87,19 @@ public class LocationRepository {
         );
     }
 
-    /** Total count of locations matching the same optional search. */
-    public long countAll(String search) {
-        boolean hasSearch = search != null && !search.isBlank();
+    /** Total count of locations matching the same optional search and location filter. */
+    public long countAll(String search, String locationId) {
+        boolean hasSearch   = search     != null && !search.isBlank();
+        boolean hasLocation = locationId != null && !locationId.isBlank();
         MapSqlParameterSource params = new MapSqlParameterSource();
-        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM locationmaster ");
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM locationmaster WHERE 1=1 ");
+        if (hasLocation) {
+            sql.append(" AND LocationId = :locationId");
+            params.addValue("locationId", locationId);
+        }
         if (hasSearch) {
             sql.append("""
-                    WHERE (
+                     AND (
                         LOWER(LocationId)       LIKE :q
                      OR LOWER(descriptiveName)  LIKE :q
                      OR LOWER(city)             LIKE :q
@@ -127,6 +139,31 @@ public class LocationRepository {
                 .status(rs.getString("status"))
                 .build()
         );
+    }
+
+    /**
+     * Returns all active (CONFIGURED) locations ordered by name.
+     * Lightweight — used to populate filter dropdowns across the application.
+     */
+    public List<Location> findAllActive() {
+        String sql = """
+                SELECT LocationId, descriptiveName, type, coordinates,
+                       address, city, state, pincode, status
+                FROM   locationmaster
+                WHERE  status IN ('CONFIGURED', 'ACTIVE')
+                ORDER BY descriptiveName
+                """;
+        return jdbc.query(sql, new MapSqlParameterSource(), (rs, rowNum) -> Location.builder()
+                .locationId(rs.getString("LocationId"))
+                .descriptiveName(rs.getString("descriptiveName"))
+                .type(rs.getString("type"))
+                .coordinates(rs.getString("coordinates"))
+                .address(rs.getString("address"))
+                .city(rs.getString("city"))
+                .state(rs.getString("state"))
+                .pincode(rs.getString("pincode"))
+                .status(rs.getString("status"))
+                .build());
     }
 
     public int updateStatus(String locationId, String status) {

@@ -41,17 +41,6 @@ const createWindow = () => {
     },
   });
 
-  // Allow camera/microphone access for visitor selfie capture
-  mainWindow.webContents.session.setPermissionRequestHandler(
-    (_webContents, permission, callback) => {
-      callback(permission === 'media');
-    }
-  );
-
-  mainWindow.webContents.session.setPermissionCheckHandler(
-    (_webContents, permission) => permission === 'media'
-  );
-
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
 
   if (process.env.NODE_ENV === 'development') {
@@ -133,6 +122,9 @@ ipcMain.handle('api-post', (_, { path, body }) =>
 ipcMain.removeHandler('get-network-info');
 ipcMain.handle('get-network-info', () => getNetworkInfo());
 
+ipcMain.removeHandler('get-api-base-url');
+ipcMain.handle('get-api-base-url', () => API_BASE_URL);
+
 ipcMain.removeHandler('store-auth-session');
 ipcMain.handle('store-auth-session', (_, session) => {
   authSession = session;
@@ -146,38 +138,6 @@ ipcMain.removeHandler('clear-auth-session');
 ipcMain.handle('clear-auth-session', () => {
   authSession = null;
   return true;
-});
-
-/**
- * Fetches an image by URL via the main-process net module and returns it
- * as a base64 data URI so the renderer can display it in an <img> tag.
- *
- * Images are stored locally now (http://localhost:8080/images/visitors/...).
- * When moved to cloud storage, the same handler works — just pass the cloud URL.
- *
- * Returns null if the URL is missing or the request fails.
- */
-ipcMain.removeHandler('get-image');
-ipcMain.handle('get-image', (_, url) => {
-  if (!url) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    try {
-      const req = net.request({ method: 'GET', url });
-      const chunks = [];
-      req.on('response', (response) => {
-        response.on('data', (chunk) => chunks.push(chunk));
-        response.on('end', () => {
-          if (response.statusCode !== 200) { resolve(null); return; }
-          const buffer = Buffer.concat(chunks);
-          resolve('data:image/jpeg;base64,' + buffer.toString('base64'));
-        });
-      });
-      req.on('error', () => resolve(null));
-      req.end();
-    } catch {
-      resolve(null);
-    }
-  });
 });
 
 app.whenReady().then(() => {

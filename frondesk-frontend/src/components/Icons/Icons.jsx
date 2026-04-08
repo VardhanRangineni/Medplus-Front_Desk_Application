@@ -302,3 +302,19 @@ export const IconIdCard = ({ size = 16, className }) => (
     <path d="M14 9h4M14 12h3M14 15h4" />
   </svg>
 );
+
+export const IconQrCode = ({ size = 16, className }) => (
+  <svg {...iconProps(size)} className={className}>
+    <rect x="3" y="3" width="7" height="7" rx="1" />
+    <rect x="14" y="3" width="7" height="7" rx="1" />
+    <rect x="3" y="14" width="7" height="7" rx="1" />
+    <path d="M14 14h3v3h-3zM17 17h3v3h-3zM14 17v3" />
+  </svg>
+);
+
+export const IconLink = ({ size = 16, className }) => (
+  <svg {...iconProps(size)} className={className}>
+    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+  </svg>
+);

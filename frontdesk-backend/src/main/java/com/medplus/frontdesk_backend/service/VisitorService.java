@@ -17,6 +17,7 @@ import com.medplus.frontdesk_backend.model.Visitor;
 import com.medplus.frontdesk_backend.model.VisitorMember;
 import com.medplus.frontdesk_backend.repository.UserRepository;
 import com.medplus.frontdesk_backend.repository.VisitorRepository;
+import com.medplus.frontdesk_backend.service.CardService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -37,6 +38,7 @@ public class VisitorService {
 
     private final VisitorRepository visitorRepository;
     private final UserRepository    userRepository;
+    private final CardService       cardService;
 
     // ── Create ────────────────────────────────────────────────────────────────
 
@@ -68,10 +70,35 @@ public class VisitorService {
         int seq = visitorRepository.nextVisitorSequence(visitType);
         String visitorId = buildVisitorId(visitType, seq);
 
+        EntryType entryType = parseEntryType(req.getEntryType());
+
+        // Guard: block duplicate active check-ins for the same person at the same location
+        visitorRepository.findActiveCheckin(
+                req.getEntryType(),
+                req.getEmpId() != null ? req.getEmpId().trim() : null,
+                req.getName() != null  ? req.getName().trim()  : null,
+                req.getMobile() != null ? req.getMobile().trim() : null,
+                locationId
+        ).ifPresent(existingId -> {
+            String who = entryType == EntryType.EMPLOYEE
+                    ? "Employee " + req.getEmpId()
+                    : req.getName();
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    who + " is already checked in (entry " + existingId + "). " +
+                    "Please check out the existing entry before checking in again.");
+        });
+
+        // Auto-assign a card from card master for VISITOR entries when no card is manually provided
+        Integer manualCard = req.getCardNumber();
+        String  autoCardCode = null;
+        if (entryType == EntryType.VISITOR && manualCard == null) {
+            autoCardCode = cardService.assignNextCard(locationId, visitorId).orElse(null);
+        }
+
         Visitor visitor = Visitor.builder()
                 .visitorId(visitorId)
                 .visitType(visitType)
-                .entryType(parseEntryType(req.getEntryType()))
+                .entryType(entryType)
                 .name(req.getName().trim())
                 .mobile(req.getMobile() != null ? req.getMobile().trim() : null)
                 .empId(req.getEmpId() != null ? req.getEmpId().trim() : null)
@@ -80,31 +107,38 @@ public class VisitorService {
                 .personName(person.getName())
                 .department(person.getDepartment())
                 .locationId(locationId)
-                .cardNumber(req.getCardNumber())
+                .cardNumber(manualCard)
+                .cardCode(autoCardCode)
                 .govtIdType(parseGovtIdType(req.getGovtIdType()))
                 .govtIdNumber(req.getGovtIdNumber() != null ? req.getGovtIdNumber().trim() : null)
-                .imageUrl(req.getImageUrl())
                 .checkInTime(LocalDateTime.now())
                 .reasonForVisit(req.getReasonForVisit())
                 .createdBy(createdBy)
                 .build();
 
         visitorRepository.insertVisitor(visitor);
-        log.info("Check-in created: {} ({}) by {}", visitorId, req.getName(), createdBy);
+        log.info("Check-in created: {} ({}) card={} by {}",
+                 visitorId, req.getName(), autoCardCode != null ? autoCardCode : manualCard, createdBy);
 
-        // Insert members for group visits
+        // Insert members for group visits — each member also gets an auto-assigned card
         if (visitType == VisitType.GROUP && req.getMembers() != null) {
             int memberSeq = visitorRepository.nextMemberSequence();
             for (VisitorMemberRequestDto m : req.getMembers()) {
                 String memberId = String.format("MED-GM-%04d", memberSeq++);
+                String memberAutoCard = null;
+                if (m.getCardNumber() == null) {
+                    memberAutoCard = cardService.assignNextCard(locationId, visitorId).orElse(null);
+                }
                 visitorRepository.insertMember(VisitorMember.builder()
                         .memberId(memberId)
                         .visitorId(visitorId)
                         .name(m.getName().trim())
                         .cardNumber(m.getCardNumber())
+                        .cardCode(memberAutoCard)
                         .status(VisitStatus.CHECKED_IN)
                         .build());
-                log.info("Member registered: {} for group visit {}", memberId, visitorId);
+                log.info("Member registered: {} for group visit {} card={}",
+                         memberId, visitorId, memberAutoCard != null ? memberAutoCard : m.getCardNumber());
             }
         }
 
@@ -141,26 +175,27 @@ public class VisitorService {
      * @param size      records per page (default 20)
      */
     public PagedResponseDto<VisitorResponseDto> getEntries(String callerEmployeeId,
-                                                           LocalDate date,
+                                                           LocalDate from,
+                                                           LocalDate to,
                                                            String locationIdParam,
                                                            String department,
                                                            String status,
                                                            int page, int size,
                                                            Authentication auth) {
-        String dept    = blankToNull(department);
+        String dept     = blankToNull(department);
         String dbStatus = labelToDbStatus(status);
-        int    offset  = page * size;
+        int    offset   = page * size;
 
         if (isAdmin(auth)) {
             String locId = blankToNull(locationIdParam);
-            List<Visitor> rows  = visitorRepository.findPaged(locId, date, dept, dbStatus, offset, size);
-            long          total = visitorRepository.countFiltered(locId, date, dept, dbStatus);
+            List<Visitor> rows  = visitorRepository.findPaged(locId, from, to, dept, dbStatus, offset, size);
+            long          total = visitorRepository.countFiltered(locId, from, to, dept, dbStatus);
             return PagedResponseDto.of(rows.stream().map(this::buildResponse).toList(), page, size, total);
         }
 
-        String locationId     = getUserLocation(callerEmployeeId);
-        List<Visitor> rows  = visitorRepository.findPaged(locationId, date, dept, dbStatus, offset, size);
-        long          total = visitorRepository.countFiltered(locationId, date, dept, dbStatus);
+        String locationId = getUserLocation(callerEmployeeId);
+        List<Visitor> rows  = visitorRepository.findPaged(locationId, from, to, dept, dbStatus, offset, size);
+        long          total = visitorRepository.countFiltered(locationId, from, to, dept, dbStatus);
         return PagedResponseDto.of(rows.stream().map(this::buildResponse).toList(), page, size, total);
     }
 
@@ -169,7 +204,8 @@ public class VisitorService {
      * When query is blank, delegates to {@link #getEntries}.
      */
     public PagedResponseDto<VisitorResponseDto> searchEntries(String callerEmployeeId,
-                                                              LocalDate date,
+                                                              LocalDate from,
+                                                              LocalDate to,
                                                               String query,
                                                               String locationIdParam,
                                                               String department,
@@ -177,7 +213,7 @@ public class VisitorService {
                                                               int page, int size,
                                                               Authentication auth) {
         if (query == null || query.isBlank()) {
-            return getEntries(callerEmployeeId, date, locationIdParam, department, status, page, size, auth);
+            return getEntries(callerEmployeeId, from, to, locationIdParam, department, status, page, size, auth);
         }
 
         String dept     = blankToNull(department);
@@ -186,14 +222,14 @@ public class VisitorService {
 
         if (isAdmin(auth)) {
             String locId  = blankToNull(locationIdParam);
-            List<Visitor> rows  = visitorRepository.searchPaged(locId, date, query, dept, dbStatus, offset, size);
-            long          total = visitorRepository.countSearch(locId, date, query, dept, dbStatus);
+            List<Visitor> rows  = visitorRepository.searchPaged(locId, from, to, query, dept, dbStatus, offset, size);
+            long          total = visitorRepository.countSearch(locId, from, to, query, dept, dbStatus);
             return PagedResponseDto.of(rows.stream().map(this::buildResponse).toList(), page, size, total);
         }
 
         String locationId = getUserLocation(callerEmployeeId);
-        List<Visitor> rows  = visitorRepository.searchPaged(locationId, date, query, dept, dbStatus, offset, size);
-        long          total = visitorRepository.countSearch(locationId, date, query, dept, dbStatus);
+        List<Visitor> rows  = visitorRepository.searchPaged(locationId, from, to, query, dept, dbStatus, offset, size);
+        long          total = visitorRepository.countSearch(locationId, from, to, query, dept, dbStatus);
         return PagedResponseDto.of(rows.stream().map(this::buildResponse).toList(), page, size, total);
     }
 
@@ -257,10 +293,10 @@ public class VisitorService {
         List<Visitor> rows;
         if (isAdmin(auth)) {
             String locId = blankToNull(locationIdParam);
-            rows = visitorRepository.findPaged(locId, exportDate, dept, null, 0, Integer.MAX_VALUE);
+            rows = visitorRepository.findPaged(locId, exportDate, exportDate, dept, null, 0, Integer.MAX_VALUE);
         } else {
             String locationId = getUserLocation(callerEmployeeId);
-            rows = visitorRepository.findPaged(locationId, exportDate, dept, null, 0, Integer.MAX_VALUE);
+            rows = visitorRepository.findPaged(locationId, exportDate, exportDate, dept, null, 0, Integer.MAX_VALUE);
         }
 
         List<VisitorResponseDto> entries = rows.stream().map(this::buildResponse).toList();
@@ -324,10 +360,6 @@ public class VisitorService {
         existing.setCardNumber(req.getCardNumber());
         existing.setGovtIdType(parseGovtIdType(req.getGovtIdType()));
         existing.setGovtIdNumber(req.getGovtIdNumber() != null ? req.getGovtIdNumber().trim() : null);
-        // Only overwrite imageUrl when a new one is explicitly provided
-        if (req.getImageUrl() != null && !req.getImageUrl().isBlank()) {
-            existing.setImageUrl(req.getImageUrl());
-        }
         existing.setReasonForVisit(req.getReasonForVisit());
         existing.setCreatedBy(callerEmployeeId);
 
@@ -339,9 +371,15 @@ public class VisitorService {
 
     // ── Check-out ─────────────────────────────────────────────────────────────
 
-    /** Checks out a main visitor/employee entry. */
+    /**
+     * Checks out a main visitor/employee entry.
+     *
+     * @param cardReturned true = visitor returned their card (mark AVAILABLE);
+     *                     false = card not returned (mark MISSING).
+     *                     Ignored for EMPLOYEE entries (no card assigned).
+     */
     @Transactional
-    public VisitorResponseDto checkOut(String visitorId, String callerEmployeeId) {
+    public VisitorResponseDto checkOut(String visitorId, boolean cardReturned, String callerEmployeeId) {
         Visitor existing = visitorRepository.findById(visitorId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Visitor entry not found: " + visitorId));
@@ -351,19 +389,25 @@ public class VisitorService {
                     "Entry is already checked out: " + visitorId);
         }
 
+        // Release card from card master when applicable
+        if (existing.getEntryType() == EntryType.VISITOR && existing.getCardCode() != null) {
+            cardService.releaseCard(existing.getCardCode(), cardReturned);
+        }
+
         LocalDateTime now = LocalDateTime.now();
         visitorRepository.checkOutVisitor(visitorId, now, callerEmployeeId);
 
         existing.setStatus(VisitStatus.CHECKED_OUT);
         existing.setCheckOutTime(now);
 
-        log.info("Checked out: {} by {}", visitorId, callerEmployeeId);
+        log.info("Checked out: {} (cardReturned={}) by {}", visitorId, cardReturned, callerEmployeeId);
         return buildResponse(existing);
     }
 
     /** Checks out a single member within a group visit. */
     @Transactional
-    public VisitorMemberDto checkOutMember(String visitorId, String memberId, String callerEmployeeId) {
+    public VisitorMemberDto checkOutMember(String visitorId, String memberId,
+                                           boolean cardReturned, String callerEmployeeId) {
         visitorRepository.findById(visitorId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Visitor entry not found: " + visitorId));
@@ -381,15 +425,22 @@ public class VisitorService {
                     "Member is already checked out: " + memberId);
         }
 
+        // Release member card
+        if (member.getCardCode() != null) {
+            cardService.releaseCard(member.getCardCode(), cardReturned);
+        }
+
         LocalDateTime now = LocalDateTime.now();
         visitorRepository.checkOutMember(memberId, now);
 
-        log.info("Member checked out: {} (group: {}) by {}", memberId, visitorId, callerEmployeeId);
+        log.info("Member checked out: {} (group: {}) cardReturned={} by {}",
+                 memberId, visitorId, cardReturned, callerEmployeeId);
 
         return VisitorMemberDto.builder()
                 .id(memberId)
                 .name(member.getName())
                 .card(member.getCardNumber())
+                .cardCode(member.getCardCode())
                 .status(VisitStatus.CHECKED_OUT.toLabel())
                 .build();
     }
@@ -533,6 +584,7 @@ public class VisitorService {
                         .id(m.getMemberId())
                         .name(m.getName())
                         .card(m.getCardNumber())
+                        .cardCode(m.getCardCode())
                         .status(m.getStatus().toLabel())
                         .build())
                 .toList();
@@ -558,9 +610,9 @@ public class VisitorService {
                 .locationName(locationName)
                 .card(v.getCardNumber())
                 .leadCardNumber(leadCard)
+                .cardCode(v.getCardCode())
                 .govtIdType(v.getGovtIdType() != null ? v.getGovtIdType().name() : null)
                 .govtIdNumber(v.getGovtIdNumber())
-                .imageUrl(v.getImageUrl())
                 .checkIn(v.getCheckInTime())
                 .checkOut(v.getCheckOutTime())
                 .reasonForVisit(v.getReasonForVisit())

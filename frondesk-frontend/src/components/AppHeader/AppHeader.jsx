@@ -1,6 +1,6 @@
 import './AppHeader.css';
 import logo from '../../assets/images/logo.png';
-import { IconMapPin, IconChevronDown, IconCalendar } from '../Icons/Icons';
+import { IconMapPin } from '../Icons/Icons';
 
 function formatDate(date) {
   return date.toLocaleDateString('en-IN', {
@@ -8,23 +8,16 @@ function formatDate(date) {
   });
 }
 
-function formatDateShort(date) {
-  return date.toLocaleDateString('en-IN', {
-    month: 'short', day: 'numeric', year: 'numeric',
-  });
-}
-
 /**
  * AppHeader — floating glass header used across all app screens.
  *
  * Props:
- *   session  – { fullName, employeeId, locationName }
+ *   session  – { fullName, employeeId, locationName, locationId, role }
  */
 export default function AppHeader({ session }) {
-  const today     = new Date();
-  const dateStr   = formatDate(today);
-  const dateShort = formatDateShort(today);
-  const initial   = (session?.fullName?.[0] ?? session?.employeeId?.[0] ?? 'A').toUpperCase();
+  const dateStr  = formatDate(new Date());
+  const initial  = (session?.fullName?.[0] ?? session?.employeeId?.[0] ?? 'A').toUpperCase();
+  const location = session?.locationName ?? null;
 
   return (
     <header className="app-header">
@@ -37,17 +30,12 @@ export default function AppHeader({ session }) {
       </div>
 
       <div className="app-header__right">
-        <button className="app-header__pill">
-          <IconMapPin size={13} />
-          <span>{session?.locationName ?? 'Corporate Office'}</span>
-          <IconChevronDown size={13} />
-        </button>
-
-        <button className="app-header__datepill">
-          <IconCalendar size={13} />
-          <span>{dateShort} – {dateShort}</span>
-        </button>
-
+        {location && (
+          <div className="app-header__location">
+            <IconMapPin size={13} />
+            <span className="app-header__location-name">{location}</span>
+          </div>
+        )}
         <div className="app-header__user">
           <div className="app-header__avatar">{initial}</div>
           <span className="app-header__username">

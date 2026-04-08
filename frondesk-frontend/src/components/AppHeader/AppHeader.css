@@ -57,55 +57,29 @@
   gap: 10px;
 }
 
-/* Location pill — glass */
-.app-header__pill {
-  display: flex;
+/* Location badge */
+.app-header__location {
+  display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 6px 12px;
-
-  background: #f5f6f8;
-  border: 1px solid #e0e2e7;
-  border-radius: 9px;
-
-  font-size: 13px;
-  font-weight: 500;
-  color: #333;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s, box-shadow 0.15s;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-}
-.app-header__pill:hover {
-  background: #ececf0;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.07);
-}
-.app-header__pill svg { color: #999; flex-shrink: 0; }
-
-/* Date range pill — red glass */
-.app-header__datepill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-
-  background: #C2181D;
-  border: 1px solid rgba(255, 100, 100, 0.30);
-  border-radius: 9px;
-  box-shadow: 0 2px 8px rgba(194, 24, 29, 0.25);
-
+  padding: 5px 12px 5px 9px;
+  border-radius: 20px;
+  background: #f4f5f8;
+  border: 1px solid #e4e6eb;
+  color: #555;
   font-size: 12px;
   font-weight: 600;
-  color: #fff;
-  cursor: pointer;
+}
+.app-header__location svg {
+  color: var(--color-red);
+  flex-shrink: 0;
+}
+.app-header__location-name {
+  max-width: 180px;
   white-space: nowrap;
-  transition: background 0.15s, box-shadow 0.15s;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.app-header__datepill:hover {
-  background: rgba(194, 24, 29, 1);
-  box-shadow: 0 4px 14px rgba(194, 24, 29, 0.38), inset 0 1px 0 rgba(255,200,200,0.25);
-}
-.app-header__datepill svg { opacity: 0.90; flex-shrink: 0; }
 
 /* User block */
 .app-header__user {

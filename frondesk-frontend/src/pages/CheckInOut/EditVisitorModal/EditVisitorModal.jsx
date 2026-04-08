@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import '../AddVisitorModal/AddVisitorModal.css';
 import './EditVisitorModal.css';
 import {
@@ -17,7 +18,6 @@ import {
   IconPhone,
   IconMail,
   IconCreditCard,
-  IconMapPin,
   IconBuilding,
   IconPlus,
   IconTrash,
@@ -26,7 +26,6 @@ import {
 } from '../../../components/Icons/Icons';
 import { getEntryDetail } from '../checkInOutService';
 import {
-  getLocations,
   getPersonsToMeet,
   getDepartments,
   updateVisitorEntry,
@@ -34,17 +33,11 @@ import {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const GOVT_ID_TYPES = [
-  { id: 'AADHAAR',  name: 'Aadhaar Card'    },
-  { id: 'PAN',      name: 'PAN Card'        },
-  { id: 'PASSPORT', name: 'Passport'        },
-  { id: 'VOTER',    name: 'Voter ID'        },
-  { id: 'DL',       name: "Driver's License"},
-];
+const AADHAAR_REGEX = /^\d{12}$/;
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
 
-function Field({ label, required, children, hint }) {
+function Field({ label, required, children, hint, error }) {
   return (
     <div className="avm-field">
       {label && (
@@ -54,7 +47,8 @@ function Field({ label, required, children, hint }) {
         </label>
       )}
       {children}
-      {hint && <p className="avm-hint">{hint}</p>}
+      {error && <p className="avm-error" style={{ marginTop: 4, fontSize: 11 }}>{error}</p>}
+      {hint && !error && <p className="avm-hint">{hint}</p>}
     </div>
   );
 }
@@ -69,21 +63,82 @@ function InputWithIcon({ icon, ...props }) {
 }
 
 function SelectField({ icon, placeholder, value, onChange, options, disabled }) {
+  const [open,      setOpen]      = useState(false);
+  const [highlight, setHighlight] = useState(-1);
+  const [dropStyle, setDropStyle] = useState({});
+  const btnRef  = useRef(null);
+  const dropRef = useRef(null);
+
+  function openMenu() {
+    const rect = btnRef.current.getBoundingClientRect();
+    setDropStyle({ position: 'fixed', top: rect.bottom + 5, left: rect.left, width: rect.width, zIndex: 9999 });
+    setOpen(true);
+    setHighlight(-1);
+  }
+  function closeMenu() { setOpen(false); }
+  function toggle() { if (!disabled) open ? closeMenu() : openMenu(); }
+  function choose(id) { onChange(id); closeMenu(); }
+
+  useEffect(() => {
+    if (!open) return;
+    function onOutside(e) {
+      if (btnRef.current && !btnRef.current.contains(e.target) &&
+          (dropRef.current == null || !dropRef.current.contains(e.target))) closeMenu();
+    }
+    function onScroll() { closeMenu(); }
+    document.addEventListener('mousedown', onOutside);
+    document.addEventListener('scroll', onScroll, true);
+    return () => {
+      document.removeEventListener('mousedown', onOutside);
+      document.removeEventListener('scroll', onScroll, true);
+    };
+  }, [open]);
+
+  function onKey(e) {
+    if (e.key === 'Escape') { closeMenu(); return; }
+    if ((e.key === 'Enter' || e.key === ' ') && !open) { openMenu(); e.preventDefault(); return; }
+    if (e.key === 'Enter' && open && highlight >= 0) { choose(options[highlight].id); e.preventDefault(); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (!open) openMenu(); setHighlight((h) => Math.min(h + 1, options.length - 1)); }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)); }
+  }
+
+  const selected = options.find((o) => o.id === value);
+
   return (
     <div className="avm-select-wrap">
       {icon && <span className="avm-input-icon">{icon}</span>}
-      <select
-        className={`avm-select${icon ? ' avm-select--icon' : ''}`}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+      <button
+        ref={btnRef}
+        type="button"
+        className={['avm-select-btn', icon ? 'avm-select-btn--icon' : '', open ? 'avm-select-btn--open' : '', !value ? 'avm-select-btn--empty' : ''].filter(Boolean).join(' ')}
+        onClick={toggle}
+        onKeyDown={onKey}
         disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
       >
-        <option value="">{placeholder}</option>
-        {options.map((o) => (
-          <option key={o.id} value={o.id}>{o.name}</option>
-        ))}
-      </select>
-      <span className="avm-select-caret"><IconChevronDown size={14} /></span>
+        {selected ? selected.name : placeholder}
+      </button>
+      <span className={`avm-select-caret${open ? ' avm-select-caret--open' : ''}`}>
+        <IconChevronDown size={14} />
+      </span>
+      {open && createPortal(
+        <div ref={dropRef} className="avm-dropdown" style={dropStyle} role="listbox">
+          {options.map((o, i) => (
+            <div
+              key={o.id}
+              role="option"
+              aria-selected={o.id === value}
+              className={['avm-dropdown__option', o.id === value ? 'avm-dropdown__option--active' : '', i === highlight ? 'avm-dropdown__option--hi' : ''].filter(Boolean).join(' ')}
+              onMouseDown={(e) => { e.preventDefault(); choose(o.id); }}
+              onMouseEnter={() => setHighlight(i)}
+            >
+              {o.name}
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
@@ -95,7 +150,6 @@ function buildForm(entry, detail) {
   return {
     mobile:         d.mobile         ?? entry.mobile          ?? '',
     visitType:      (d.visitType     ?? entry.visitType       ?? 'individual').toLowerCase(),
-    location:       d.location       ?? '',
     fullName:       d.name           ?? entry.name            ?? '',
     email:          d.email          ?? '',
     govtIdType:     d.govtIdType     ?? '',
@@ -117,7 +171,6 @@ function buildForm(entry, detail) {
 
 export default function EditVisitorModal({ entry, onClose, onSuccess }) {
   const [form,        setFormState]   = useState(() => buildForm(entry, null));
-  const [locations,   setLocations]   = useState([]);
   const [persons,     setPersons]     = useState([]);
   const [departments, setDepartments] = useState([]);
   const [submitting,  setSubmitting]  = useState(false);
@@ -128,8 +181,8 @@ export default function EditVisitorModal({ entry, onClose, onSuccess }) {
 
   // ── Load dropdowns + silently try full detail ─────────────────────────────
   useEffect(() => {
-    Promise.all([getLocations(), getPersonsToMeet(), getDepartments()])
-      .then(([locs, pers, depts]) => { setLocations(locs); setPersons(pers); setDepartments(depts); })
+    Promise.all([getPersonsToMeet(), getDepartments()])
+      .then(([pers, depts]) => { setPersons(pers); setDepartments(depts); })
       .catch(() => {});
 
     getEntryDetail(entry.id)
@@ -169,7 +222,6 @@ export default function EditVisitorModal({ entry, onClose, onSuccess }) {
       const payload = {
         mobile:         form.mobile,
         visitType:      form.visitType,
-        location:       form.location,
         fullName:       form.fullName,
         email:          form.email,
         govtIdType:     form.govtIdType,
@@ -190,7 +242,9 @@ export default function EditVisitorModal({ entry, onClose, onSuccess }) {
     }
   }
 
-  const canSave = form.fullName.trim() !== '' && form.personToMeet !== '';
+  const canSave = form.fullName.trim() !== ''
+               && form.personToMeet !== ''
+               && AADHAAR_REGEX.test(form.govtIdNumber);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -236,17 +290,6 @@ export default function EditVisitorModal({ entry, onClose, onSuccess }) {
               </div>
             </Field>
 
-            {/* Location */}
-            <Field label="Location">
-              <SelectField
-                icon={<IconMapPin size={14} />}
-                placeholder="Select a location"
-                value={form.location}
-                onChange={(v) => setField('location', v)}
-                options={locations}
-              />
-            </Field>
-
             {/* Full name */}
             <Field label="Full Name" required>
               <InputWithIcon
@@ -279,28 +322,26 @@ export default function EditVisitorModal({ entry, onClose, onSuccess }) {
               />
             </Field>
 
-            {/* Govt ID type */}
-            <Field label="Verified Govt. ID">
-              <SelectField
-                placeholder="Select ID Type"
-                value={form.govtIdType}
-                onChange={(v) => setField('govtIdType', v)}
-                options={GOVT_ID_TYPES}
+            {/* Aadhaar Number */}
+            <Field
+              label="Aadhaar Number"
+              required
+              error={form.govtIdNumber && !AADHAAR_REGEX.test(form.govtIdNumber) ? 'Aadhaar number must be exactly 12 digits' : null}
+            >
+              <InputWithIcon
+                icon={<IconCreditCard size={14} />}
+                type="text"
+                inputMode="numeric"
+                placeholder="12-digit Aadhaar number"
+                value={form.govtIdNumber}
+                maxLength={12}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '').slice(0, 12);
+                  setField('govtIdNumber', val);
+                  setField('govtIdType', val ? 'AADHAAR' : '');
+                }}
               />
             </Field>
-
-            {/* Govt ID number — shown only when a type is selected */}
-            {form.govtIdType && (
-              <Field label={`${GOVT_ID_TYPES.find((t) => t.id === form.govtIdType)?.name} Number`} required>
-                <InputWithIcon
-                  icon={<IconCreditCard size={14} />}
-                  type="text"
-                  placeholder="Enter the ID number"
-                  value={form.govtIdNumber}
-                  onChange={(e) => setField('govtIdNumber', e.target.value)}
-                />
-              </Field>
-            )}
 
             {/* Person to meet */}
             <Field label="Person To Meet" required>

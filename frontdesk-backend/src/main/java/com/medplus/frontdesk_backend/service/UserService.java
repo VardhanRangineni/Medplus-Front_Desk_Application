@@ -25,17 +25,19 @@ public class UserService {
     }
 
     /**
-     * Returns a single page of users, optionally filtered by a search term.
+     * Returns a single page of users, optionally filtered by a search term and location.
      *
-     * @param search case-insensitive substring across id / name / dept / location
-     * @param page   0-based page index
-     * @param size   records per page
+     * @param search     case-insensitive substring across id / name / dept / location
+     * @param locationId restrict to this location; null = all locations
+     * @param page       0-based page index
+     * @param size       records per page
      */
-    public PagedResponseDto<UserDto> getUsersPaged(String search, int page, int size) {
+    public PagedResponseDto<UserDto> getUsersPaged(String search, String locationId, int page, int size) {
         int    offset = page * size;
         String q      = (search != null && !search.isBlank()) ? search : null;
-        List<UserDto> rows  = userRepository.findUserDtosPaged(q, offset, size);
-        long          total = userRepository.countUserDtos(q);
+        String loc    = (locationId != null && !locationId.isBlank()) ? locationId : null;
+        List<UserDto> rows  = userRepository.findUserDtosPaged(q, loc, offset, size);
+        long          total = userRepository.countUserDtos(q, loc);
         return PagedResponseDto.of(rows, page, size, total);
     }
 

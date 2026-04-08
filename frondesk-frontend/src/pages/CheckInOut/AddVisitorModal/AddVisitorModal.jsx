@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import './AddVisitorModal.css';
 import {
   IconX,
@@ -6,13 +7,8 @@ import {
   IconPhone,
   IconMail,
   IconCreditCard,
-  IconCamera,
   IconBuilding,
-  IconPlus,
-  IconTrash,
   IconChevronDown,
-  IconCheckCircle,
-  IconUsers,
 } from '../../../components/Icons/Icons';
 import {
   sendOtp,
@@ -24,25 +20,12 @@ import {
 } from './addVisitorService';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const GOVT_ID_TYPES = [
-  { id: 'AADHAAR',  name: 'Aadhaar Card'      },
-  { id: 'PAN',      name: 'PAN Card'           },
-  { id: 'PASSPORT', name: 'Passport'           },
-  { id: 'VOTER',    name: 'Voter ID'           },
-  { id: 'DL',       name: "Driver's License"   },
-];
+const AADHAAR_REGEX       = /^\d{12}$/;
+const OTP_RESEND_SECONDS  = 30;
 
-// ─── Tiny shared primitives ───────────────────────────────────────────────────
+// ─── Shared primitives ────────────────────────────────────────────────────────
 
-function ProgressBar({ step, total = 3 }) {
-  return (
-    <div className="avm-progress" role="progressbar" aria-valuenow={step} aria-valuemax={total}>
-      <div className="avm-progress__fill" style={{ width: `${(step / total) * 100}%` }} />
-    </div>
-  );
-}
-
-function Field({ label, required, children, hint }) {
+function Field({ label, required, children, hint, error }) {
   return (
     <div className="avm-field">
       {label && (
@@ -52,7 +35,8 @@ function Field({ label, required, children, hint }) {
         </label>
       )}
       {children}
-      {hint && <p className="avm-hint">{hint}</p>}
+      {error && <p className="avm-error" style={{ marginTop: 4, fontSize: 11 }}>{error}</p>}
+      {hint && !error && <p className="avm-hint">{hint}</p>}
     </div>
   );
 }
@@ -67,35 +51,199 @@ function InputWithIcon({ icon, inputRef, ...props }) {
 }
 
 function SelectField({ icon, placeholder, value, onChange, options, disabled }) {
+  const [open,      setOpen]      = useState(false);
+  const [highlight, setHighlight] = useState(-1);
+  const [dropStyle, setDropStyle] = useState({});
+  const btnRef  = useRef(null);
+  const dropRef = useRef(null);
+
+  function openMenu() {
+    const rect = btnRef.current.getBoundingClientRect();
+    setDropStyle({ position: 'fixed', top: rect.bottom + 5, left: rect.left, width: rect.width, zIndex: 9999 });
+    setOpen(true);
+    setHighlight(-1);
+  }
+  function closeMenu() { setOpen(false); }
+  function toggle() { if (!disabled) open ? closeMenu() : openMenu(); }
+  function choose(id) { onChange(id); closeMenu(); }
+
+  useEffect(() => {
+    if (!open) return;
+    function onOutside(e) {
+      if (btnRef.current && !btnRef.current.contains(e.target) &&
+          (dropRef.current == null || !dropRef.current.contains(e.target))) closeMenu();
+    }
+    function onScroll() { closeMenu(); }
+    document.addEventListener('mousedown', onOutside);
+    document.addEventListener('scroll', onScroll, true);
+    return () => {
+      document.removeEventListener('mousedown', onOutside);
+      document.removeEventListener('scroll', onScroll, true);
+    };
+  }, [open]);
+
+  function onKey(e) {
+    if (e.key === 'Escape') { closeMenu(); return; }
+    if ((e.key === 'Enter' || e.key === ' ') && !open) { openMenu(); e.preventDefault(); return; }
+    if (e.key === 'Enter' && open && highlight >= 0) { choose(options[highlight].id); e.preventDefault(); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (!open) openMenu(); setHighlight((h) => Math.min(h + 1, options.length - 1)); }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)); }
+  }
+
+  const selected = options.find((o) => o.id === value);
+
   return (
     <div className="avm-select-wrap">
       {icon && <span className="avm-input-icon">{icon}</span>}
-      <select
-        className={`avm-select${icon ? ' avm-select--icon' : ''}`}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+      <button
+        ref={btnRef}
+        type="button"
+        className={['avm-select-btn', icon ? 'avm-select-btn--icon' : '', open ? 'avm-select-btn--open' : '', !value ? 'avm-select-btn--empty' : ''].filter(Boolean).join(' ')}
+        onClick={toggle}
+        onKeyDown={onKey}
         disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
       >
-        <option value="">{placeholder}</option>
-        {options.map((o) => (
-          <option key={o.id} value={o.id}>{o.name}</option>
-        ))}
-      </select>
-      <span className="avm-select-caret"><IconChevronDown size={14} /></span>
+        {selected ? selected.name : placeholder}
+      </button>
+      <span className={`avm-select-caret${open ? ' avm-select-caret--open' : ''}`}>
+        <IconChevronDown size={14} />
+      </span>
+      {open && createPortal(
+        <div ref={dropRef} className="avm-dropdown" style={dropStyle} role="listbox">
+          {options.map((o, i) => (
+            <div
+              key={o.id}
+              role="option"
+              aria-selected={o.id === value}
+              className={['avm-dropdown__option', o.id === value ? 'avm-dropdown__option--active' : '', i === highlight ? 'avm-dropdown__option--hi' : ''].filter(Boolean).join(' ')}
+              onMouseDown={(e) => { e.preventDefault(); choose(o.id); }}
+              onMouseEnter={() => setHighlight(i)}
+            >
+              {o.name}
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
 
-// ─── Step 1 — Mobile + OTP ────────────────────────────────────────────────────
-function Step1({ state, dispatch }) {
-  const {
-    mobile, otpSent, otp, otpVerified,
-    sendingOtp, verifyingOtp, otpError,
-  } = state;
+// ─── Step 0 — OTP verification ────────────────────────────────────────────────
+//
+// Props:
+//   mobile          – current mobile string (controlled by parent)
+//   onMobileChange  – setter for mobile
+//   verified        – boolean from parent (survives step navigation)
+//   onVerified      – called with (mobile) when OTP is confirmed
+//   onChangeNumber  – called when user wants to re-enter mobile (resets verified)
+//
+function StepOtp({ mobile, onMobileChange, verified, onVerified, onChangeNumber }) {
+  const [otpSent,      setOtpSent]      = useState(false);
+  const [otp,          setOtp]          = useState('');
+  const [sending,      setSending]      = useState(false);
+  const [verifying,    setVerifying]    = useState(false);
+  const [otpError,     setOtpError]     = useState('');
+  const [sendError,    setSendError]    = useState('');
+  const [countdown,    setCountdown]    = useState(0);
+  const [sentToMobile, setSentToMobile] = useState('');
+
+  const otpInputRef = useRef(null);
+  const timerRef    = useRef(null);
+
+  // Cleanup timer on unmount
+  useEffect(() => () => { if (timerRef.current) clearInterval(timerRef.current); }, []);
+
+  // If the mobile changes after OTP was sent (but not yet verified), reset the OTP step
+  useEffect(() => {
+    if (mobile !== sentToMobile && otpSent) {
+      setOtpSent(false);
+      setOtp('');
+      setOtpError('');
+      setSendError('');
+      setCountdown(0);
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+  }, [mobile, sentToMobile, otpSent]);
+
+  function startCountdown() {
+    setCountdown(OTP_RESEND_SECONDS);
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) { clearInterval(timerRef.current); return 0; }
+        return c - 1;
+      });
+    }, 1000);
+  }
+
+  async function handleSendOtp() {
+    if (mobile.length < 10 || sending) return;
+    setSending(true);
+    setSendError('');
+    setOtpError('');
+    try {
+      const res = await sendOtp(mobile);
+      if (res.success) {
+        setOtpSent(true);
+        setSentToMobile(mobile);
+        setOtp('');
+        startCountdown();
+        setTimeout(() => otpInputRef.current?.focus(), 80);
+      } else {
+        setSendError(res.message || 'Failed to send OTP. Please try again.');
+      }
+    } catch (e) {
+      setSendError(e?.message || 'Failed to send OTP. Please try again.');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleResend() {
+    if (countdown > 0 || sending) return;
+    await handleSendOtp();
+  }
+
+  async function handleVerify() {
+    if (otp.length !== 6 || verifying) return;
+    setVerifying(true);
+    setOtpError('');
+    try {
+      const res = await verifyOtp(mobile, otp);
+      if (res.verified) {
+        if (timerRef.current) clearInterval(timerRef.current);
+        setCountdown(0);
+        onVerified(mobile);
+      } else {
+        setOtpError(res.message || 'Invalid OTP. Please try again.');
+      }
+    } catch (e) {
+      setOtpError(e?.message || 'Verification failed. Please try again.');
+    } finally {
+      setVerifying(false);
+    }
+  }
 
   return (
     <div className="avm-step">
-      <Field label="Mobile Number" required>
+
+      {/* Intro block */}
+      <div className="avm-otp-intro">
+        <div className="avm-otp-intro__icon">
+          <IconPhone size={26} />
+        </div>
+        <p className="avm-otp-intro__title">Verify Visitor's Mobile</p>
+        <p className="avm-otp-intro__sub">
+          Enter the visitor's mobile number. An OTP will be sent to confirm identity
+          before proceeding to fill the details.
+        </p>
+      </div>
+
+      {/* Mobile input row */}
+      <Field label="Mobile Number" required error={sendError || null}>
         <div className="avm-side-by-side">
           <InputWithIcon
             icon={<IconPhone size={14} />}
@@ -104,100 +252,93 @@ function Step1({ state, dispatch }) {
             placeholder="10-digit mobile number"
             value={mobile}
             maxLength={10}
-            disabled={otpVerified}
-            onChange={(e) =>
-              dispatch({ type: 'SET_MOBILE', value: e.target.value.replace(/\D/g, '').slice(0, 10) })
-            }
+            disabled={verified}
+            onChange={(e) => onMobileChange(e.target.value.replace(/\D/g, '').slice(0, 10))}
           />
-          <button
-            className={`avm-otp-btn${otpVerified ? ' avm-otp-btn--done' : ''}`}
-            onClick={() => dispatch({ type: 'SEND_OTP' })}
-            disabled={mobile.length < 10 || sendingOtp || otpVerified}
-          >
-            {sendingOtp ? 'Sending…' : otpSent ? 'Resend' : 'Send OTP'}
-          </button>
+          {!verified && (
+            <button
+              type="button"
+              className={`avm-otp-btn${otpSent && countdown > 0 ? ' avm-otp-btn--waiting' : ''}`}
+              onClick={otpSent ? handleResend : handleSendOtp}
+              disabled={mobile.length < 10 || sending || (otpSent && countdown > 0)}
+            >
+              {sending
+                ? 'Sending…'
+                : otpSent
+                  ? (countdown > 0 ? `Resend (${countdown}s)` : 'Resend OTP')
+                  : 'Send OTP'}
+            </button>
+          )}
         </div>
       </Field>
 
-      {otpSent && !otpVerified && (
-        <Field label="Enter OTP" required hint="Enter the 6-digit code sent to your mobile.">
+      {/* OTP input row — shown only after OTP is sent and not yet verified */}
+      {otpSent && !verified && (
+        <Field label="One-Time Password">
           <div className="avm-side-by-side">
             <input
+              ref={otpInputRef}
               className="avm-input avm-input--otp"
               type="text"
               inputMode="numeric"
-              placeholder="• • • • • •"
-              maxLength={6}
+              placeholder="_ _ _ _ _ _"
               value={otp}
-              onChange={(e) =>
-                dispatch({ type: 'SET_OTP', value: e.target.value.replace(/\D/g, '').slice(0, 6) })
-              }
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && otp.length === 6) dispatch({ type: 'VERIFY_OTP' });
-              }}
+              maxLength={6}
+              autoComplete="one-time-code"
+              onChange={(e) => { setOtpError(''); setOtp(e.target.value.replace(/\D/g, '').slice(0, 6)); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && otp.length === 6) handleVerify(); }}
             />
             <button
+              type="button"
               className="avm-otp-btn"
-              onClick={() => dispatch({ type: 'VERIFY_OTP' })}
-              disabled={otp.length < 6 || verifyingOtp}
+              onClick={handleVerify}
+              disabled={otp.length !== 6 || verifying}
             >
-              {verifyingOtp ? 'Verifying…' : 'Verify OTP'}
+              {verifying ? 'Verifying…' : 'Verify OTP'}
             </button>
           </div>
-          {otpError && <p className="avm-error">{otpError}</p>}
+          {otpError && <p className="avm-error" style={{ marginTop: 4 }}>{otpError}</p>}
+          {!otpError && (
+            <p className="avm-hint">OTP sent to +91 {sentToMobile} · Check the visitor's phone.</p>
+          )}
         </Field>
       )}
 
-      {otpVerified && (
+      {/* Verified banner */}
+      {verified && (
         <div className="avm-verified">
-          <IconCheckCircle size={16} />
-          <span>OTP Verified — Mobile number has been verified.</span>
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+            <circle cx="11" cy="11" r="11" fill="#28883d" />
+            <path d="M6 11.5L9.5 15L16 8" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: '#28883d' }}>Mobile Verified</div>
+            <div style={{ fontSize: 11.5, color: '#3da85a', marginTop: 1 }}>
+              +91 {mobile} · Proceed to fill visitor details.
+            </div>
+          </div>
+          <button type="button" className="avm-btn-link" onClick={onChangeNumber}>
+            Change
+          </button>
         </div>
       )}
+
     </div>
   );
 }
 
-// ─── Step 2 — Visitor details ─────────────────────────────────────────────────
-function Step2({ state, dispatch, refData }) {
+// ─── Step 1 — Visitor details ──────────────────────────────────────────────────
+function StepDetails({ state, dispatch, refData }) {
   const {
-    visitType, fullName, email, govtIdType, govtIdNumber,
-    personToMeet, hostDepartment, reasonForVisit,
-    cardNumber, leadCardNumber, members,
+    fullName, email, govtIdNumber,
+    personToMeet, hostDepartment, reasonForVisit, cardNumber,
   } = state;
 
   const { persons, departments } = refData;
 
-  const addMember    = () => dispatch({ type: 'ADD_MEMBER' });
-  const removeMember = (id) => dispatch({ type: 'REMOVE_MEMBER', id });
-  const updateMember = (id, field, value) =>
-    dispatch({ type: 'UPDATE_MEMBER', id, field, value });
-
   return (
     <div className="avm-step">
 
-      {/* Visit type */}
-      <Field label="Visit Type" required>
-        <div className="avm-radio-group">
-          {['individual', 'group'].map((t) => (
-            <label
-              key={t}
-              className={`avm-radio${visitType === t ? ' avm-radio--active' : ''}`}
-            >
-              <input
-                type="radio"
-                name="visitType"
-                value={t}
-                checked={visitType === t}
-                onChange={() => dispatch({ type: 'SET_FIELD', field: 'visitType', value: t })}
-              />
-              <span>{t === 'individual' ? 'Individual' : 'Group'}</span>
-            </label>
-          ))}
-        </div>
-      </Field>
-
-      {/* Full name */}
       <Field label="Full Name" required>
         <InputWithIcon
           icon={<IconUser size={14} />}
@@ -208,7 +349,6 @@ function Step2({ state, dispatch, refData }) {
         />
       </Field>
 
-      {/* Email */}
       <Field label="Email (Optional)">
         <InputWithIcon
           icon={<IconMail size={14} />}
@@ -219,32 +359,24 @@ function Step2({ state, dispatch, refData }) {
         />
       </Field>
 
-      {/* Govt ID type */}
-      <Field label="Verified Govt. ID (Lead Only)">
-        <SelectField
-          placeholder="Select ID Type"
-          value={govtIdType}
-          onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'govtIdType', value: v })}
-          options={GOVT_ID_TYPES}
+      <Field
+        label="Aadhaar Number"
+        required
+        error={govtIdNumber && !AADHAAR_REGEX.test(govtIdNumber) ? 'Aadhaar number must be exactly 12 digits' : null}
+      >
+        <InputWithIcon
+          icon={<IconCreditCard size={14} />}
+          type="text"
+          inputMode="numeric"
+          placeholder="12-digit Aadhaar number"
+          value={govtIdNumber}
+          maxLength={12}
+          onChange={(e) =>
+            dispatch({ type: 'SET_FIELD', field: 'govtIdNumber', value: e.target.value.replace(/\D/g, '').slice(0, 12) })
+          }
         />
       </Field>
 
-      {/* Govt ID number — shown only when a type is selected */}
-      {govtIdType && (
-        <Field label={`${GOVT_ID_TYPES.find((t) => t.id === govtIdType)?.name} Number`} required>
-          <InputWithIcon
-            icon={<IconCreditCard size={14} />}
-            type="text"
-            placeholder="Enter the ID number"
-            value={govtIdNumber}
-            onChange={(e) =>
-              dispatch({ type: 'SET_FIELD', field: 'govtIdNumber', value: e.target.value })
-            }
-          />
-        </Field>
-      )}
-
-      {/* Person to meet — auto-fills Host Department */}
       <Field label="Person To Meet" required>
         <SelectField
           placeholder="Select a person…"
@@ -254,7 +386,6 @@ function Step2({ state, dispatch, refData }) {
         />
       </Field>
 
-      {/* Host department */}
       <Field label="Host Department">
         <SelectField
           icon={<IconBuilding size={14} />}
@@ -265,7 +396,6 @@ function Step2({ state, dispatch, refData }) {
         />
       </Field>
 
-      {/* Reason */}
       <Field label="Reason for Visit">
         <textarea
           className="avm-textarea"
@@ -278,189 +408,66 @@ function Step2({ state, dispatch, refData }) {
         />
       </Field>
 
-      {/* Card number — label changes based on visit type */}
-      <Field label={visitType === 'group' ? 'Lead Card Number' : 'Visitor Card Number'}>
+      <Field label="Visitor Card Number">
         <InputWithIcon
           icon={<IconCreditCard size={14} />}
           type="text"
-          placeholder="e.g. 123"
-          value={visitType === 'group' ? leadCardNumber : cardNumber}
+          placeholder="Leave blank to auto-assign"
+          value={cardNumber}
           onChange={(e) =>
-            dispatch({
-              type: 'SET_FIELD',
-              field: visitType === 'group' ? 'leadCardNumber' : 'cardNumber',
-              value: e.target.value,
-            })
+            dispatch({ type: 'SET_FIELD', field: 'cardNumber', value: e.target.value })
           }
         />
+        <span style={{ fontSize: 11, color: '#aaa', marginTop: 2, display: 'block' }}>
+          A card will be automatically assigned if left blank.
+        </span>
       </Field>
 
-      {/* Sub-visitors (group only) */}
-      {visitType === 'group' && (
-        <div className="avm-members">
-          <div className="avm-members__header">
-            <span className="avm-members__title">
-              <IconUsers size={14} />
-              Sub-Visitors
-            </span>
-            <button className="avm-members__add-btn" onClick={addMember}>
-              <IconPlus size={12} />
-              Add Member
-            </button>
-          </div>
-
-          {members.length === 0 ? (
-            <p className="avm-members__empty">No sub-visitors yet. Click "+ Add Member" to begin.</p>
-          ) : (
-            <>
-              <div className="avm-members__cols">
-                <span>Name</span>
-                <span>Card #</span>
-                <span />
-              </div>
-              {members.map((m) => (
-                <div key={m.id} className="avm-members__row">
-                  <input
-                    className="avm-input"
-                    type="text"
-                    placeholder="Guest name"
-                    value={m.name}
-                    onChange={(e) => updateMember(m.id, 'name', e.target.value)}
-                  />
-                  <input
-                    className="avm-input"
-                    type="text"
-                    placeholder="Card #"
-                    value={m.card}
-                    onChange={(e) => updateMember(m.id, 'card', e.target.value)}
-                  />
-                  <button
-                    className="avm-members__del-btn"
-                    onClick={() => removeMember(m.id)}
-                    aria-label="Remove member"
-                  >
-                    <IconTrash size={13} />
-                  </button>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
 }
 
-// ─── Step 3 — Photo capture ───────────────────────────────────────────────────
-function Step3({ photo, cameraActive, photoSkipped, videoRef, canvasRef, onStart, onCapture, onRetake, onSkip }) {
-  return (
-    <div className="avm-step avm-step--photo">
+// ─── Step definitions ─────────────────────────────────────────────────────────
+const STEPS = [
+  { label: 'Verify Mobile' },
+  { label: 'Visitor Details' },
+];
 
-      {/* Camera / photo area */}
-      <div
-        className={[
-          'avm-camera-area',
-          cameraActive  ? 'avm-camera-area--live'     : '',
-          photo         ? 'avm-camera-area--captured' : '',
-        ].join(' ').trim()}
-      >
-        {photo ? (
-          <img className="avm-captured-img" src={photo} alt="Captured selfie" />
-        ) : cameraActive ? (
-          <video ref={videoRef} className="avm-camera-video" autoPlay playsInline muted />
-        ) : (
-          <div className="avm-camera-placeholder">
-            <IconCamera size={44} />
-            <span>Camera preview will appear here</span>
-          </div>
-        )}
-      </div>
-
-      {/* Hidden canvas for frame capture */}
-      <canvas ref={canvasRef} style={{ display: 'none' }} />
-
-      {/* Action buttons */}
-      <div className="avm-photo-actions">
-        {photo ? (
-          <button className="avm-photo-btn avm-photo-btn--retake" onClick={onRetake}>
-            Retake Photo
-          </button>
-        ) : cameraActive ? (
-          <button className="avm-photo-btn avm-photo-btn--capture" onClick={onCapture}>
-            <IconCamera size={15} />
-            Take Photo
-          </button>
-        ) : (
-          <button className="avm-photo-btn avm-photo-btn--capture" onClick={onStart}>
-            <IconCamera size={15} />
-            Capture Selfie
-          </button>
-        )}
-
-        {!photo && (
-          <button className="avm-photo-btn avm-photo-btn--skip" onClick={onSkip}>
-            Skip
-          </button>
-        )}
-      </div>
-
-      {photoSkipped && !photo && (
-        <p className="avm-skip-note">Photo skipped — you can proceed to check in.</p>
-      )}
-    </div>
-  );
-}
-
-// ─── Main component ───────────────────────────────────────────────────────────
-
-const initialState = {
-  // Step 1
-  mobile:        '',
-  otpSent:       false,
-  otp:           '',
-  otpVerified:   false,
-  sendingOtp:    false,
-  verifyingOtp:  false,
-  otpError:      '',
-  // Step 2
-  visitType:      'individual',
+// ─── Initial detail-form state ────────────────────────────────────────────────
+const initialDetails = {
   fullName:       '',
   email:          '',
-  govtIdType:     '',
   govtIdNumber:   '',
   personToMeet:   '',
   hostDepartment: '',
   reasonForVisit: '',
   cardNumber:     '',
-  leadCardNumber: '',
-  members:        [],
 };
 
+// ─── Main component ───────────────────────────────────────────────────────────
 export default function AddVisitorModal({ onClose, onSuccess }) {
-  const [step,          setStep]          = useState(1);
-  const [formState,     setFormState]     = useState(initialState);
-  const [photo,         setPhoto]         = useState(null);
-  const [cameraActive,  setCameraActive]  = useState(false);
-  const [photoSkipped,  setPhotoSkipped]  = useState(false);
-  const [submitting,    setSubmitting]    = useState(false);
-  const [submitError,   setSubmitError]   = useState('');
 
-  // Reference data (populated on mount)
-  const [persons,      setPersons]      = useState([]);
-  const [departments,  setDepartments]  = useState([]);
-  const [refLoading,   setRefLoading]   = useState(true);
-  const [refError,     setRefError]     = useState('');
+  // ── Wizard state ─────────────────────────────────────────────────────────
+  const [step,           setStep]          = useState(0);          // 0 = OTP, 1 = Details
+  const [mobile,         setMobile]        = useState('');
+  const [mobileVerified, setMobileVerified] = useState(false);
 
-  // Camera refs
-  const videoRef  = useRef(null);
-  const canvasRef = useRef(null);
-  const streamRef = useRef(null);
+  // ── Detail-form state ─────────────────────────────────────────────────────
+  const [details,          setDetails]         = useState(initialDetails);
+  const [submitting,       setSubmitting]       = useState(false);
+  const [submitError,      setSubmitError]      = useState('');
+  const [assignedCardHint, setAssignedCardHint] = useState(null);
 
-  // Stable ref for onClose (avoids stale closure in keyboard effect)
+  // ── Reference data ────────────────────────────────────────────────────────
+  const [persons,     setPersons]     = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [refLoading,  setRefLoading]  = useState(true);
+  const [refError,    setRefError]    = useState('');
+
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; });
 
-  // ── Load reference data ──────────────────────────────────────────────────
+  // Load reference data as soon as modal mounts (not on step change)
   useEffect(() => {
     setRefLoading(true);
     setRefError('');
@@ -478,90 +485,24 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
       .finally(() => setRefLoading(false));
   }, []);
 
-  // ── Keyboard / cleanup ───────────────────────────────────────────────────
+  // Escape key handler
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, []);
 
-  // Stop camera when the component unmounts or user navigates away from step 3
-  useEffect(() => {
-    return () => stopCamera();
-  }, []);
-
-  useEffect(() => {
-    if (step !== 3) stopCamera();
-  }, [step]);
-
-  // ── Attach stream once the <video> element is in the DOM ─────────────────
-  // cameraActive=true causes React to render <video ref={videoRef}>.
-  // This effect runs after that render and safely assigns srcObject.
-  useEffect(() => {
-    if (cameraActive && videoRef.current && streamRef.current) {
-      videoRef.current.srcObject = streamRef.current;
-      videoRef.current.play().catch(() => {});
-    }
-  }, [cameraActive]);
-
-  // ── Camera helpers ───────────────────────────────────────────────────────
-  function stopCamera() {
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    setCameraActive(false);
-  }
-
-  async function startCamera() {
-    try {
-      // NOTE (Electron): camera permissions must be allowed in the
-      // BrowserWindow session.setPermissionRequestHandler in main.js.
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-      streamRef.current = stream;
-      // Set cameraActive FIRST so React renders the <video> element,
-      // then the useEffect above attaches the stream after the render.
-      setCameraActive(true);
-    } catch {
-      // Camera unavailable or permission denied — user can still use Skip
-    }
-  }
-
-  function capturePhoto() {
-    const video  = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) return;
-    canvas.width  = video.videoWidth  || 640;
-    canvas.height = video.videoHeight || 480;
-    canvas.getContext('2d').drawImage(video, 0, 0);
-    setPhoto(canvas.toDataURL('image/jpeg', 0.85));
-    stopCamera();
-  }
-
-  function retakePhoto() {
-    setPhoto(null);
-    setPhotoSkipped(false);
-  }
-
-  // ── Reducer-style dispatcher for form state ──────────────────────────────
+  // ── Detail-form dispatcher ────────────────────────────────────────────────
   function dispatch(action) {
     switch (action.type) {
-
-      case 'SET_MOBILE':
-        setFormState((s) => ({ ...s, mobile: action.value, otpError: '' }));
-        break;
-
-      case 'SET_OTP':
-        setFormState((s) => ({ ...s, otp: action.value, otpError: '' }));
-        break;
-
       case 'SET_FIELD':
-        setFormState((s) => ({ ...s, [action.field]: action.value }));
+        setDetails((s) => ({ ...s, [action.field]: action.value }));
         break;
 
-      // Selecting a person auto-fills Host Department from that person's dept
       case 'SET_PERSON_TO_MEET': {
         const person = persons.find((p) => p.id === action.value);
         const dept   = person ? departments.find((d) => d.name === person.department) : null;
-        setFormState((s) => ({
+        setDetails((s) => ({
           ...s,
           personToMeet:   action.value,
           hostDepartment: dept ? dept.id : s.hostDepartment,
@@ -569,112 +510,59 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
         break;
       }
 
-      case 'SEND_OTP':
-        if (formState.mobile.length < 10 || formState.sendingOtp || formState.otpVerified) return;
-        setFormState((s) => ({ ...s, sendingOtp: true, otpError: '' }));
-        sendOtp(formState.mobile)
-          .then(() => setFormState((s) => ({ ...s, otpSent: true, otp: '', sendingOtp: false })))
-          .catch(() =>
-            setFormState((s) => ({
-              ...s, sendingOtp: false, otpError: 'Failed to send OTP. Please try again.',
-            }))
-          );
-        break;
-
-      case 'VERIFY_OTP':
-        if (formState.otp.length < 6 || formState.verifyingOtp) return;
-        setFormState((s) => ({ ...s, verifyingOtp: true, otpError: '' }));
-        verifyOtp(formState.mobile, formState.otp)
-          .then((result) => {
-            if (result.verified) {
-              setFormState((s) => ({ ...s, verifyingOtp: false, otpVerified: true }));
-            } else {
-              setFormState((s) => ({
-                ...s, verifyingOtp: false, otpError: result.message,
-              }));
-            }
-          })
-          .catch(() =>
-            setFormState((s) => ({
-              ...s, verifyingOtp: false, otpError: 'Verification failed. Please try again.',
-            }))
-          );
-        break;
-
-      case 'ADD_MEMBER':
-        setFormState((s) => ({
-          ...s,
-          members: [...s.members, { id: Date.now(), name: '', card: '' }],
-        }));
-        break;
-
-      case 'REMOVE_MEMBER':
-        setFormState((s) => ({ ...s, members: s.members.filter((m) => m.id !== action.id) }));
-        break;
-
-      case 'UPDATE_MEMBER':
-        setFormState((s) => ({
-          ...s,
-          members: s.members.map((m) =>
-            m.id === action.id ? { ...m, [action.field]: action.value } : m
-          ),
-        }));
-        break;
-
       default:
         break;
     }
   }
 
-  // ── Step guards ──────────────────────────────────────────────────────────
-  const step1Valid  = formState.otpVerified;
-  const step2Valid  = !refLoading
-                   && formState.fullName.trim() !== ''
-                   && formState.personToMeet !== '';
-  const step3Ready  = photo !== null || photoSkipped;
+  // ── Form validity for step 1 ──────────────────────────────────────────────
+  const detailsValid = !refLoading
+    && details.fullName.trim() !== ''
+    && details.personToMeet !== ''
+    && AADHAAR_REGEX.test(details.govtIdNumber);
 
-  // ── Submit ───────────────────────────────────────────────────────────────
+  // ── Submit ────────────────────────────────────────────────────────────────
   async function handleSubmit() {
     setSubmitting(true);
     setSubmitError('');
     try {
       const payload = {
-        mobile:         formState.mobile,
-        visitType:      formState.visitType,
-        fullName:       formState.fullName,
-        email:          formState.email,
-        govtIdType:     formState.govtIdType,
-        govtIdNumber:   formState.govtIdNumber,
-        personToMeet:   formState.personToMeet,
-        hostDepartment: formState.hostDepartment,
-        reasonForVisit: formState.reasonForVisit,
-        photo:          photo ?? null,
-        ...(formState.visitType === 'group'
-          ? {
-              leadCardNumber: formState.leadCardNumber,
-              cardNumber:     formState.cardNumber,
-              members:        formState.members,
-            }
-          : { cardNumber: formState.cardNumber }),
+        mobile,
+        visitType:      'individual',
+        fullName:       details.fullName,
+        email:          details.email,
+        govtIdType:     details.govtIdNumber ? 'AADHAAR' : '',
+        govtIdNumber:   details.govtIdNumber,
+        personToMeet:   details.personToMeet,
+        hostDepartment: details.hostDepartment,
+        reasonForVisit: details.reasonForVisit,
+        cardNumber:     details.cardNumber,
       };
       const result = await createVisitorEntry(payload);
       if (result.success) {
-        onSuccess?.(result);
-        onClose();
+        const assignedCard = result.cardCode || (result.card != null ? result.card : null);
+        if (assignedCard) {
+          setAssignedCardHint(assignedCard);
+          setTimeout(() => { onSuccess?.(result); onClose(); }, 1800);
+        } else {
+          onSuccess?.(result);
+          onClose();
+        }
       }
-    } catch {
-      setSubmitError('Failed to create entry. Please try again.');
+    } catch (err) {
+      setSubmitError(err?.message || 'Failed to create entry. Please try again.');
     } finally {
       setSubmitting(false);
     }
   }
 
-  // ── Overlay click ────────────────────────────────────────────────────────
   const handleOverlayClick = (e) => {
     if (e.target === e.currentTarget) onClose();
   };
 
-  // ── Render ───────────────────────────────────────────────────────────────
+  const progressPct = ((step + 1) / STEPS.length) * 100;
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div
       className="avm-overlay"
@@ -689,22 +577,33 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
         <div className="avm-header">
           <div>
             <h2 className="avm-title" id="avm-title">Add New Visitor</h2>
-            <p className="avm-subtitle">Manually enter the details for a new visitor.</p>
+            <p className="avm-subtitle">
+              Step {step + 1} of {STEPS.length} — {STEPS[step].label}
+            </p>
           </div>
           <button className="avm-close" onClick={onClose} aria-label="Close">
             <IconX size={16} />
           </button>
         </div>
 
-        {/* ── Progress ───────────────────────────────────────────────── */}
-        <ProgressBar step={step} />
-        <p className="avm-step-label">Step {step} of 3</p>
+        {/* ── Progress bar ────────────────────────────────────────────── */}
+        <div className="avm-progress" aria-hidden="true">
+          <div className="avm-progress__fill" style={{ width: `${progressPct}%` }} />
+        </div>
 
         {/* ── Scrollable body ────────────────────────────────────────── */}
         <div className="avm-body">
-          {step === 1 && <Step1 state={formState} dispatch={dispatch} />}
+          {step === 0 && (
+            <StepOtp
+              mobile={mobile}
+              onMobileChange={setMobile}
+              verified={mobileVerified}
+              onVerified={(m) => { setMobileVerified(true); setMobile(m); }}
+              onChangeNumber={() => { setMobileVerified(false); setMobile(''); }}
+            />
+          )}
 
-          {step === 2 && (
+          {step === 1 && (
             <>
               {refLoading && (
                 <p className="avm-hint" style={{ textAlign: 'center', padding: '8px 0' }}>
@@ -714,38 +613,24 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
               {!refLoading && refError && (
                 <p className="avm-error" style={{ marginBottom: '12px' }}>{refError}</p>
               )}
-              <Step2
-                state={formState}
+              <StepDetails
+                state={details}
                 dispatch={dispatch}
                 refData={{ persons, departments }}
               />
             </>
           )}
-
-          {step === 3 && (
-            <Step3
-              photo={photo}
-              cameraActive={cameraActive}
-              photoSkipped={photoSkipped}
-              videoRef={videoRef}
-              canvasRef={canvasRef}
-              onStart={startCamera}
-              onCapture={capturePhoto}
-              onRetake={retakePhoto}
-              onSkip={() => { stopCamera(); setPhotoSkipped(true); }}
-            />
-          )}
         </div>
 
         {/* ── Footer ─────────────────────────────────────────────────── */}
         <div className="avm-footer">
-          {step > 1 && (
+          {step > 0 && (
             <button
               className="avm-btn avm-btn--back"
-              onClick={() => setStep((s) => s - 1)}
+              onClick={() => { setStep((s) => s - 1); setSubmitError(''); }}
               disabled={submitting}
             >
-              Back
+              ← Back
             </button>
           )}
 
@@ -753,21 +638,37 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
 
           {submitError && <p className="avm-error avm-error--footer">{submitError}</p>}
 
-          {step < 3 && (
+          {assignedCardHint && (
+            <div style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+              background: '#f0fdf4', border: '1.5px solid #bbf7d0',
+              borderRadius: 9, padding: '10px 16px', fontSize: 13,
+            }}>
+              <span style={{ fontWeight: 700, color: '#16a34a', fontSize: 11, textTransform: 'uppercase', letterSpacing: .5 }}>
+                Card Assigned
+              </span>
+              <span style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 18, color: '#111' }}>
+                {assignedCardHint}
+              </span>
+              <span style={{ fontSize: 11, color: '#6b7280' }}>Hand this card to the visitor</span>
+            </div>
+          )}
+
+          {step === 0 && (
             <button
               className="avm-btn avm-btn--next"
-              onClick={() => setStep((s) => s + 1)}
-              disabled={step === 1 ? !step1Valid : !step2Valid}
+              onClick={() => setStep(1)}
+              disabled={!mobileVerified}
             >
-              Next
+              Next →
             </button>
           )}
 
-          {step === 3 && (
+          {step === 1 && (
             <button
               className="avm-btn avm-btn--submit"
               onClick={handleSubmit}
-              disabled={!step3Ready || submitting}
+              disabled={!detailsValid || submitting}
             >
               {submitting ? 'Adding…' : 'Add and Check-in'}
             </button>

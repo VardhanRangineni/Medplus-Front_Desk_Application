@@ -160,15 +160,20 @@ public class UserRepository {
     }
 
     /**
-     * Returns one page of UserDtos, optionally filtered by a search term.
-     * Search covers employeeid, fullName, department, and worklocation (case-insensitive).
+     * Returns one page of UserDtos, optionally filtered by a search term and/or locationId.
      *
-     * @param search case-insensitive substring; null / blank = no filter
-     * @param offset SQL OFFSET  (page * size)
-     * @param limit  SQL LIMIT   (page size)
+     * When {@code locationId} is non-null, only employees whose {@code worklocation} matches
+     * the descriptive name of that location (or who are registered in usermanagement for
+     * that location) are returned.
+     *
+     * @param search     case-insensitive substring; null / blank = no filter
+     * @param locationId LocationId FK from locationmaster; null = all locations
+     * @param offset     SQL OFFSET (page * size)
+     * @param limit      SQL LIMIT  (page size)
      */
-    public List<UserDto> findUserDtosPaged(String search, int offset, int limit) {
-        boolean hasSearch = search != null && !search.isBlank();
+    public List<UserDto> findUserDtosPaged(String search, String locationId, int offset, int limit) {
+        boolean hasSearch   = search     != null && !search.isBlank();
+        boolean hasLocation = locationId != null && !locationId.isBlank();
         String like = hasSearch ? "%" + search.trim().toLowerCase() + "%" : null;
 
         StringBuilder sql = new StringBuilder("""
@@ -180,12 +185,19 @@ public class UserRepository {
                        umgmt.role AS sys_role
                 FROM usermaster um
                 LEFT JOIN usermanagement umgmt ON um.employeeid = umgmt.employeeid
+                LEFT JOIN locationmaster lm
+                       ON LOWER(TRIM(um.worklocation)) = LOWER(TRIM(lm.descriptiveName))
+                WHERE 1=1
                 """);
 
         MapSqlParameterSource params = new MapSqlParameterSource();
+        if (hasLocation) {
+            sql.append(" AND (lm.LocationId = :locationId OR umgmt.location = :locationId)");
+            params.addValue("locationId", locationId);
+        }
         if (hasSearch) {
             sql.append("""
-                    WHERE (
+                     AND (
                         LOWER(um.employeeid)   LIKE :q
                      OR LOWER(um.fullName)     LIKE :q
                      OR LOWER(um.department)   LIKE :q
@@ -216,14 +228,25 @@ public class UserRepository {
         });
     }
 
-    /** Total count matching the same optional search — used for totalPages calculation. */
-    public long countUserDtos(String search) {
-        boolean hasSearch = search != null && !search.isBlank();
+    /** Total count matching the same optional search and location — used for totalPages calculation. */
+    public long countUserDtos(String search, String locationId) {
+        boolean hasSearch   = search     != null && !search.isBlank();
+        boolean hasLocation = locationId != null && !locationId.isBlank();
         MapSqlParameterSource params = new MapSqlParameterSource();
-        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM usermaster um ");
+        StringBuilder sql = new StringBuilder("""
+                SELECT COUNT(*) FROM usermaster um
+                LEFT JOIN usermanagement umgmt ON um.employeeid = umgmt.employeeid
+                LEFT JOIN locationmaster lm
+                       ON LOWER(TRIM(um.worklocation)) = LOWER(TRIM(lm.descriptiveName))
+                WHERE 1=1
+                """);
+        if (hasLocation) {
+            sql.append(" AND (lm.LocationId = :locationId OR umgmt.location = :locationId)");
+            params.addValue("locationId", locationId);
+        }
         if (hasSearch) {
             sql.append("""
-                    WHERE (
+                     AND (
                         LOWER(um.employeeid)   LIKE :q
                      OR LOWER(um.fullName)     LIKE :q
                      OR LOWER(um.department)   LIKE :q
@@ -237,11 +260,16 @@ public class UserRepository {
     }
 
     /**
-     * Returns one page of ManagedUserDtos, optionally filtered by a search term.
-     * Search covers employeeid, fullName, ipaddress, macaddress (case-insensitive).
+     * Returns one page of ManagedUserDtos, optionally filtered by search term and/or locationId.
+     *
+     * @param search     case-insensitive substring across id / name / ip / mac
+     * @param locationId LocationId FK; null = all locations
+     * @param offset     SQL OFFSET
+     * @param limit      SQL LIMIT
      */
-    public List<ManagedUserDto> findManagedUsersPaged(String search, int offset, int limit) {
-        boolean hasSearch = search != null && !search.isBlank();
+    public List<ManagedUserDto> findManagedUsersPaged(String search, String locationId, int offset, int limit) {
+        boolean hasSearch   = search     != null && !search.isBlank();
+        boolean hasLocation = locationId != null && !locationId.isBlank();
         String like = hasSearch ? "%" + search.trim().toLowerCase() + "%" : null;
 
         StringBuilder sql = new StringBuilder("""
@@ -253,12 +281,17 @@ public class UserRepository {
                        um.status
                 FROM usermanagement um
                 LEFT JOIN locationmaster lm ON um.location = lm.LocationId
+                WHERE 1=1
                 """);
 
         MapSqlParameterSource params = new MapSqlParameterSource();
+        if (hasLocation) {
+            sql.append(" AND um.location = :locationId");
+            params.addValue("locationId", locationId);
+        }
         if (hasSearch) {
             sql.append("""
-                    WHERE (
+                     AND (
                         LOWER(um.employeeid) LIKE :q
                      OR LOWER(um.fullName)   LIKE :q
                      OR LOWER(um.ipaddress)  LIKE :q
@@ -283,14 +316,19 @@ public class UserRepository {
         );
     }
 
-    /** Total count of managed users matching the same optional search. */
-    public long countManagedUsers(String search) {
-        boolean hasSearch = search != null && !search.isBlank();
+    /** Total count of managed users matching the same optional search and location. */
+    public long countManagedUsers(String search, String locationId) {
+        boolean hasSearch   = search     != null && !search.isBlank();
+        boolean hasLocation = locationId != null && !locationId.isBlank();
         MapSqlParameterSource params = new MapSqlParameterSource();
-        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM usermanagement um ");
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM usermanagement um WHERE 1=1 ");
+        if (hasLocation) {
+            sql.append(" AND um.location = :locationId");
+            params.addValue("locationId", locationId);
+        }
         if (hasSearch) {
             sql.append("""
-                    WHERE (
+                     AND (
                         LOWER(um.employeeid) LIKE :q
                      OR LOWER(um.fullName)   LIKE :q
                      OR LOWER(um.ipaddress)  LIKE :q
@@ -332,22 +370,32 @@ public class UserRepository {
     // ── Search / Lookup ───────────────────────────────────────────────────────
 
     /**
-     * Searches usermaster by employeeid OR fullName using a case-insensitive
-     * prefix/contains LIKE.  Returns up to 20 matches ordered by employeeid.
+     * Searches usermaster by employeeid OR fullName using a case-insensitive LIKE.
+     * When {@code locationId} is supplied, results are restricted to employees at that location.
+     * Returns up to 20 matches ordered by employeeid.
      *
      * Used by: GET /api/managed-users/search?q=
      */
-    public List<UserLookupDto> searchUserMaster(String query) {
+    public List<UserLookupDto> searchUserMaster(String query, String locationId) {
+        boolean hasLocation = locationId != null && !locationId.isBlank();
         String like = "%" + query.trim().toLowerCase() + "%";
-        String sql = """
-                SELECT employeeid, fullName, worklocation, designation, department, workemail, phone
-                FROM usermaster
-                WHERE LOWER(employeeid) LIKE :like
-                   OR LOWER(fullName)   LIKE :like
-                ORDER BY employeeid
-                LIMIT 20
-                """;
-        return namedParameterJdbcTemplate.query(sql, new MapSqlParameterSource("like", like),
+
+        StringBuilder sql = new StringBuilder("""
+                SELECT um.employeeid, um.fullName, um.worklocation, um.designation,
+                       um.department, um.workemail, um.phone
+                FROM usermaster um
+                LEFT JOIN locationmaster lm
+                       ON LOWER(TRIM(um.worklocation)) = LOWER(TRIM(lm.descriptiveName))
+                WHERE (LOWER(um.employeeid) LIKE :like OR LOWER(um.fullName) LIKE :like)
+                """);
+        MapSqlParameterSource params = new MapSqlParameterSource("like", like);
+        if (hasLocation) {
+            sql.append(" AND lm.LocationId = :locationId");
+            params.addValue("locationId", locationId);
+        }
+        sql.append(" ORDER BY um.employeeid LIMIT 20");
+
+        return namedParameterJdbcTemplate.query(sql.toString(), params,
                 (rs, rowNum) -> UserLookupDto.builder()
                         .id(rs.getString("employeeid"))
                         .name(rs.getString("fullName"))

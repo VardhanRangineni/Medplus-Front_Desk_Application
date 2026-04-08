@@ -13,8 +13,12 @@ import {
   IconX,
   IconUser,
   IconBuilding,
+  IconQrCode,
+  IconLink,
 } from '../../components/Icons/Icons';
-import Pagination from '../../components/Pagination/Pagination';
+import Pagination       from '../../components/Pagination/Pagination';
+import DateRangePicker, { defaultRangeToday } from '../../components/DateRangePicker/DateRangePicker';
+import LocationSelector from '../../components/LocationSelector/LocationSelector';
 import {
   getEntries,
   getStatusCounts,
@@ -28,6 +32,8 @@ import AddEmployeeModal  from './AddEmployeeModal/AddEmployeeModal';
 import ViewEntryModal    from './ViewEntryModal/ViewEntryModal';
 import EditVisitorModal  from './EditVisitorModal/EditVisitorModal';
 import EditEmployeeModal from './EditEmployeeModal/EditEmployeeModal';
+import PreRegModal       from './PreRegModal/PreRegModal';
+import QrScanModal       from './QrScanModal/QrScanModal';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TAB_ALL         = 'all';
@@ -83,7 +89,7 @@ function MemberRow({ member, entryId, onCheckOut }) {
         </span>
       </td>
       <td>—</td>
-      <td>{member.card ?? '—'}</td>
+      <td>{member.cardCode ?? (member.card != null ? member.card : '—')}</td>
       <td>—</td>
       <td>—</td>
       <td>
@@ -160,7 +166,7 @@ function EntryRow({ entry, expanded, onToggleExpand, onCheckOut, onMemberCheckOu
         <td className="ci-col--person">{entry.personToMeet || '—'}</td>
 
         <td className="ci-col--card">
-          {isEmp ? 'N/A' : (entry.card ?? '—')}
+          {isEmp ? 'N/A' : (entry.cardCode ?? (entry.card != null ? entry.card : '—'))}
         </td>
 
         <td className="ci-col--time">{formatDateTime(entry.checkIn)}</td>
@@ -260,8 +266,74 @@ function EntryTypeModal({ onClose, onSelect }) {
   );
 }
 
+// ─── Card Return Confirmation Modal ───────────────────────────────────────────
+function CardReturnModal({ visitorName, cardCode, card, onConfirm, onClose }) {
+  const displayCard = cardCode || (card != null ? card : null);
+
+  useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <div className="crm-overlay" role="dialog" aria-modal="true" aria-labelledby="crm-title"
+         onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="crm-dialog">
+        <div className="crm-header">
+          <div>
+            <h2 className="crm-title" id="crm-title">Card Return</h2>
+            <p className="crm-sub">Checking out: <strong>{visitorName}</strong></p>
+          </div>
+          <button className="crm-close" onClick={onClose} aria-label="Close">
+            <IconX size={15} />
+          </button>
+        </div>
+
+        <div className="crm-body">
+          {displayCard ? (
+            <>
+              <p className="crm-question">
+                Did the visitor return card <span className="crm-card-badge">{displayCard}</span>?
+              </p>
+              <div className="crm-actions">
+                <button
+                  className="crm-btn crm-btn--yes"
+                  onClick={() => onConfirm(true)}
+                  autoFocus
+                >
+                  Yes, returned
+                </button>
+                <button
+                  className="crm-btn crm-btn--no"
+                  onClick={() => onConfirm(false)}
+                >
+                  No, not returned
+                </button>
+              </div>
+              <p className="crm-hint">
+                If not returned, the card will be marked <strong>Missing</strong> and removed from inventory.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="crm-question">Confirm check-out for <strong>{visitorName}</strong>?</p>
+              <div className="crm-actions">
+                <button className="crm-btn crm-btn--yes" onClick={() => onConfirm(true)} autoFocus>
+                  Confirm Check-Out
+                </button>
+                <button className="crm-btn crm-btn--ghost" onClick={onClose}>Cancel</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
-export default function CheckInOut() {
+export default function CheckInOut({ session }) {
 
   // ── Server-side data ────────────────────────────────────────────────────────
   const [entries,       setEntries]       = useState([]);
@@ -281,6 +353,8 @@ export default function CheckInOut() {
   const [filterOpen,   setFilterOpen]   = useState(false);
   const [currentPage,  setCurrentPage]  = useState(1);
   const [expandedRows, setExpandedRows] = useState(new Set());
+  const [range,        setRange]        = useState(defaultRangeToday);
+  const [locationId,   setLocationId]   = useState(null);
 
   // ── Modal state ─────────────────────────────────────────────────────────────
   const [entryTypeModalOpen, setEntryTypeModalOpen] = useState(false);
@@ -288,23 +362,32 @@ export default function CheckInOut() {
   const [addEmployeeOpen,    setAddEmployeeOpen]     = useState(false);
   const [viewEntry,          setViewEntry]           = useState(null);
   const [editEntry,          setEditEntry]           = useState(null);
+  const [preRegOpen,         setPreRegOpen]          = useState(false);
+  const [qrScanOpen,         setQrScanOpen]          = useState(false);
+  // Card return dialog: { id, name, card, cardCode } | null
+  const [cardReturnPending,  setCardReturnPending]   = useState(null);
+  // Member card return: { entryId, memberId, name, card, cardCode } | null
+  const [memberCardReturnPending, setMemberCardReturnPending] = useState(null);
 
   const filterRef     = useRef(null);
   const searchTimerRef = useRef(null);
 
   // ── Core fetch function ─────────────────────────────────────────────────────
   // Accepts explicit params to avoid stale-closure issues in callbacks.
-  const fetchPage = useCallback(async (page, tab, q, dept, isInitial = false) => {
+  const fetchPage = useCallback(async (page, tab, q, dept, from, to, locId, isInitial = false) => {
     if (isInitial) setInitLoading(true);
     else           setPageLoading(true);
 
     try {
       const result = await getEntries({
-        page:       page - 1,          // service expects 0-based; UI uses 1-based
+        page:       page - 1,   // service expects 0-based; UI uses 1-based
         size:       PAGE_SIZE,
         search:     q,
         status:     tabToStatus(tab),
         department: dept,
+        from,
+        to,
+        locationId: locId,
       });
       setEntries(result.entries);
       setTotalElements(result.totalElements);
@@ -318,8 +401,8 @@ export default function CheckInOut() {
     }
   }, []);
 
-  const refreshCounts = useCallback(() => {
-    getStatusCounts()
+  const refreshCounts = useCallback((from, to, locId) => {
+    getStatusCounts({ from, to, locationId: locId })
       .then(setStatusCounts)
       .catch(() => {});
   }, []);
@@ -335,9 +418,10 @@ export default function CheckInOut() {
     let active = true;
     setInitLoading(true);
 
+    const { from, to } = range;
     Promise.all([
-      getEntries({ page: 0, size: PAGE_SIZE }),
-      getStatusCounts(),
+      getEntries({ page: 0, size: PAGE_SIZE, from, to, locationId }),
+      getStatusCounts({ from, to, locationId }),
       getDepartments(),
     ])
       .then(([pageData, counts, depts]) => {
@@ -352,7 +436,8 @@ export default function CheckInOut() {
       .finally(() => { if (active) setInitLoading(false); });
 
     return () => { active = false; };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range, locationId]);
 
   // ── Close filter dropdown on outside click ──────────────────────────────────
   useEffect(() => {
@@ -369,43 +454,75 @@ export default function CheckInOut() {
   // ── Tab change ──────────────────────────────────────────────────────────────
   const handleTabChange = useCallback((tab) => {
     setActiveTab(tab);
-    fetchPage(1, tab, search, selectedDept);
-  }, [search, selectedDept, fetchPage]);
+    fetchPage(1, tab, search, selectedDept, range.from, range.to, locationId);
+  }, [search, selectedDept, range, locationId, fetchPage]);
 
   // ── Search (debounced) ──────────────────────────────────────────────────────
   const handleSearchChange = useCallback((value) => {
     setSearch(value);
     clearTimeout(searchTimerRef.current);
     searchTimerRef.current = setTimeout(() => {
-      fetchPage(1, activeTab, value, selectedDept);
+      fetchPage(1, activeTab, value, selectedDept, range.from, range.to, locationId);
     }, SEARCH_DEBOUNCE);
-  }, [activeTab, selectedDept, fetchPage]);
+  }, [activeTab, selectedDept, range, locationId, fetchPage]);
 
   // ── Department filter ───────────────────────────────────────────────────────
   const handleSelectDept = useCallback((dept) => {
     setSelectedDept(dept);
     setFilterOpen(false);
-    fetchPage(1, activeTab, search, dept);
-  }, [activeTab, search, fetchPage]);
+    fetchPage(1, activeTab, search, dept, range.from, range.to, locationId);
+  }, [activeTab, search, range, locationId, fetchPage]);
 
   const handleClearDept = useCallback((e) => {
     e.stopPropagation();
     setSelectedDept(null);
-    fetchPage(1, activeTab, search, null);
-  }, [activeTab, search, fetchPage]);
+    fetchPage(1, activeTab, search, null, range.from, range.to, locationId);
+  }, [activeTab, search, range, locationId, fetchPage]);
 
   // ── Page change ─────────────────────────────────────────────────────────────
   const handlePageChange = useCallback((page) => {
-    fetchPage(page, activeTab, search, selectedDept);
-    setExpandedRows(new Set()); // collapse all on page turn
-  }, [activeTab, search, selectedDept, fetchPage]);
+    fetchPage(page, activeTab, search, selectedDept, range.from, range.to, locationId);
+    setExpandedRows(new Set());
+  }, [activeTab, search, selectedDept, range, locationId, fetchPage]);
 
-  // ── Optimistic check-out ────────────────────────────────────────────────────
-  const handleCheckOut = useCallback(async (id) => {
+  // ── Card return dialog flow ──────────────────────────────────────────────────
+  // Called by the checkout button — shows confirmation if visitor has a card
+  const handleCheckOut = useCallback((id) => {
+    const entry = entries.find((e) => e.id === id);
+    if (!entry) return;
+    // Show card return dialog for VISITORs that have a card assigned
+    if (entry.type === 'VISITOR' && (entry.cardCode || entry.card != null)) {
+      setCardReturnPending({
+        id, name: entry.name, card: entry.card, cardCode: entry.cardCode,
+      });
+    } else {
+      // Employee or no card — check out directly
+      doCheckOut(id, true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries]);
+
+  const handleMemberCheckOut = useCallback((entryId, memberId) => {
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    const member = entry.members.find((m) => m.id === memberId);
+    if (!member) return;
+    if (member.cardCode || member.card != null) {
+      setMemberCardReturnPending({
+        entryId, memberId, name: member.name, card: member.card, cardCode: member.cardCode,
+      });
+    } else {
+      doMemberCheckOut(entryId, memberId, true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries]);
+
+  // ── Actual checkout execution ────────────────────────────────────────────────
+  const doCheckOut = useCallback(async (id, cardReturned) => {
+    setCardReturnPending(null);
     const original = entries.find((e) => e.id === id);
     if (!original) return;
 
-    // Optimistic: update status; if on "checked-in" tab remove the row
     setEntries((prev) => {
       const updated = prev.map((e) =>
         e.id === id ? { ...e, status: 'checked-out', checkOut: new Date() } : e
@@ -417,16 +534,15 @@ export default function CheckInOut() {
     }
 
     try {
-      await checkOutEntry(id);
-      refreshCounts();
+      await checkOutEntry(id, cardReturned);
+      refreshCounts(range.from, range.to, locationId);
     } catch {
-      // Rollback: re-fetch the current page
-      fetchPage(currentPage, activeTab, search, selectedDept);
+      fetchPage(currentPage, activeTab, search, selectedDept, range.from, range.to, locationId);
     }
-  }, [entries, activeTab, currentPage, search, selectedDept, fetchPage, refreshCounts]);
+  }, [entries, activeTab, currentPage, search, selectedDept, range, locationId, fetchPage, refreshCounts]);
 
-  // ── Optimistic member check-out ─────────────────────────────────────────────
-  const handleMemberCheckOut = useCallback(async (entryId, memberId) => {
+  const doMemberCheckOut = useCallback(async (entryId, memberId, cardReturned) => {
+    setMemberCardReturnPending(null);
     const entryOrig = entries.find((e) => e.id === entryId);
     if (!entryOrig) return;
 
@@ -442,12 +558,12 @@ export default function CheckInOut() {
     );
 
     try {
-      await checkOutMember(entryId, memberId);
-      refreshCounts();
+      await checkOutMember(entryId, memberId, cardReturned);
+      refreshCounts(range.from, range.to, locationId);
     } catch {
-      fetchPage(currentPage, activeTab, search, selectedDept);
+      fetchPage(currentPage, activeTab, search, selectedDept, range.from, range.to, locationId);
     }
-  }, [entries, currentPage, activeTab, search, selectedDept, fetchPage, refreshCounts]);
+  }, [entries, currentPage, activeTab, search, selectedDept, range, locationId, fetchPage, refreshCounts]);
 
   // ── Entry type modal ────────────────────────────────────────────────────────
   const handleEntryTypeSelect = useCallback((type) => {
@@ -458,10 +574,10 @@ export default function CheckInOut() {
 
   // After a successful add/edit: go to page 1, refresh counts & departments
   const afterMutation = useCallback(() => {
-    fetchPage(1, activeTab, search, selectedDept);
-    refreshCounts();
+    fetchPage(1, activeTab, search, selectedDept, range.from, range.to, locationId);
+    refreshCounts(range.from, range.to, locationId);
     refreshDepartments();
-  }, [activeTab, search, selectedDept, fetchPage, refreshCounts, refreshDepartments]);
+  }, [activeTab, search, selectedDept, range, locationId, fetchPage, refreshCounts, refreshDepartments]);
 
   const handleCloseAddVisitor  = useCallback(() => setAddVisitorOpen(false), []);
   const handleVisitorSuccess   = useCallback(() => { setAddVisitorOpen(false);  afterMutation(); }, [afterMutation]);
@@ -510,36 +626,56 @@ export default function CheckInOut() {
       {/* ── Toolbar ─────────────────────────────────────────────────────── */}
       <div className="ci-toolbar">
 
-        {/* Status tabs */}
-        <div className="ci-tabs" role="tablist">
-          <button
-            className={`ci-tab${activeTab === TAB_ALL ? ' ci-tab--active' : ''}`}
-            onClick={() => handleTabChange(TAB_ALL)}
-            role="tab"
-            aria-selected={activeTab === TAB_ALL}
-          >
-            All <span className="ci-tab__count">{statusCounts.total}</span>
-          </button>
-          <button
-            className={`ci-tab${activeTab === TAB_CHECKED_IN ? ' ci-tab--active' : ''}`}
-            onClick={() => handleTabChange(TAB_CHECKED_IN)}
-            role="tab"
-            aria-selected={activeTab === TAB_CHECKED_IN}
-          >
-            Checked-in <span className="ci-tab__count">{statusCounts.checkedIn}</span>
-          </button>
-          <button
-            className={`ci-tab${activeTab === TAB_CHECKED_OUT ? ' ci-tab--active' : ''}`}
-            onClick={() => handleTabChange(TAB_CHECKED_OUT)}
-            role="tab"
-            aria-selected={activeTab === TAB_CHECKED_OUT}
-          >
-            Checked-out <span className="ci-tab__count">{statusCounts.checkedOut}</span>
-          </button>
+        {/* Row 1: tabs (left) + location & date (right) */}
+        <div className="ci-toolbar__row1">
+          <div className="ci-tabs" role="tablist">
+            <button
+              className={`ci-tab${activeTab === TAB_ALL ? ' ci-tab--active' : ''}`}
+              onClick={() => handleTabChange(TAB_ALL)}
+              role="tab" aria-selected={activeTab === TAB_ALL}
+            >
+              All <span className="ci-tab__count">{statusCounts.total}</span>
+            </button>
+            <button
+              className={`ci-tab${activeTab === TAB_CHECKED_IN ? ' ci-tab--active' : ''}`}
+              onClick={() => handleTabChange(TAB_CHECKED_IN)}
+              role="tab" aria-selected={activeTab === TAB_CHECKED_IN}
+            >
+              Checked-in <span className="ci-tab__count">{statusCounts.checkedIn}</span>
+            </button>
+            <button
+              className={`ci-tab${activeTab === TAB_CHECKED_OUT ? ' ci-tab--active' : ''}`}
+              onClick={() => handleTabChange(TAB_CHECKED_OUT)}
+              role="tab" aria-selected={activeTab === TAB_CHECKED_OUT}
+            >
+              Checked-out <span className="ci-tab__count">{statusCounts.checkedOut}</span>
+            </button>
+          </div>
+
+          <div className="ci-toolbar__loc-date">
+            <LocationSelector
+              session={session}
+              value={locationId}
+              onChange={(locId) => {
+                setLocationId(locId);
+                setCurrentPage(1);
+                setExpandedRows(new Set());
+              }}
+            />
+            <DateRangePicker
+              from={range.from}
+              to={range.to}
+              onChange={(r) => {
+                setRange(r);
+                setCurrentPage(1);
+                setExpandedRows(new Set());
+              }}
+            />
+          </div>
         </div>
 
-        {/* Right actions */}
-        <div className="ci-toolbar__right">
+        {/* Row 2: all other filters + actions (right-aligned) */}
+        <div className="ci-toolbar__row2">
 
           {/* Search */}
           <label className="ci-search" aria-label="Search entries">
@@ -558,8 +694,7 @@ export default function CheckInOut() {
             <button
               className={`ci-icon-btn${filterOpen || selectedDept ? ' ci-icon-btn--active' : ''}`}
               onClick={() => setFilterOpen((v) => !v)}
-              aria-haspopup="true"
-              aria-expanded={filterOpen}
+              aria-haspopup="true" aria-expanded={filterOpen}
               aria-label="Filter by department"
             >
               <IconFilter size={14} />
@@ -568,8 +703,7 @@ export default function CheckInOut() {
                 <span
                   className="ci-filter-clear"
                   onClick={handleClearDept}
-                  role="button"
-                  tabIndex={0}
+                  role="button" tabIndex={0}
                   aria-label="Clear department filter"
                   onKeyDown={(e) => e.key === 'Enter' && handleClearDept(e)}
                 >
@@ -577,31 +711,25 @@ export default function CheckInOut() {
                 </span>
               )}
             </button>
-
             {filterOpen && (
               <div className="ci-filter-dropdown" role="menu" aria-label="Department filter options">
                 <button
                   className={`ci-filter-option${!selectedDept ? ' ci-filter-option--active' : ''}`}
-                  role="menuitemradio"
-                  aria-checked={!selectedDept}
+                  role="menuitemradio" aria-checked={!selectedDept}
                   onClick={() => handleSelectDept(null)}
                 >
                   <span>All Departments</span>
                   {!selectedDept && <span className="ci-filter-check">✓</span>}
                 </button>
-
                 {departments.length > 0 && <div className="ci-filter-divider" role="separator" />}
-
                 {departments.length === 0 && !initLoading && (
                   <div className="ci-filter-empty">No departments found</div>
                 )}
-
                 {departments.map((dept) => (
                   <button
                     key={dept}
                     className={`ci-filter-option${selectedDept === dept ? ' ci-filter-option--active' : ''}`}
-                    role="menuitemradio"
-                    aria-checked={selectedDept === dept}
+                    role="menuitemradio" aria-checked={selectedDept === dept}
                     onClick={() => handleSelectDept(dept)}
                   >
                     <span>{dept}</span>
@@ -617,13 +745,33 @@ export default function CheckInOut() {
             className="ci-icon-btn"
             onClick={handleExport}
             disabled={entries.length === 0}
-            aria-label="Export current page to Excel"
             title="Export to Excel (.xlsx)"
           >
             <IconDownload size={14} />
             <span>Export</span>
           </button>
 
+          {/* Pre-Reg Link */}
+          <button
+            className="ci-icon-btn ci-icon-btn--prereg"
+            onClick={() => setPreRegOpen(true)}
+            title="Group Pre-Registration — share a self-registration link"
+          >
+            <IconLink size={14} />
+            <span>Pre-Reg Link</span>
+          </button>
+
+          {/* Scan QR */}
+          <button
+            className="ci-icon-btn ci-icon-btn--scan"
+            onClick={() => setQrScanOpen(true)}
+            title="Scan visitor QR code to check in"
+          >
+            <IconQrCode size={14} />
+            <span>Scan QR</span>
+          </button>
+
+          {/* Add Entry */}
           <button
             className="ci-add-btn"
             onClick={() => setEntryTypeModalOpen(true)}
@@ -777,6 +925,46 @@ export default function CheckInOut() {
           entry={editEntry}
           onClose={handleCloseEdit}
           onSuccess={handleEditSuccess}
+        />
+      )}
+
+      {/* ── Pre-Registration Link Modal ──────────────────────────────── */}
+      {preRegOpen && (
+        <PreRegModal
+          session={session}
+          onClose={() => setPreRegOpen(false)}
+        />
+      )}
+
+      {/* ── QR Scan Modal ────────────────────────────────────────────── */}
+      {qrScanOpen && (
+        <QrScanModal
+          onClose={() => { setQrScanOpen(false); afterMutation(); }}
+          onSuccess={() => { afterMutation(); }}
+        />
+      )}
+
+      {/* ── Card Return Confirmation (main entry) ────────────────────── */}
+      {cardReturnPending && (
+        <CardReturnModal
+          visitorName={cardReturnPending.name}
+          cardCode={cardReturnPending.cardCode}
+          card={cardReturnPending.card}
+          onConfirm={(returned) => doCheckOut(cardReturnPending.id, returned)}
+          onClose={() => setCardReturnPending(null)}
+        />
+      )}
+
+      {/* ── Card Return Confirmation (group member) ──────────────────── */}
+      {memberCardReturnPending && (
+        <CardReturnModal
+          visitorName={memberCardReturnPending.name}
+          cardCode={memberCardReturnPending.cardCode}
+          card={memberCardReturnPending.card}
+          onConfirm={(returned) =>
+            doMemberCheckOut(memberCardReturnPending.entryId, memberCardReturnPending.memberId, returned)
+          }
+          onClose={() => setMemberCardReturnPending(null)}
         />
       )}
 

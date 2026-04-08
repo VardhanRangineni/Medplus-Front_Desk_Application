@@ -20,6 +20,16 @@ public class LocationService {
     private final SyncService syncService;
 
     /**
+     * Returns all active (CONFIGURED) locations as a flat list.
+     * Intended for lightweight filter dropdowns — no pagination needed.
+     */
+    public List<LocationDto> getActiveLocations() {
+        return locationRepository.findAllActive().stream()
+                .map(this::toDto)
+                .toList();
+    }
+
+    /**
      * Returns all locations from the local locationmaster table (used by sync response).
      */
     public List<LocationDto> getAllLocations() {
@@ -29,19 +39,22 @@ public class LocationService {
     }
 
     /**
-     * Returns a single page of locations, optionally filtered by a search term.
+     * Returns a single page of locations, optionally filtered by a search term and/or
+     * a specific locationId (used to scope REGIONAL_ADMIN to their own location).
      *
-     * @param search case-insensitive substring across LocationId, name, and city
-     * @param page   0-based page index
-     * @param size   records per page
+     * @param search     case-insensitive substring across LocationId, name, and city
+     * @param locationId restrict to this location; null = all locations
+     * @param page       0-based page index
+     * @param size       records per page
      */
-    public PagedResponseDto<LocationDto> getLocationsPaged(String search, int page, int size) {
+    public PagedResponseDto<LocationDto> getLocationsPaged(String search, String locationId, int page, int size) {
         int    offset = page * size;
         String q      = (search != null && !search.isBlank()) ? search : null;
-        List<LocationDto> rows  = locationRepository.findAllPaged(q, offset, size).stream()
+        String loc    = (locationId != null && !locationId.isBlank()) ? locationId : null;
+        List<LocationDto> rows = locationRepository.findAllPaged(q, loc, offset, size).stream()
                 .map(this::toDto)
                 .toList();
-        long total = locationRepository.countAll(q);
+        long total = locationRepository.countAll(q, loc);
         return PagedResponseDto.of(rows, page, size, total);
     }
 

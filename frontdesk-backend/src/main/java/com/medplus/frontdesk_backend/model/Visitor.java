@@ -25,9 +25,10 @@ public class Visitor {
     private String        department;
     private String        locationId;
     private Integer       cardNumber;
+    /** Auto-assigned card code from cardmaster, e.g. "MSOH-VISITOR-7". */
+    private String        cardCode;
     private GovtIdType    govtIdType;
     private String        govtIdNumber;
-    private String        imageUrl;
     private LocalDateTime checkInTime;
     private LocalDateTime checkOutTime;
     private String        reasonForVisit;

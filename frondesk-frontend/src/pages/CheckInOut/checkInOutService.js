@@ -7,7 +7,7 @@
  * Endpoints consumed:
  *   GET    /api/visitors?page=&size=&status=&department=&date=
  *   GET    /api/visitors/search?q=&page=&size=&status=&department=&date=
- *   GET    /api/visitors/status-counts
+ *   GET    /api/visitors/status-counts  (replaced — counts now derived from getEntries)
  *   PATCH  /api/visitors/:id/checkout
  *   PATCH  /api/visitors/:id/members/:memberId/checkout
  *   GET    /api/visitors/:id
@@ -99,13 +99,15 @@ function fmtDate(date) {
  *
  * All filters are passed to the backend — no client-side filtering is applied.
  *
- * @param {Object}  [options]
- * @param {number}  [options.page=0]         - 0-based page index
- * @param {number}  [options.size=20]        - records per page
- * @param {string}  [options.search]         - full-text search query (name, mobile, empId, …)
- * @param {string}  [options.status]         - "checked-in" | "checked-out" | null
- * @param {string}  [options.department]     - department filter
- * @param {string}  [options.date]           - ISO date "YYYY-MM-DD" (null = all dates)
+ * @param {Object}       [options]
+ * @param {number}       [options.page=0]         0-based page index
+ * @param {number}       [options.size=20]        Records per page
+ * @param {string}       [options.search]         Full-text search query
+ * @param {string}       [options.status]         "checked-in" | "checked-out" | null
+ * @param {string}       [options.department]     Department filter
+ * @param {string}       [options.from]           ISO date "YYYY-MM-DD" range start
+ * @param {string}       [options.to]             ISO date "YYYY-MM-DD" range end
+ * @param {string|null}  [options.locationId]     Admin-only location filter
  * @returns {Promise<EntriesPage>}
  */
 export async function getEntries({
@@ -114,14 +116,18 @@ export async function getEntries({
   search     = '',
   status     = null,
   department = null,
-  date       = null,
+  from       = null,
+  to         = null,
+  locationId = null,
 } = {}) {
   const params = new URLSearchParams();
   params.set('page', String(page));
   params.set('size', String(size));
   if (status)     params.set('status',     status);
   if (department) params.set('department', department);
-  if (date)       params.set('date',       date);
+  if (from)       params.set('from',       from);
+  if (to)         params.set('to',         to);
+  if (locationId) params.set('locationId', locationId);
 
   const trimmed = search.trim();
   const endpoint = trimmed
@@ -130,7 +136,6 @@ export async function getEntries({
 
   const data = await api('GET', endpoint);
 
-  // Backend always returns a PagedResponseDto: { content, totalElements, totalPages, page, … }
   const content = Array.isArray(data?.content) ? data.content : [];
   return {
     entries:       content.map(normalise),
@@ -141,19 +146,27 @@ export async function getEntries({
 }
 
 /**
- * Returns aggregate counts by visit status for the caller's location.
- * Used to populate the "All / Checked-in / Checked-out" tab badges.
+ * Returns aggregate counts by visit status.
+ * Derived from three parallel getEntries calls (size=1) so the counts always
+ * match the same date/location filters as the main table — no separate endpoint needed.
  *
- * Endpoint: GET /api/visitors/status-counts
- *
+ * @param {Object}      [opts]
+ * @param {string}      [opts.from]        ISO date range start
+ * @param {string}      [opts.to]          ISO date range end
+ * @param {string|null} [opts.locationId]  Admin-only location filter
  * @returns {Promise<StatusCounts>}
  */
-export async function getStatusCounts() {
-  const data = await api('GET', '/api/visitors/status-counts');
+export async function getStatusCounts({ from, to, locationId } = {}) {
+  const base = { page: 0, size: 1, from, to, locationId };
+  const [allData, inData, outData] = await Promise.all([
+    getEntries(base),
+    getEntries({ ...base, status: 'checked-in'  }),
+    getEntries({ ...base, status: 'checked-out' }),
+  ]);
   return {
-    total:      data?.total      ?? 0,
-    checkedIn:  data?.checkedIn  ?? 0,
-    checkedOut: data?.checkedOut ?? 0,
+    total:      allData.totalElements,
+    checkedIn:  inData.totalElements,
+    checkedOut: outData.totalElements,
   };
 }
 
@@ -175,11 +188,13 @@ export async function getDepartments() {
  *
  * Endpoint: PATCH /api/visitors/:id/checkout
  *
- * @param {string} id
+ * @param {string}  id
+ * @param {boolean} [cardReturned=true]  Pass false when visitor did NOT return their card.
  * @returns {Promise<Entry>}
  */
-export async function checkOutEntry(id) {
-  const data = await api('PATCH', `/api/visitors/${encodeURIComponent(id)}/checkout`);
+export async function checkOutEntry(id, cardReturned = true) {
+  const data = await api('PATCH', `/api/visitors/${encodeURIComponent(id)}/checkout`,
+    { cardReturned });
   return normalise(data);
 }
 
@@ -188,14 +203,16 @@ export async function checkOutEntry(id) {
  *
  * Endpoint: PATCH /api/visitors/:entryId/members/:memberId/checkout
  *
- * @param {string} entryId
- * @param {string} memberId
+ * @param {string}  entryId
+ * @param {string}  memberId
+ * @param {boolean} [cardReturned=true]
  * @returns {Promise<Member>}
  */
-export async function checkOutMember(entryId, memberId) {
+export async function checkOutMember(entryId, memberId, cardReturned = true) {
   return api(
     'PATCH',
     `/api/visitors/${encodeURIComponent(entryId)}/members/${encodeURIComponent(memberId)}/checkout`,
+    { cardReturned },
   );
 }
 
@@ -282,4 +299,76 @@ export function exportToExcel(entries, filename) {
 
   XLSX.utils.book_append_sheet(wb, ws, 'Visitor Log');
   XLSX.writeFile(wb, outFile);
+}
+
+// ─── Pre-registration ─────────────────────────────────────────────────────────
+
+/**
+ * Creates a group pre-registration link for a given location.
+ * Endpoint: POST /api/pre-register/link
+ *
+ * @param {string} locationId
+ * @returns {Promise<{ groupToken, locationId, locationName, expiresAt }>}
+ */
+export async function createGroupLink(locationId) {
+  const result = await window.electronAPI.apiRequest(
+    'POST', '/api/pre-register/link', { locationId }
+  );
+  if (!result.ok) {
+    const msg = result.body?.message || 'Failed to create group link.';
+    throw new Error(msg);
+  }
+  return result.body?.data ?? result.body;
+}
+
+/**
+ * Fetches visitor details for staff to review before accepting the check-in.
+ * Endpoint: GET /api/pre-register/preview/:token
+ *
+ * @param {string} token
+ * @returns {Promise<PreRegPreviewDto>}
+ */
+export async function getPreRegPreview(token) {
+  const result = await window.electronAPI.apiRequest(
+    'GET', `/api/pre-register/preview/${encodeURIComponent(token)}`
+  );
+  if (!result.ok) {
+    const msg = result.body?.message || 'Failed to load visitor details.';
+    throw new Error(msg);
+  }
+  return result.body?.data ?? result.body;
+}
+
+/**
+ * Search employees at the location associated with a pre-registration token.
+ * Endpoint: GET /api/pre-register/search-staff?q=...&token=...
+ *
+ * @param {string} query  Name, employee ID, or mobile
+ * @param {string} token  Pre-registration token (used to determine location)
+ * @returns {Promise<Array<{id, name, department}>>}
+ */
+export async function searchPreRegStaff(query, token) {
+  const result = await window.electronAPI.apiRequest(
+    'GET', `/api/pre-register/search-staff?q=${encodeURIComponent(query)}&token=${encodeURIComponent(token)}`
+  );
+  if (!result.ok) return [];
+  return result.body?.data ?? [];
+}
+
+/**
+ * Completes a check-in by scanning a visitor's pre-registration QR token.
+ * Endpoint: POST /api/pre-register/checkin/:token
+ *
+ * @param {string} token  The raw token from the QR code (without "PREREG:" prefix)
+ * @returns {Promise<object>}  The created visitor log entry
+ */
+export async function checkInByQr(token, resolvedPersonId) {
+  const result = await window.electronAPI.apiRequest(
+    'POST', `/api/pre-register/checkin/${encodeURIComponent(token)}`, { resolvedPersonId }
+  );
+  if (!result.ok) {
+    const msg = result.body?.message || 'QR check-in failed.';
+    throw new Error(msg);
+  }
+  return result.body?.data ?? result.body;
 }

@@ -17,19 +17,29 @@ VALUES
      'Telangana',
      '500037',
      'CONFIGURED',
+     'SYSTEM'),
+
+    ('SO-HO-HYD',
+     'Medplus Software Office Hyderabad',
+     'HEAD_OFFICE',
+     'Medplus Software Office, Kavuri Enclave, Kavuri Hills, 3rd Floor, Hyderabad',
+     'Hyderabad',
+     'Telangana',
+     '500081',
+     'CONFIGURED',
      'SYSTEM')
 ON DUPLICATE KEY UPDATE
     modifiedBy = 'SYSTEM';
 
 
 -- ── 2. usermaster ────────────────────────────────────────────────────────────
---  Passwords: employeeid == password (BCrypt cost 10, pre-computed)
+--  HR employee profiles (no login credentials — those live in usermanagement).
 
 INSERT INTO `usermaster`
     (employeeid, fullName, workemail, phone, designation, role, worklocation, department, createdBy)
 VALUES
-    ('Admin',
-     'Admin User',
+    ('OTG001',
+     'Admin',
      'admin@medplus.com',
      '9000000001',
      'Primary Administrator',
@@ -38,7 +48,7 @@ VALUES
      'Administration',
      'SYSTEM'),
 
-    ('Supervisor',
+    ('OTG002',
      'Supervisor',
      'supervisor@medplus.com',
      '9000000002',
@@ -48,32 +58,63 @@ VALUES
      'Operations',
      'SYSTEM'),
 
-    ('OTG001',
-     'Receptionist OTG001',
+    ('OTG003',
+     'Receptionist',
      'otg001@medplus.com',
      '9000000003',
      'Receptionist',
      'Receptionist',
      'Medplus Head Office Hyderabad',
      'Front Desk',
+     'SYSTEM'),
+
+    ('OTG004',
+     'Vardhan.R',
+     'vardhan.r@medplus.com',
+     '9000000004',
+     'Software Developer',
+     'Software Developer',
+     'Medplus Software Office Hyderabad',
+     'Software Development',
+     'SYSTEM'),
+
+    ('OTG005',
+     'Rohit Varma.D',
+     'rohit.varma.d@medplus.com',
+     '9000000005',
+     'Software Developer',
+     'Software Developer',
+     'Medplus Software Office Hyderabad',
+     'Software Development',
+     'SYSTEM'),
+
+    ('OTG006',
+     'Prabhas.M',
+     'prabhas.m@medplus.com',
+     '9000000006',
+     'Software Developer',
+     'Software Developer',
+     'Medplus Software Office Hyderabad',
+     'Software Development',
      'SYSTEM')
 ON DUPLICATE KEY UPDATE
     modifiedBy = 'SYSTEM';
 
 
 -- ── 3. usermanagement ────────────────────────────────────────────────────────
---  Passwords match employeeid (BCrypt cost 10):
---    Admin      → "Admin"
---    Supervisor → "Supervisor"
---    OTG001     → "OTG001"
+--  Login credentials and role assignments.
+--  Passwords (BCrypt cost 10):
+--    OTG001 / Admin      → "Admin"
+--    OTG002 / Supervisor → "Supervisor"
+--    OTG003 / OTG003     → "OTG003"
 --
---  location FK → locationmaster.LocationId (HO-HO-HYD must exist first)
+--  location FK → locationmaster.LocationId
 
 INSERT INTO `usermanagement`
     (employeeid, fullName, ipaddress, password, location, status, role, createdBy)
 VALUES
-    ('Admin',
-     'Admin User',
+    ('OTG001',
+     'Admin',
      '0.0.0.0',
      '$2a$10$wrR8NHUn5OEVubzndfIpUO4tmi88/DMqFVm7ZyhRF3ws82nGoFIYe',
      'HO-HO-HYD',
@@ -81,20 +122,20 @@ VALUES
      'PRIMARY_ADMIN',
      'SYSTEM'),
 
-    ('Supervisor',
+    ('OTG002',
      'Supervisor',
      '0.0.0.0',
      '$2a$10$iUz7edgsyU/yUfV9csfJS..5bzaf6IAXHFEsOJmRY9Im/TwgWBFtq',
-     'HO-HO-HYD',
+     'SO-HO-HYD',
      'ACTIVE',
      'REGIONAL_ADMIN',
      'SYSTEM'),
 
-    ('OTG001',
-     'Receptionist OTG001',
+    ('OTG003',
+     'Receptionist',
      '0.0.0.0',
      '$2a$10$TDEv.On5BdXIBtTgegtJseXwJ6h/rPztycu6Qgp23/fE5XlWrrhZu',
-     'HO-HO-HYD',
+     'SO-HO-HYD',
      'ACTIVE',
      'RECEPTIONIST',
      'SYSTEM')

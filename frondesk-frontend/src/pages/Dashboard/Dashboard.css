@@ -28,6 +28,34 @@
   flex-shrink: 0;
 }
 
+/* ── Filter bar ──────────────────────────────────────────────────────────── */
+.db-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 2px 0;
+}
+
+.db-filter-bar__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.db-filter-bar__label {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-700);
+  letter-spacing: -0.4px;
+}
+
+.db-filter-bar__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* ── Stats row ───────────────────────────────────────────────────────────── */
 .db-stats-row {
   display: grid;

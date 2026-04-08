@@ -1,4 +1,7 @@
 import { useState, useEffect } from 'react';
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts';
 import './Dashboard.css';
 import AppHeader       from '../../components/AppHeader/AppHeader';
 import AppSidebar      from '../../components/AppSidebar/AppSidebar';
@@ -6,6 +9,8 @@ import UserMaster      from '../UserMaster/UserMaster';
 import LocationMaster  from '../LocationMaster/LocationMaster';
 import CheckInOut      from '../CheckInOut/CheckInOut';
 import UserManagement  from '../UserManagement/UserManagement';
+import Reports         from '../Reports/Reports';
+import Settings        from '../Settings/Settings';
 import { IconPlus, IconMapPin } from '../../components/Icons/Icons';
 import { getDashboardStats, getRecentVisitors } from './dashboardService';
 
@@ -26,7 +31,7 @@ function formatCheckIn(date) {
   });
 }
 
-/* ── Visitor Flow SVG chart ──────────────────────────────────────────────── */
+/* ── Visitor Flow Chart (Recharts) ───────────────────────────────────────── */
 
 function VisitorFlowChart({ points = [] }) {
   if (!points.length) {
@@ -40,38 +45,48 @@ function VisitorFlowChart({ points = [] }) {
     );
   }
 
-  const W = 420; const H = 120; const PAD = { t: 12, b: 28, l: 8, r: 8 };
-  const chartW = W - PAD.l - PAD.r;
-  const chartH = H - PAD.t - PAD.b;
-  const maxY   = Math.max(...points.map(p => p.all), 1);
-  const n      = points.length;
-  const xs     = n === 1
-    ? [PAD.l + chartW / 2]
-    : points.map((_, i) => PAD.l + (i / (n - 1)) * chartW);
-  const ys     = points.map(p => PAD.t + chartH - (p.all / maxY) * chartH);
-
-  const linePath = xs.map((x, i) => `${i === 0 ? 'M' : 'L'}${x},${ys[i]}`).join(' ');
-  const areaPath = n > 1
-    ? `${linePath} L${xs[n - 1]},${H - PAD.b} L${xs[0]},${H - PAD.b} Z`
-    : `M${xs[0]},${ys[0]} L${xs[0]},${H - PAD.b} Z`;
+  // Recharts needs an array of objects with named keys
+  const chartData = points.map(p => ({ label: p.label, visitors: p.all }));
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="100%" preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stopColor="#C2181D" stopOpacity="0.18" />
-          <stop offset="100%" stopColor="#C2181D" stopOpacity="0.02" />
-        </linearGradient>
-      </defs>
-      <path d={areaPath} fill="url(#chartFill)" />
-      <path d={linePath} fill="none" stroke="#C2181D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      {xs.map((x, i) => (
-        <circle key={i} cx={x} cy={ys[i]} r="3.5" fill="#C2181D" stroke="#fff" strokeWidth="1.5" />
-      ))}
-      {points.map((p, i) => (
-        <text key={i} x={xs[i]} y={H - 6} textAnchor="middle" fontSize="9" fill="#aaa">{p.label}</text>
-      ))}
-    </svg>
+    <ResponsiveContainer width="100%" height="100%">
+      <AreaChart data={chartData} margin={{ top: 8, right: 8, bottom: 4, left: -28 }}>
+        <defs>
+          <linearGradient id="visitFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor="#C2181D" stopOpacity={0.18} />
+            <stop offset="100%" stopColor="#C2181D" stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="#f0f1f3" vertical={false} />
+        <XAxis
+          dataKey="label"
+          tick={{ fontSize: 9, fill: '#aaa' }}
+          axisLine={false} tickLine={false}
+        />
+        <YAxis
+          allowDecimals={false}
+          tick={{ fontSize: 9, fill: '#ccc' }}
+          axisLine={false} tickLine={false}
+          width={28}
+        />
+        <Tooltip
+          formatter={(v) => [v, 'Visitors']}
+          contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #eee' }}
+          itemStyle={{ color: '#C2181D' }}
+        />
+        <Area
+          type="monotone"
+          dataKey="visitors"
+          stroke="#C2181D"
+          strokeWidth={2}
+          fill="url(#visitFill)"
+          dot={{ r: 3.5, fill: '#C2181D', stroke: '#fff', strokeWidth: 1.5 }}
+          activeDot={{ r: 5 }}
+          isAnimationActive={true}
+          animationDuration={700}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
   );
 }
 
@@ -113,21 +128,39 @@ function StatCard({ title, values = {}, live = false }) {
   );
 }
 
+/* ── Role-based route guard ──────────────────────────────────────────────── */
+
+const RESTRICTED_ROUTES = {
+  'user-management': ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
+  'user-master':     ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
+  'location-master': ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
+};
+
 /* ── Page content router ─────────────────────────────────────────────────── */
 
-function PageContent({ activeNav, session }) {
+function PageContent({ activeNav, setActiveNav, session }) {
+  const role = session?.role ?? 'RECEPTIONIST';
+
+  // Silently redirect to dashboard if the user attempts to access a restricted page
+  const allowedRoles = RESTRICTED_ROUTES[activeNav];
+  if (allowedRoles && !allowedRoles.includes(role)) {
+    return <DashboardHome session={session} onNavigate={setActiveNav} />;
+  }
+
   switch (activeNav) {
-    case 'home':            return <CheckInOut />;
-    case 'user-management': return <UserManagement />;
-    case 'user-master':     return <UserMaster />;
-    case 'location-master': return <LocationMaster />;
-    default:                return <DashboardHome session={session} />;
+    case 'home':            return <CheckInOut session={session} />;
+    case 'user-management': return <UserManagement session={session} />;
+    case 'user-master':     return <UserMaster session={session} />;
+    case 'location-master': return <LocationMaster session={session} />;
+    case 'reports':         return <Reports session={session} />;
+    case 'settings':        return <Settings session={session} />;
+    default:                return <DashboardHome session={session} onNavigate={setActiveNav} />;
   }
 }
 
 /* ── Dashboard home content ─────────────────────────────────────────────── */
 
-function DashboardHome({ session }) {
+function DashboardHome({ session, onNavigate }) {
   const firstName = session?.fullName?.split(' ')[0] ?? session?.employeeId;
 
   const [stats,    setStats]    = useState(null);
@@ -210,7 +243,7 @@ function DashboardHome({ session }) {
                 : 'All visitors have signed out today.'
             }
           </p>
-          <button className="db-summary__btn">
+          <button className="db-summary__btn" onClick={() => onNavigate('home')}>
             <IconPlus size={14} />
             Register Visitor
           </button>
@@ -244,7 +277,7 @@ function DashboardHome({ session }) {
       <div className="db-table-card">
         <div className="db-table-card__header">
           <span className="db-table-card__title">Recent Visitors</span>
-          <button className="db-table-card__viewall">View all</button>
+          <button className="db-table-card__viewall" onClick={() => onNavigate('home')}>View all</button>
         </div>
 
         <div className="db-table-wrap">
@@ -269,7 +302,7 @@ function DashboardHome({ session }) {
                     No recent visitors
                   </td>
                 </tr>
-              ) : visitors.map((v, i) => (
+              ) : visitors.slice(0, 10).map((v, i) => (
                 <tr key={i}>
                   <td>
                     <span className="db-type-badge">
@@ -313,11 +346,12 @@ export default function Dashboard({ session, onLogout }) {
       <AppHeader session={session} />
       <div className="app-body">
         <AppSidebar
+          session={session}
           activeNav={activeNav}
           onNavChange={setActiveNav}
           onLogout={onLogout}
         />
-        <PageContent activeNav={activeNav} session={session} />
+        <PageContent activeNav={activeNav} setActiveNav={setActiveNav} session={session} />
       </div>
     </div>
   );

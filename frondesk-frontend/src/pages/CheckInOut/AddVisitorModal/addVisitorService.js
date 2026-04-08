@@ -1,11 +1,15 @@
 /**
  * addVisitorService.js
  *
- * Backend communication for the Add Visitor modal.
- * All calls use window.electronAPI.apiRequest() — token injected by main process.
+ * All API calls go through window.electronAPI.apiRequest() — the JWT token is
+ * injected by the Electron main process automatically.
  *
- * OTP functions (sendOtp / verifyOtp) remain mocked until the SMS gateway is ready.
- * Search for "TODO: OTP API" to find them when the time comes.
+ * ─── OTP functions ────────────────────────────────────────────────────────────
+ * sendOtp / verifyOtp are intentionally MOCKED while the SMS gateway is under
+ * development.  When the backend is ready, replace each function body with the
+ * one-liner api() call shown in the TODO comment above it.  Everything else
+ * (state management, UI flow) stays unchanged.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 
 // ─── Private helper ───────────────────────────────────────────────────────────
@@ -13,40 +17,78 @@
 async function api(method, path, body) {
   const result = await window.electronAPI.apiRequest(method, path, body);
   if (!result.ok) {
-    const msg = result.body?.message || `Request failed: ${result.status}`;
+    if (result.status === 0) {
+      throw new Error('Cannot reach the backend server. Please make sure it is running on localhost:8080.');
+    }
+    const msg = result.body?.message || `Request failed (HTTP ${result.status})`;
     throw new Error(msg);
   }
   return result.body?.data ?? result.body;
 }
 
-// ─── OTP  (intentionally still mocked — SMS gateway not yet available) ────────
+// ─── OTP  ─────────────────────────────────────────────────────────────────────
+//
+// Real API contract (implement on backend — see OtpController.java):
+//
+//   POST /api/otp/send
+//   Authorization: Bearer <jwt>
+//   Body:   { "mobile": "9876543210" }
+//   200 OK: { "success": true,  "message": "OTP sent successfully." }
+//   400:    { "success": false, "message": "<reason>" }
+//
+//   POST /api/otp/verify
+//   Authorization: Bearer <jwt>
+//   Body:   { "mobile": "9876543210", "otp": "483921" }
+//   200 OK: { "verified": true,  "message": "Mobile number verified successfully." }
+//   200 OK: { "verified": false, "message": "Invalid OTP. Please try again." }
+//   410:    { "verified": false, "message": "OTP has expired. Please request a new OTP." }
+//
 
 /**
- * TODO: OTP API — replace mock body with real SMS gateway call:
- *   POST /api/otp/send  { mobile }
- *   expects { success: boolean, message: string }
+ * Sends an OTP to the visitor's mobile number.
+ *
+ * TODO: OTP API — when SMS gateway is live, replace the mock body with:
+ *   return await api('POST', '/api/otp/send', { mobile });
+ *
+ * @param   {string} mobile  10-digit mobile number (digits only)
+ * @returns {Promise<{ success: boolean, message: string }>}
  */
 export async function sendOtp(mobile) {
+  // ── MOCK ─────────────────────────────────────────────────────────────────
+  // Simulates network latency. The real SMS gateway call goes here.
   await new Promise((r) => setTimeout(r, 900));
-  console.log('[OTP] Sent to', mobile);
+  console.info('[OTP MOCK] OTP sent to', mobile, '— any 6-digit code will verify.');
   return { success: true, message: 'OTP sent successfully.' };
+  // ─────────────────────────────────────────────────────────────────────────
 }
 
 /**
- * TODO: OTP API — replace mock body with:
- *   POST /api/otp/verify  { mobile, otp }
- *   expects { verified: boolean, message: string }
+ * Verifies the OTP entered by the front-desk operator against the one sent
+ * to the visitor's mobile.
+ *
+ * TODO: OTP API — when SMS gateway is live, replace the mock body with:
+ *   return await api('POST', '/api/otp/verify', { mobile, otp });
+ *
+ * @param   {string} mobile  10-digit mobile number
+ * @param   {string} otp     6-digit OTP string
+ * @returns {Promise<{ verified: boolean, message: string }>}
  */
 export async function verifyOtp(mobile, otp) {
+  // ── MOCK ─────────────────────────────────────────────────────────────────
+  // Any exactly-6-digit code is accepted.  The backend will validate the real
+  // OTP against what was generated and stored server-side.
   await new Promise((r) => setTimeout(r, 900));
-  if (otp.trim().length === 6) return { verified: true,  message: 'Mobile number verified.' };
+  if (otp.trim().length === 6) {
+    return { verified: true,  message: 'Mobile number verified.' };
+  }
   return { verified: false, message: 'Invalid OTP. Please enter the 6-digit code.' };
+  // ─────────────────────────────────────────────────────────────────────────
 }
 
 // ─── Reference data ───────────────────────────────────────────────────────────
 
 /**
- * Fetches all locations from the local locationmaster.
+ * Fetches all locations from the local location master.
  * Endpoint: GET /api/locations
  *
  * @returns {Promise<Array<{ id: string, name: string }>>}
@@ -75,7 +117,7 @@ export async function getPersonsToMeet() {
  * Fetches distinct department names at the caller's location.
  * Endpoint: GET /api/visitors/departments  →  ["Operations", "HR", ...]
  *
- * Returns them in the { id, name } shape the modal's SelectField expects.
+ * Returns them in the { id, name } shape that SelectField expects.
  *
  * @returns {Promise<Array<{ id: string, name: string }>>}
  */
@@ -86,66 +128,28 @@ export async function getDepartments() {
     : [];
 }
 
-// ─── Image upload ─────────────────────────────────────────────────────────────
-
-/**
- * Uploads a visitor photo to the backend and returns the stored image URL.
- *
- * Endpoint: POST /api/images/upload
- *   Body:     { imageData: "data:image/jpeg;base64,..." }
- *   Response: { imageUrl: "http://localhost:8080/images/visitors/xyz.jpg" }
- *
- * The returned URL is saved in visitorlog.imageUrl.
- * TODO: when cloud storage is ready, the backend will return a cloud URL instead
- *       of a local one — no changes needed here.
- *
- * @param {string} base64Image  data-URI string from canvas.toDataURL()
- * @returns {Promise<string>}   public image URL
- */
-export async function uploadVisitorPhoto(base64Image) {
-  const data = await api('POST', '/api/images/upload', { imageData: base64Image });
-  return data.imageUrl;
-}
-
-// ─── Visitor entry creation ───────────────────────────────────────────────────
+// ─── Visitor entry CRUD ───────────────────────────────────────────────────────
 
 /**
  * Updates an existing visitor entry.
- * If the modal has a new photo captured, uploads it first and includes the URL.
- *
  * Endpoint: PUT /api/visitors/:id
  *
- * @param {string} id
- * @param {object} visitorData  Full payload assembled by AddVisitorModal (edit mode)
+ * @param   {string} id
+ * @param   {object} visitorData  Full payload assembled by AddVisitorModal (edit mode)
  * @returns {Promise<{ success: boolean, entryId: string }>}
  */
 export async function updateVisitorEntry(id, visitorData) {
-  const isGroup = visitorData.visitType === 'group';
-
-  let imageUrl = visitorData.imageUrl || null;
-  if (visitorData.photo && visitorData.photo.startsWith('data:')) {
-    imageUrl = await uploadVisitorPhoto(visitorData.photo);
-  }
-
   const payload = {
-    visitType:      visitorData.visitType.toUpperCase(),
+    visitType:      'INDIVIDUAL',
     entryType:      'VISITOR',
     name:           visitorData.fullName,
     mobile:         visitorData.mobile || null,
     govtIdType:     visitorData.govtIdType   || null,
     govtIdNumber:   visitorData.govtIdNumber || null,
-    imageUrl,
     personToMeetId: visitorData.personToMeet,
-    cardNumber:     isGroup
-                      ? (visitorData.leadCardNumber ? parseInt(visitorData.leadCardNumber, 10) : null)
-                      : (visitorData.cardNumber     ? parseInt(visitorData.cardNumber,     10) : null),
+    cardNumber:     visitorData.cardNumber ? parseInt(visitorData.cardNumber, 10) : null,
     reasonForVisit: visitorData.reasonForVisit || null,
-    members: isGroup
-      ? (visitorData.members || []).map((m) => ({
-          name:       m.name,
-          cardNumber: m.card ? parseInt(m.card, 10) : null,
-        }))
-      : null,
+    members:        null,
   };
   const entry = await api('PUT', `/api/visitors/${encodeURIComponent(id)}`, payload);
   return { success: true, entryId: entry.id ?? id };
@@ -153,43 +157,26 @@ export async function updateVisitorEntry(id, visitorData) {
 
 /**
  * Submits a new visitor check-in entry.
- * If a photo was captured, uploads it first and includes the URL in the payload.
- *
  * Endpoint: POST /api/visitors
  *
- * @param {object} visitorData  Full payload assembled by AddVisitorModal
- * @returns {Promise<{ success: boolean, entryId: string }>}
+ * @param   {object} visitorData  Full payload assembled by AddVisitorModal
+ * @returns {Promise<{ success: boolean, entryId: string, cardCode: string|null }>}
  */
 export async function createVisitorEntry(visitorData) {
-  const isGroup = visitorData.visitType === 'group';
-
-  let imageUrl = null;
-  if (visitorData.photo && visitorData.photo.startsWith('data:')) {
-    imageUrl = await uploadVisitorPhoto(visitorData.photo);
-  }
-
   const payload = {
-    visitType:      visitorData.visitType.toUpperCase(),
+    visitType:      'INDIVIDUAL',
     entryType:      'VISITOR',
     name:           visitorData.fullName,
     mobile:         visitorData.mobile || null,
     empId:          null,
     govtIdType:     visitorData.govtIdType   || null,
     govtIdNumber:   visitorData.govtIdNumber || null,
-    imageUrl,
     personToMeetId: visitorData.personToMeet,
-    cardNumber:     isGroup
-                      ? (visitorData.leadCardNumber ? parseInt(visitorData.leadCardNumber, 10) : null)
-                      : (visitorData.cardNumber     ? parseInt(visitorData.cardNumber,     10) : null),
+    cardNumber:     visitorData.cardNumber ? parseInt(visitorData.cardNumber, 10) : null,
     reasonForVisit: visitorData.reasonForVisit || null,
-    members: isGroup
-      ? (visitorData.members || []).map((m) => ({
-          name:       m.name,
-          cardNumber: m.card ? parseInt(m.card, 10) : null,
-        }))
-      : null,
+    members:        null,
   };
 
   const entry = await api('POST', '/api/visitors', payload);
-  return { success: true, entryId: entry.id };
+  return { success: true, entryId: entry.id, cardCode: entry.cardCode ?? null, card: entry.card ?? null };
 }

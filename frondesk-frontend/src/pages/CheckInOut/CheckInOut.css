@@ -37,13 +37,37 @@
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
 .ci-toolbar {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Row 1: tabs (left) + location & date picker (right) */
+.ci-toolbar__row1 {
+  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  flex-shrink: 0;
   flex-wrap: wrap;
 }
 
+.ci-toolbar__loc-date {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Row 2: search + filters + action buttons — right-aligned */
+.ci-toolbar__row2 {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* legacy */
 .ci-toolbar__right {
   display: flex;
   align-items: center;
@@ -226,6 +250,28 @@
 }
 
 .ci-add-btn:active { transform: translateY(0); }
+
+/* ── Pre-Reg Link button ─────────────────────────────────────────────────── */
+.ci-icon-btn--prereg {
+  color: #5a6fd6;
+  border-color: rgba(90, 111, 214, 0.25);
+}
+.ci-icon-btn--prereg:hover {
+  background: rgba(90, 111, 214, 0.08);
+  border-color: rgba(90, 111, 214, 0.40);
+  color: #3b4faa;
+}
+
+/* ── Scan QR button ──────────────────────────────────────────────────────── */
+.ci-icon-btn--scan {
+  color: #28883d;
+  border-color: rgba(40, 136, 61, 0.25);
+}
+.ci-icon-btn--scan:hover {
+  background: rgba(40, 136, 61, 0.08);
+  border-color: rgba(40, 136, 61, 0.40);
+  color: #1a6b2d;
+}
 
 /* ── Table card ──────────────────────────────────────────────────────────── */
 .ci-card {
@@ -711,3 +757,85 @@
   flex-shrink: 0;
 }
 .ci-footer strong { color: #666; }
+
+/* --- Card Return Modal ------------------------------------------------------ */
+.crm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0,0,0,.50);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: etm-fade-in .18s ease;
+}
+.crm-dialog {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.18), 0 4px 16px rgba(0,0,0,.10);
+  padding: 28px;
+  width: min(440px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.crm-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.crm-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #111;
+  margin: 0;
+}
+.crm-sub { font-size: 13px; color: #666; margin: 3px 0 0; }
+.crm-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  color: #aaa;
+  border-radius: 6px;
+  flex-shrink: 0;
+  transition: color .15s;
+}
+.crm-close:hover { color: #555; }
+.crm-body { display: flex; flex-direction: column; gap: 14px; }
+.crm-question { font-size: 14px; color: #333; margin: 0; line-height: 1.5; }
+.crm-card-badge {
+  display: inline-block;
+  background: #f4f4f5;
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: #111;
+}
+.crm-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.crm-btn {
+  flex: 1;
+  min-width: 120px;
+  padding: 10px 16px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  transition: background .15s;
+}
+.crm-btn--yes  { background: #f0fdf4; color: #16a34a; border: 1.5px solid #bbf7d0; }
+.crm-btn--yes:hover  { background: #dcfce7; }
+.crm-btn--no   { background: #fef2f2; color: #dc2626; border: 1.5px solid #fecaca; }
+.crm-btn--no:hover   { background: #fee2e2; }
+.crm-btn--ghost { background: #f4f4f5; color: #555; border: 1px solid #e4e4e7; }
+.crm-btn--ghost:hover { background: #eee; }
+.crm-hint { font-size: 11px; color: #aaa; margin: 0; }

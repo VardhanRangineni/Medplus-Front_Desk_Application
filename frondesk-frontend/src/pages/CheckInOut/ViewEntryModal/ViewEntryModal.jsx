@@ -19,18 +19,13 @@ import {
   IconMapPin,
   IconEdit,
   IconUsers,
-  IconCamera,
 } from '../../../components/Icons/Icons';
 import { getEntryDetail } from '../checkInOutService';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const GOVT_ID_LABELS = {
-  AADHAAR:  'Aadhaar Card',
-  PAN:      'PAN Card',
-  PASSPORT: 'Passport',
-  VOTER:    'Voter ID',
-  DL:       "Driver's License",
+  AADHAAR: 'Aadhaar Card',
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -62,9 +57,7 @@ function DetailRow({ icon, label, value }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ViewEntryModal({ entry, onClose, onEdit }) {
-  const [detail,   setDetail]   = useState(entry);   // pre-fill immediately; enriched when API ready
-  const [loading,  setLoading]  = useState(true);
-  const [photoSrc, setPhotoSrc] = useState(null);
+  const [detail, setDetail] = useState(entry);   // pre-fill immediately; enriched when API ready
 
   // Close on Escape
   useEffect(() => {
@@ -75,22 +68,10 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
 
   // Silently try to load full entry detail — no error shown if API not ready
   useEffect(() => {
-    setLoading(true);
     getEntryDetail(entry.id)
       .then((d) => { if (d) setDetail(d); })   // ignore null/falsy responses
-      .catch(() => { /* API not ready yet — keep displaying entry prop data */ })
-      .finally(() => setLoading(false));
+      .catch(() => { /* API not ready yet — keep displaying entry prop data */ });
   }, [entry.id]);
-
-  // Load photo via Electron IPC so it works regardless of how Chromium handles localhost URLs.
-  // When photos move to cloud storage, this same path works — just pass the cloud URL.
-  useEffect(() => {
-    setPhotoSrc(null);
-    if (!detail?.imageUrl) return;
-    window.electronAPI.getImage(detail.imageUrl)
-      .then((dataUri) => setPhotoSrc(dataUri || null))
-      .catch(() => setPhotoSrc(null));
-  }, [detail?.imageUrl]);
 
   const isVisitor  = entry.type === 'VISITOR';
   const isIn       = entry.status === 'checked-in';
@@ -259,30 +240,9 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
               </div>
             </div>
 
-            {/* ── Right: photo + members ─────────────────────────────── */}
-            <div className="vem-right">
-
-              {/* Photo */}
-              <div className="vem-photo-section">
-                <p className="vem-section__title">Photo Proof</p>
-                <div className={`vem-photo-frame${photoSrc ? '' : ' vem-photo-frame--empty'}`}>
-                  {photoSrc ? (
-                    <img
-                      className="vem-photo-img"
-                      src={photoSrc}
-                      alt={`${entry.name} photo`}
-                    />
-                  ) : (
-                    <div className="vem-photo-placeholder">
-                      <IconCamera size={32} />
-                      <span>{detail.imageUrl ? 'Loading photo…' : 'No photo captured'}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Members (group only) */}
-              {isGroup && entry.members.length > 0 && (
+            {/* ── Right: members (group only) ────────────────────────── */}
+            {isGroup && entry.members.length > 0 && (
+              <div className="vem-right">
                 <div className="vem-members-section">
                   <p className="vem-section__title">
                     <IconUsers size={12} />
@@ -304,9 +264,8 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
                     ))}
                   </div>
                 </div>
-              )}
-
-            </div>
+              </div>
+            )}
           </div>
 
         {/* ── Footer ─────────────────────────────────────────────────── */}

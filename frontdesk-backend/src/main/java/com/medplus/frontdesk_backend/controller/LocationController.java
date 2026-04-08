@@ -4,11 +4,13 @@ import com.medplus.frontdesk_backend.dto.ApiResponse;
 import com.medplus.frontdesk_backend.dto.LocationDto;
 import com.medplus.frontdesk_backend.dto.LocationStatusRequestDto;
 import com.medplus.frontdesk_backend.dto.PagedResponseDto;
+import com.medplus.frontdesk_backend.security.AuthorizationHelper;
 import com.medplus.frontdesk_backend.service.LocationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,7 +30,23 @@ import java.util.List;
 @RequiredArgsConstructor
 public class LocationController {
 
-    private final LocationService locationService;
+    private final LocationService     locationService;
+    private final AuthorizationHelper authHelper;
+
+    /**
+     * GET /api/locations/active
+     *
+     * Returns all active (CONFIGURED) locations as a flat list.
+     * Purpose-built for filter dropdowns across the application (Reports, Check-In/Out, etc.).
+     * No pagination — intended for small-to-medium location lists only.
+     *
+     * Response data: List&lt;{ code, name, address, city, state, status }&gt; ordered by name.
+     */
+    @GetMapping("/active")
+    public ResponseEntity<ApiResponse<List<LocationDto>>> getActiveLocations() {
+        List<LocationDto> locations = locationService.getActiveLocations();
+        return ResponseEntity.ok(ApiResponse.success("Active locations retrieved.", locations));
+    }
 
     /**
      * GET /api/locations/search?q=
@@ -50,9 +68,12 @@ public class LocationController {
     /**
      * GET /api/locations
      *
-     * Returns a paginated page of locations from the local locationmaster table.
-     * Supports optional full-text search over LocationId, descriptive name, and city.
-     * Requires any authenticated user.
+     * Returns a paginated page of locations.
+     *
+     * Access rules:
+     *   PRIMARY_ADMIN  → all locations, optional locationId override
+     *   REGIONAL_ADMIN → their own location only
+     *   RECEPTIONIST   → 403 Forbidden
      *
      * Query params:
      *   q    (optional) — case-insensitive search term
@@ -60,12 +81,15 @@ public class LocationController {
      *   size (optional) — records per page (default 20)
      */
     @GetMapping
+    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
     public ResponseEntity<ApiResponse<PagedResponseDto<LocationDto>>> getLocations(
             @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0")  int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "20") int size,
+            Authentication auth) {
 
-        PagedResponseDto<LocationDto> result = locationService.getLocationsPaged(q, page, size);
+        String locationId = authHelper.resolveEffectiveLocation(auth, null);
+        PagedResponseDto<LocationDto> result = locationService.getLocationsPaged(q, locationId, page, size);
         return ResponseEntity.ok(ApiResponse.success("Locations retrieved successfully", result));
     }
 
@@ -95,7 +119,7 @@ public class LocationController {
      * Request body: { "status": true }
      */
     @PatchMapping("/{code}/status")
-    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
+    @PreAuthorize("hasRole('PRIMARY_ADMIN')")
     public ResponseEntity<ApiResponse<LocationDto>> updateStatus(
             @PathVariable String code,
             @RequestBody LocationStatusRequestDto request) {

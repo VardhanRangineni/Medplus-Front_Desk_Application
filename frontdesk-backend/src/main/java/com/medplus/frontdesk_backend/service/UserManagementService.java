@@ -35,17 +35,19 @@ public class UserManagementService {
     }
 
     /**
-     * Returns a single page of managed users, optionally filtered by a search term.
+     * Returns a single page of managed users, optionally filtered by search term and location.
      *
-     * @param search case-insensitive substring across id / name / ip / mac
-     * @param page   0-based page index
-     * @param size   records per page
+     * @param search     case-insensitive substring across id / name / ip / mac
+     * @param locationId restrict to this location; null = all locations
+     * @param page       0-based page index
+     * @param size       records per page
      */
-    public PagedResponseDto<ManagedUserDto> getManagedUsersPaged(String search, int page, int size) {
+    public PagedResponseDto<ManagedUserDto> getManagedUsersPaged(String search, String locationId, int page, int size) {
         int    offset = page * size;
         String q      = (search != null && !search.isBlank()) ? search : null;
-        List<ManagedUserDto> rows  = userRepository.findManagedUsersPaged(q, offset, size);
-        long                 total = userRepository.countManagedUsers(q);
+        String loc    = (locationId != null && !locationId.isBlank()) ? locationId : null;
+        List<ManagedUserDto> rows  = userRepository.findManagedUsersPaged(q, loc, offset, size);
+        long                 total = userRepository.countManagedUsers(q, loc);
         return PagedResponseDto.of(rows, page, size, total);
     }
 
@@ -53,11 +55,12 @@ public class UserManagementService {
 
     /**
      * Type-ahead search over usermaster by employeeid or fullName.
+     * When {@code locationId} is provided, results are scoped to that location.
      * Returns an empty list if the query is blank.
      */
-    public List<UserLookupDto> searchUsers(String query) {
+    public List<UserLookupDto> searchUsers(String query, String locationId) {
         if (query == null || query.isBlank()) return List.of();
-        return userRepository.searchUserMaster(query);
+        return userRepository.searchUserMaster(query, locationId);
     }
 
     // ── Create ────────────────────────────────────────────────────────────────

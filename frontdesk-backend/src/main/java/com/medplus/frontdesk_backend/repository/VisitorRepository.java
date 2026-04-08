@@ -66,12 +66,12 @@ public class VisitorRepository {
                 INSERT INTO visitorlog
                     (visitorId, visitType, entryType, name, mobile, empId,
                      status, personToMeet, personName, department,
-                     locationId, cardNumber, govtIdType, govtIdNumber, imageUrl,
+                     locationId, cardNumber, cardCode, govtIdType, govtIdNumber,
                      checkInTime, reasonForVisit, createdBy)
                 VALUES
                     (:visitorId, :visitType, :entryType, :name, :mobile, :empId,
                      :status, :personToMeet, :personName, :department,
-                     :locationId, :cardNumber, :govtIdType, :govtIdNumber, :imageUrl,
+                     :locationId, :cardNumber, :cardCode, :govtIdType, :govtIdNumber,
                      :checkInTime, :reasonForVisit, :createdBy)
                 """;
         jdbc.update(sql, new MapSqlParameterSource()
@@ -87,9 +87,9 @@ public class VisitorRepository {
                 .addValue("department",     v.getDepartment())
                 .addValue("locationId",     v.getLocationId())
                 .addValue("cardNumber",     v.getCardNumber())
+                .addValue("cardCode",       v.getCardCode())
                 .addValue("govtIdType",     v.getGovtIdType() != null ? v.getGovtIdType().name() : null)
                 .addValue("govtIdNumber",   v.getGovtIdNumber())
-                .addValue("imageUrl",       v.getImageUrl())
                 .addValue("checkInTime",    v.getCheckInTime())
                 .addValue("reasonForVisit", v.getReasonForVisit())
                 .addValue("createdBy",      v.getCreatedBy())
@@ -108,7 +108,6 @@ public class VisitorRepository {
                     cardNumber     = :cardNumber,
                     govtIdType     = :govtIdType,
                     govtIdNumber   = :govtIdNumber,
-                    imageUrl       = :imageUrl,
                     reasonForVisit = :reasonForVisit,
                     modifiedBy     = :modifiedBy
                 WHERE visitorId = :visitorId
@@ -124,7 +123,6 @@ public class VisitorRepository {
                 .addValue("cardNumber",     v.getCardNumber())
                 .addValue("govtIdType",     v.getGovtIdType() != null ? v.getGovtIdType().name() : null)
                 .addValue("govtIdNumber",   v.getGovtIdNumber())
-                .addValue("imageUrl",       v.getImageUrl())
                 .addValue("reasonForVisit", v.getReasonForVisit())
                 .addValue("modifiedBy",     v.getCreatedBy())
         );
@@ -147,7 +145,7 @@ public class VisitorRepository {
         String sql = """
                 SELECT visitorId, visitType, entryType, name, mobile, empId,
                        status, personToMeet, personName, department,
-                       locationId, cardNumber, govtIdType, govtIdNumber, imageUrl,
+                       locationId, cardNumber, cardCode, govtIdType, govtIdNumber,
                        checkInTime, checkOutTime, reasonForVisit, createdBy
                 FROM visitorlog
                 WHERE visitorId = :visitorId
@@ -167,7 +165,7 @@ public class VisitorRepository {
         String sql = """
                 SELECT visitorId, visitType, entryType, name, mobile, empId,
                        status, personToMeet, personName, department,
-                       locationId, cardNumber, govtIdType, govtIdNumber, imageUrl,
+                       locationId, cardNumber, cardCode, govtIdType, govtIdNumber,
                        checkInTime, checkOutTime, reasonForVisit, createdBy
                 FROM visitorlog
                 WHERE locationId  = :locationId
@@ -195,7 +193,7 @@ public class VisitorRepository {
         String sql = """
                 SELECT visitorId, visitType, entryType, name, mobile, empId,
                        status, personToMeet, personName, department,
-                       locationId, cardNumber, govtIdType, govtIdNumber, imageUrl,
+                       locationId, cardNumber, cardCode, govtIdType, govtIdNumber,
                        checkInTime, checkOutTime, reasonForVisit, createdBy
                 FROM visitorlog
                 WHERE checkInTime >= :start
@@ -222,7 +220,7 @@ public class VisitorRepository {
         String sql = """
                 SELECT visitorId, visitType, entryType, name, mobile, empId,
                        status, personToMeet, personName, department,
-                       locationId, cardNumber, govtIdType, govtIdNumber, imageUrl,
+                       locationId, cardNumber, cardCode, govtIdType, govtIdNumber,
                        checkInTime, checkOutTime, reasonForVisit, createdBy
                 FROM visitorlog
                 WHERE locationId  = :locationId
@@ -257,7 +255,7 @@ public class VisitorRepository {
         String sql = """
                 SELECT visitorId, visitType, entryType, name, mobile, empId,
                        status, personToMeet, personName, department,
-                       locationId, cardNumber, govtIdType, govtIdNumber, imageUrl,
+                       locationId, cardNumber, cardCode, govtIdType, govtIdNumber,
                        checkInTime, checkOutTime, reasonForVisit, createdBy
                 FROM visitorlog
                 WHERE checkInTime >= :start
@@ -317,14 +315,15 @@ public class VisitorRepository {
 
     public void insertMember(VisitorMember m) {
         String sql = """
-                INSERT INTO visitormember (memberId, visitorId, name, cardNumber, status)
-                VALUES (:memberId, :visitorId, :name, :cardNumber, :status)
+                INSERT INTO visitormember (memberId, visitorId, name, cardNumber, cardCode, status)
+                VALUES (:memberId, :visitorId, :name, :cardNumber, :cardCode, :status)
                 """;
         jdbc.update(sql, new MapSqlParameterSource()
                 .addValue("memberId",   m.getMemberId())
                 .addValue("visitorId",  m.getVisitorId())
                 .addValue("name",       m.getName())
                 .addValue("cardNumber", m.getCardNumber())
+                .addValue("cardCode",   m.getCardCode())
                 .addValue("status",     m.getStatus().name())
         );
     }
@@ -343,7 +342,7 @@ public class VisitorRepository {
 
     public List<VisitorMember> findMembersByVisitorId(String visitorId) {
         String sql = """
-                SELECT memberId, visitorId, name, cardNumber, status, checkOutTime
+                SELECT memberId, visitorId, name, cardNumber, cardCode, status, checkOutTime
                 FROM visitormember
                 WHERE visitorId = :visitorId
                 ORDER BY createdAt
@@ -354,6 +353,7 @@ public class VisitorRepository {
                         .visitorId(rs.getString("visitorId"))
                         .name(rs.getString("name"))
                         .cardNumber(rs.getObject("cardNumber", Integer.class))
+                        .cardCode(safeGetString(rs, "cardCode"))
                         .status(VisitStatus.valueOf(rs.getString("status")))
                         .checkOutTime(rs.getTimestamp("checkOutTime") != null
                                 ? rs.getTimestamp("checkOutTime").toLocalDateTime() : null)
@@ -363,7 +363,7 @@ public class VisitorRepository {
 
     public Optional<VisitorMember> findMemberById(String memberId) {
         String sql = """
-                SELECT memberId, visitorId, name, cardNumber, status, checkOutTime
+                SELECT memberId, visitorId, name, cardNumber, cardCode, status, checkOutTime
                 FROM visitormember
                 WHERE memberId = :memberId
                 """;
@@ -374,6 +374,7 @@ public class VisitorRepository {
                         .visitorId(rs.getString("visitorId"))
                         .name(rs.getString("name"))
                         .cardNumber(rs.getObject("cardNumber", Integer.class))
+                        .cardCode(safeGetString(rs, "cardCode"))
                         .status(VisitStatus.valueOf(rs.getString("status")))
                         .checkOutTime(rs.getTimestamp("checkOutTime") != null
                                 ? rs.getTimestamp("checkOutTime").toLocalDateTime() : null)
@@ -395,12 +396,13 @@ public class VisitorRepository {
      * @param offset     OFFSET for SQL (page * size)
      * @param limit      LIMIT for SQL (page size)
      */
-    public List<Visitor> findPaged(String locationId, java.time.LocalDate date,
+    public List<Visitor> findPaged(String locationId,
+                                   java.time.LocalDate from, java.time.LocalDate to,
                                    String department, String status, int offset, int limit) {
         StringBuilder sql = new StringBuilder("""
                 SELECT visitorId, visitType, entryType, name, mobile, empId,
                        status, personToMeet, personName, department,
-                       locationId, cardNumber, govtIdType, govtIdNumber, imageUrl,
+                       locationId, cardNumber, cardCode, govtIdType, govtIdNumber,
                        checkInTime, checkOutTime, reasonForVisit, createdBy
                 FROM visitorlog
                 WHERE 1=1
@@ -410,10 +412,13 @@ public class VisitorRepository {
             sql.append("  AND locationId = :locationId\n");
             params.addValue("locationId", locationId);
         }
-        if (date != null) {
-            sql.append("  AND checkInTime >= :start AND checkInTime < :end\n");
-            params.addValue("start", date.atStartOfDay());
-            params.addValue("end",   date.plusDays(1).atStartOfDay());
+        if (from != null) {
+            sql.append("  AND checkInTime >= :from\n");
+            params.addValue("from", from.atStartOfDay());
+        }
+        if (to != null) {
+            sql.append("  AND checkInTime < :toEnd\n");
+            params.addValue("toEnd", to.plusDays(1).atStartOfDay());
         }
         if (department != null) {
             sql.append("  AND department = :department\n");
@@ -432,7 +437,8 @@ public class VisitorRepository {
      * Returns the total count of records matching the same optional filters used by
      * {@link #findPaged}. Used to calculate total pages.
      */
-    public long countFiltered(String locationId, java.time.LocalDate date,
+    public long countFiltered(String locationId,
+                              java.time.LocalDate from, java.time.LocalDate to,
                               String department, String status) {
         StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM visitorlog WHERE 1=1\n");
         MapSqlParameterSource params = new MapSqlParameterSource();
@@ -440,10 +446,13 @@ public class VisitorRepository {
             sql.append("  AND locationId = :locationId\n");
             params.addValue("locationId", locationId);
         }
-        if (date != null) {
-            sql.append("  AND checkInTime >= :start AND checkInTime < :end\n");
-            params.addValue("start", date.atStartOfDay());
-            params.addValue("end",   date.plusDays(1).atStartOfDay());
+        if (from != null) {
+            sql.append("  AND checkInTime >= :from\n");
+            params.addValue("from", from.atStartOfDay());
+        }
+        if (to != null) {
+            sql.append("  AND checkInTime < :toEnd\n");
+            params.addValue("toEnd", to.plusDays(1).atStartOfDay());
         }
         if (department != null) {
             sql.append("  AND department = :department\n");
@@ -462,14 +471,15 @@ public class VisitorRepository {
      * Searches name, mobile, empId, and personName.
      * All filter parameters are optional (null = no filter).
      */
-    public List<Visitor> searchPaged(String locationId, java.time.LocalDate date,
+    public List<Visitor> searchPaged(String locationId,
+                                     java.time.LocalDate from, java.time.LocalDate to,
                                      String query, String department, String status,
                                      int offset, int limit) {
         String like = "%" + query.trim().toLowerCase() + "%";
         StringBuilder sql = new StringBuilder("""
                 SELECT visitorId, visitType, entryType, name, mobile, empId,
                        status, personToMeet, personName, department,
-                       locationId, cardNumber, govtIdType, govtIdNumber, imageUrl,
+                       locationId, cardNumber, cardCode, govtIdType, govtIdNumber,
                        checkInTime, checkOutTime, reasonForVisit, createdBy
                 FROM visitorlog
                 WHERE (
@@ -484,10 +494,13 @@ public class VisitorRepository {
             sql.append("  AND locationId = :locationId\n");
             params.addValue("locationId", locationId);
         }
-        if (date != null) {
-            sql.append("  AND checkInTime >= :start AND checkInTime < :end\n");
-            params.addValue("start", date.atStartOfDay());
-            params.addValue("end",   date.plusDays(1).atStartOfDay());
+        if (from != null) {
+            sql.append("  AND checkInTime >= :from\n");
+            params.addValue("from", from.atStartOfDay());
+        }
+        if (to != null) {
+            sql.append("  AND checkInTime < :toEnd\n");
+            params.addValue("toEnd", to.plusDays(1).atStartOfDay());
         }
         if (department != null) {
             sql.append("  AND department = :department\n");
@@ -505,7 +518,8 @@ public class VisitorRepository {
     /**
      * Count of search matches — mirrors the filters in {@link #searchPaged}.
      */
-    public long countSearch(String locationId, java.time.LocalDate date,
+    public long countSearch(String locationId,
+                            java.time.LocalDate from, java.time.LocalDate to,
                             String query, String department, String status) {
         String like = "%" + query.trim().toLowerCase() + "%";
         StringBuilder sql = new StringBuilder("""
@@ -522,10 +536,13 @@ public class VisitorRepository {
             sql.append("  AND locationId = :locationId\n");
             params.addValue("locationId", locationId);
         }
-        if (date != null) {
-            sql.append("  AND checkInTime >= :start AND checkInTime < :end\n");
-            params.addValue("start", date.atStartOfDay());
-            params.addValue("end",   date.plusDays(1).atStartOfDay());
+        if (from != null) {
+            sql.append("  AND checkInTime >= :from\n");
+            params.addValue("from", from.atStartOfDay());
+        }
+        if (to != null) {
+            sql.append("  AND checkInTime < :toEnd\n");
+            params.addValue("toEnd", to.plusDays(1).atStartOfDay());
         }
         if (department != null) {
             sql.append("  AND department = :department\n");
@@ -574,7 +591,7 @@ public class VisitorRepository {
         String sql = """
                 SELECT visitorId, visitType, entryType, name, mobile, empId,
                        status, personToMeet, personName, department,
-                       locationId, cardNumber, govtIdType, govtIdNumber, imageUrl,
+                       locationId, cardNumber, cardCode, govtIdType, govtIdNumber,
                        checkInTime, checkOutTime, reasonForVisit, createdBy
                 FROM visitorlog
                 WHERE locationId = :locationId
@@ -594,7 +611,7 @@ public class VisitorRepository {
         String sql = """
                 SELECT visitorId, visitType, entryType, name, mobile, empId,
                        status, personToMeet, personName, department,
-                       locationId, cardNumber, govtIdType, govtIdNumber, imageUrl,
+                       locationId, cardNumber, cardCode, govtIdType, govtIdNumber,
                        checkInTime, checkOutTime, reasonForVisit, createdBy
                 FROM visitorlog
                 ORDER BY checkInTime DESC
@@ -695,6 +712,47 @@ public class VisitorRepository {
                         .designation(rs.getString("designation"))
                         .build()
         );
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    /**
+     * Returns the visitorId of an already-active (CHECKED_IN) entry for the same person
+     * at the same location, or empty if no duplicate exists.
+     *
+     * For EMPLOYEE entries: matches on empId + locationId.
+     * For VISITOR entries:  matches on name (case-insensitive) + mobile + locationId.
+     */
+    public Optional<String> findActiveCheckin(String entryType, String empId,
+                                              String name, String mobile, String locationId) {
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("locationId", locationId)
+                .addValue("status", "CHECKED_IN");
+
+        String sql;
+        if ("EMPLOYEE".equalsIgnoreCase(entryType) && empId != null) {
+            sql = """
+                    SELECT visitorId FROM visitorlog
+                    WHERE locationId = :locationId
+                      AND status     = :status
+                      AND empId      = :empId
+                    LIMIT 1
+                    """;
+            params.addValue("empId", empId);
+        } else {
+            if (name == null || mobile == null) return Optional.empty();
+            sql = """
+                    SELECT visitorId FROM visitorlog
+                    WHERE locationId = :locationId
+                      AND status     = :status
+                      AND LOWER(name) = LOWER(:name)
+                      AND mobile     = :mobile
+                    LIMIT 1
+                    """;
+            params.addValue("name", name);
+            params.addValue("mobile", mobile);
+        }
+
+        List<String> rows = jdbc.queryForList(sql, params, String.class);
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
@@ -809,9 +867,9 @@ public class VisitorRepository {
                 .department(rs.getString("department"))
                 .locationId(rs.getString("locationId"))
                 .cardNumber(rs.getObject("cardNumber", Integer.class))
+                .cardCode(safeGetString(rs, "cardCode"))
                 .govtIdType(govtIdTypeStr != null ? GovtIdType.valueOf(govtIdTypeStr) : null)
                 .govtIdNumber(rs.getString("govtIdNumber"))
-                .imageUrl(rs.getString("imageUrl"))
                 .checkInTime(rs.getTimestamp("checkInTime") != null
                         ? rs.getTimestamp("checkInTime").toLocalDateTime() : null)
                 .checkOutTime(rs.getTimestamp("checkOutTime") != null
@@ -819,5 +877,10 @@ public class VisitorRepository {
                 .reasonForVisit(rs.getString("reasonForVisit"))
                 .createdBy(rs.getString("createdBy"))
                 .build();
+    }
+
+    /** Safely reads a column that might not be in the result set yet (pre-migration rows). */
+    private static String safeGetString(java.sql.ResultSet rs, String col) {
+        try { return rs.getString(col); } catch (Exception e) { return null; }
     }
 }

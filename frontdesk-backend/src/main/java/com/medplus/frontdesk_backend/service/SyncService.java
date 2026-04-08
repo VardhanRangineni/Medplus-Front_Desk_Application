@@ -20,6 +20,7 @@ public class SyncService {
 
     private final ExternalApiClient externalApiClient;
     private final SyncRepository    syncRepository;
+    private final CardService       cardService;
 
     private static final DateTimeFormatter FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -61,6 +62,9 @@ public class SyncService {
             } else {
                 locInserted++;
                 log.info("[locationmaster] Inserted: {} — status set to NOTCONFIGURED", loc.getLocationId());
+                // Generate default card pool for the new location
+                cardService.ensureCardsForLocation(
+                    loc.getLocationId(), loc.getDescriptiveName());
             }
         }
         result.locationsInserted(locInserted).locationsUpdated(locUpdated);

@@ -68,6 +68,19 @@ export class ApiError extends Error {
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
+ * Returns all active (CONFIGURED) locations as a flat list.
+ * Intended for filter dropdowns across the application (Reports, Check-In/Out, etc.).
+ * No pagination — suitable where the location count is manageable (< 500).
+ *
+ * Endpoint: GET /api/locations/active
+ *
+ * @returns {Promise<Location[]>}
+ */
+export async function getActiveLocations() {
+  return request('GET', '/api/locations/active');
+}
+
+/**
  * Type-ahead search over locationmaster by descriptive name or LocationId.
  * Used to auto-fill the Location field in the Add / Edit User modal.
  *

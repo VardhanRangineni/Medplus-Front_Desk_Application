@@ -3,11 +3,13 @@ package com.medplus.frontdesk_backend.controller;
 import com.medplus.frontdesk_backend.dto.ApiResponse;
 import com.medplus.frontdesk_backend.dto.PagedResponseDto;
 import com.medplus.frontdesk_backend.dto.UserDto;
+import com.medplus.frontdesk_backend.security.AuthorizationHelper;
 import com.medplus.frontdesk_backend.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,26 +26,36 @@ import java.util.List;
 @RequiredArgsConstructor
 public class UserController {
 
-    private final UserService userService;
+    private final UserService          userService;
+    private final AuthorizationHelper  authHelper;
 
     /**
      * GET /api/users
      *
      * Returns a paginated page of employees from the local usermaster table.
-     * Supports optional full-text search over id, name, department, and work location.
+     *
+     * Access rules:
+     *   PRIMARY_ADMIN   → all employees, optional locationId override supported
+     *   REGIONAL_ADMIN  → employees at their location only
+     *   RECEPTIONIST    → 403 Forbidden
      *
      * Query params:
-     *   q    (optional) — case-insensitive search term
-     *   page (optional) — 0-based page index (default 0)
-     *   size (optional) — records per page (default 20)
+     *   q          (optional) — case-insensitive search term
+     *   locationId (optional) — admin-level location override (ignored for non-admin)
+     *   page       (optional) — 0-based page index (default 0)
+     *   size       (optional) — records per page (default 20)
      */
     @GetMapping
+    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
     public ResponseEntity<ApiResponse<PagedResponseDto<UserDto>>> getUsers(
-            @RequestParam(required = false)                  String q,
-            @RequestParam(defaultValue = "0")                int    page,
-            @RequestParam(defaultValue = "20")               int    size) {
+            @RequestParam(required = false)    String q,
+            @RequestParam(required = false)    String locationId,
+            @RequestParam(defaultValue = "0")  int    page,
+            @RequestParam(defaultValue = "20") int    size,
+            Authentication auth) {
 
-        PagedResponseDto<UserDto> result = userService.getUsersPaged(q, page, size);
+        String effectiveLoc = authHelper.resolveEffectiveLocation(auth, locationId);
+        PagedResponseDto<UserDto> result = userService.getUsersPaged(q, effectiveLoc, page, size);
         return ResponseEntity.ok(ApiResponse.success("Users retrieved successfully", result));
     }
 
@@ -52,10 +64,10 @@ public class UserController {
      *
      * Pulls the latest employee data from the external HR API,
      * upserts into usermaster, and returns the full updated list.
-     * Restricted to PRIMARY_ADMIN and REGIONAL_ADMIN.
+     * Restricted to PRIMARY_ADMIN only.
      */
     @PostMapping("/sync")
-    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
+    @PreAuthorize("hasRole('PRIMARY_ADMIN')")
     public ResponseEntity<ApiResponse<List<UserDto>>> syncUsers(
             @AuthenticationPrincipal UserDetails principal) {
 
