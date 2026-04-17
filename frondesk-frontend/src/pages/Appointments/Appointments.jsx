@@ -61,7 +61,7 @@ function ViewAppointmentModal({ appt, onClose }) {
         <div className="apt-modal-body">
           <div className="apt-detail-grid">
             <div className="apt-detail-item">
-              <span className="apt-detail-label">Patient Name</span>
+              <span className="apt-detail-label">Visitor Name</span>
               <span className="apt-detail-value">{appt.patientName ?? '—'}</span>
             </div>
             <div className="apt-detail-item">
@@ -73,7 +73,7 @@ function ViewAppointmentModal({ appt, onClose }) {
               <span className="apt-detail-value">{appt.email ?? '—'}</span>
             </div>
             <div className="apt-detail-item">
-              <span className="apt-detail-label">Doctor / Person to Meet</span>
+              <span className="apt-detail-label">Person to Meet</span>
               <span className="apt-detail-value">{appt.personToMeet ?? '—'}</span>
             </div>
             <div className="apt-detail-item">
@@ -155,7 +155,7 @@ function CheckInPreviewModal({ appt, cardCode, loadingPreview, loadingCheckIn, o
                   <span className="apt-ci-val">{appt.patientName}</span>
                 </div>
                 <div className="apt-ci-row">
-                  <span className="apt-ci-label">Doctor / Person to Meet</span>
+                  <span className="apt-ci-label">Person to Meet</span>
                   <span className="apt-ci-val">{appt.personToMeet ?? '—'}</span>
                 </div>
                 <div className="apt-ci-row">
@@ -533,9 +533,9 @@ export default function Appointments({ session }) {
             <thead>
               <tr>
                 <th scope="col">Appointment ID</th>
-                <th scope="col">Patient Name</th>
+                <th scope="col">Visitor Name</th>
                 <th scope="col">Mobile</th>
-                <th scope="col">Doctor / Person to Meet</th>
+                <th scope="col">Person to Meet</th>
                 <th scope="col">Department</th>
                 <th scope="col">Date &amp; Time</th>
                 <th scope="col">Actions</th>
