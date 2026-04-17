@@ -12,7 +12,7 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 4px 2px 28px;
+  padding: 4px 2px;
   scrollbar-width: none;
 }
 .st-page::-webkit-scrollbar { display: none; }
