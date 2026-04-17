@@ -168,9 +168,9 @@ public class AppointmentRepository {
                                       MapSqlParameterSource params) {
         var sb = new StringBuilder("WHERE 1=1");
 
+        // Default front-desk view: today only, from the current clock time onward (not future calendar days).
         if (defaultView) {
-            sb.append(" AND (appointmentDate > CURDATE() " +
-                      "OR (appointmentDate = CURDATE() AND appointmentTime >= CURTIME()))");
+            sb.append(" AND appointmentDate = CURDATE() AND appointmentTime >= CURTIME()");
         } else {
             if (from != null) {
                 sb.append(" AND appointmentDate >= :from");
