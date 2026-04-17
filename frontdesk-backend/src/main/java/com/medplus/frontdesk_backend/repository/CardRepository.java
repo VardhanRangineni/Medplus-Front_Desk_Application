@@ -43,6 +43,25 @@ public class CardRepository {
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
+    /**
+     * Reads the next AVAILABLE card for a location WITHOUT locking or assigning it.
+     * Used for the check-in preview modal so the receptionist can see the upcoming card.
+     * There is a small (harmless) race window between peek and actual assignment.
+     */
+    public Optional<CardDto> peekNextAvailable(String locationId) {
+        List<CardDto> rows = jdbc.query(
+            "SELECT c.id, c.locationId, c.cardCode, c.status, c.assignedTo, c.assignedAt, c.createdAt, " +
+            "       lm.descriptiveName AS locationName " +
+            "FROM cardmaster c " +
+            "JOIN locationmaster lm ON lm.LocationId = c.locationId " +
+            "WHERE c.locationId = :loc AND c.status = 'AVAILABLE' " +
+            "ORDER BY c.id LIMIT 1",
+            new MapSqlParameterSource("loc", locationId),
+            CardRepository::mapCard
+        );
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
     /** Assigns a card to a visitor. */
     public void assignCard(long cardId, String visitorId) {
         jdbc.update(

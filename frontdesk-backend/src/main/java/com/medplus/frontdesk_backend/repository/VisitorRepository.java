@@ -623,6 +623,50 @@ public class VisitorRepository {
     // ── Person-to-meet search ─────────────────────────────────────────────────
 
     /**
+     * Public employee search for the appointment booking web app.
+     * When {@code locationId} is provided, results are restricted to employees whose
+     * {@code worklocation} matches the {@code descriptiveName} of that location.
+     * When {@code locationId} is null, all locations are searched.
+     * <p>
+     * Searches usermaster by fullName, employeeid, or department. Returns ≤ 20 rows.
+     */
+    public List<PersonToMeetDto> searchAllPersonsPublic(String query, String locationId) {
+        if (query == null || query.isBlank()) return java.util.Collections.emptyList();
+        String like = "%" + query.trim().toLowerCase() + "%";
+
+        var params = new MapSqlParameterSource("q", like);
+        String locationClause = "";
+        if (locationId != null && !locationId.isBlank()) {
+            locationClause = "AND u.worklocation = " +
+                    "(SELECT descriptiveName FROM locationmaster WHERE LocationId = :locationId) ";
+            params.addValue("locationId", locationId);
+        }
+
+        String sql = "SELECT u.employeeid, u.fullName, u.phone, u.department, u.designation " +
+                     "FROM usermaster u " +
+                     "WHERE (LOWER(u.fullName) LIKE :q " +
+                     "    OR LOWER(u.employeeid) LIKE :q " +
+                     "    OR LOWER(u.department) LIKE :q) " +
+                     locationClause +
+                     "ORDER BY u.fullName LIMIT 20";
+
+        return jdbc.query(sql, params,
+                (rs, rowNum) -> PersonToMeetDto.builder()
+                        .id(rs.getString("employeeid"))
+                        .name(rs.getString("fullName"))
+                        .phone(rs.getString("phone"))
+                        .department(rs.getString("department"))
+                        .designation(rs.getString("designation"))
+                        .build()
+        );
+    }
+
+    /** Convenience overload — no location filter (searches all locations). */
+    public List<PersonToMeetDto> searchAllPersonsPublic(String query) {
+        return searchAllPersonsPublic(query, null);
+    }
+
+    /**
      * Searches usermaster employees at the given location.
      * Matches fullName, employeeid, or phone using a case-insensitive LIKE.
      * The location is resolved via locationmaster.descriptiveName = usermaster.worklocation.

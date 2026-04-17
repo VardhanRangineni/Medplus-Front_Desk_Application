@@ -2,15 +2,17 @@ import './AppSidebar.css';
 import {
   IconGrid, IconHome, IconUsers, IconBarChart,
   IconSettings, IconLogOut, IconUserCog, IconBuilding,
+  IconClipboardList,
 } from '../Icons/Icons';
 
 const ALL_NAV_ITEMS = [
-  { id: 'dashboard',       icon: <IconGrid size={20} />,     label: 'Dashboard',       roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST'] },
-  { id: 'home',            icon: <IconHome size={20} />,     label: 'Home',            roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST'] },
-  { id: 'user-management', icon: <IconUsers size={20} />,    label: 'User Management', roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
-  { id: 'reports',         icon: <IconBarChart size={20} />, label: 'Reports',         roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST'] },
-  { id: 'user-master',     icon: <IconUserCog size={20} />,  label: 'User Master',     roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
-  { id: 'location-master', icon: <IconBuilding size={20} />, label: 'Location Master', roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
+  { id: 'dashboard',       icon: <IconGrid size={20} />,            label: 'Dashboard',       roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST'] },
+  { id: 'home',            icon: <IconHome size={20} />,            label: 'Home',            roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST'] },
+  { id: 'appointments',    icon: <IconClipboardList size={20} />,   label: 'Appointments',    roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST'] },
+  { id: 'user-management', icon: <IconUsers size={20} />,           label: 'User Management', roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
+  { id: 'reports',         icon: <IconBarChart size={20} />,        label: 'Reports',         roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST'] },
+  { id: 'user-master',     icon: <IconUserCog size={20} />,         label: 'User Master',     roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
+  { id: 'location-master', icon: <IconBuilding size={20} />,        label: 'Location Master', roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
 ];
 
 /**

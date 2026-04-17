@@ -1,6 +1,5 @@
 package com.medplus.frontdesk_backend.dto;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -9,7 +8,6 @@ import lombok.NoArgsConstructor;
  */
 @Data
 @NoArgsConstructor
-@AllArgsConstructor
 public class OtpVerifyResponseDto {
 
     /** true if the supplied OTP matches the stored OTP and has not expired */
@@ -17,4 +15,9 @@ public class OtpVerifyResponseDto {
 
     /** Human-readable status message for the front-end to display */
     private String message;
+
+    public OtpVerifyResponseDto(boolean verified, String message) {
+        this.verified = verified;
+        this.message = message;
+    }
 }

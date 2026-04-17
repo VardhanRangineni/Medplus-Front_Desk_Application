@@ -64,6 +64,7 @@ public class DatabaseMigrationRunner implements ApplicationRunner {
         extendRequestTypeEnum();
         seedCardsForExistingLocations();
         seedInitialCardRequests();
+        seedSampleAppointments();
         log.info("Database migrations complete.");
     }
 
@@ -284,5 +285,69 @@ public class DatabaseMigrationRunner implements ApplicationRunner {
         } else {
             log.debug("Migration skipped: column `{}` already exists in `{}`", column, table);
         }
+    }
+
+    /**
+     * Seeds sample appointment data into {@code appointmentslog} if the table is empty.
+     * Uses CURDATE() so seeds always target today, making them visible in the default view.
+     */
+    private void seedSampleAppointments() {
+        Integer count = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM appointmentslog", Integer.class);
+        if (count != null && count > 0) {
+            log.debug("appointmentslog already has {} rows — skipping seed", count);
+            return;
+        }
+
+        // Resolve the first active location to use as locationId
+        var locations = jdbc.queryForList(
+            "SELECT LocationId, descriptiveName FROM locationmaster LIMIT 2");
+        if (locations.isEmpty()) {
+            log.warn("No locations found — skipping appointment seed");
+            return;
+        }
+        String locId   = (String) locations.get(0).get("LocationId");
+        String locName = (String) locations.get(0).get("descriptiveName");
+
+        // Resolve the first employee as person-to-meet
+        var employees = jdbc.queryForList(
+            "SELECT employeeid, fullName FROM usermaster LIMIT 3");
+        if (employees.isEmpty()) {
+            log.warn("No employees found — skipping appointment seed");
+            return;
+        }
+        String doctorId   = (String) employees.get(0).get("employeeid");
+        String doctorName = (String) employees.get(0).get("fullName");
+        String dept       = "General Medicine";
+
+        // Five sample appointments spread across the day (all VISITOR type)
+        String[][] samples = {
+            // { appointmentId, bookingToken, name, mobile, email, date expr, time, reason }
+            { "APT-SEED-0001", java.util.UUID.randomUUID().toString(), "Rajesh Kumar",
+              "9876543210", "rajesh@example.com", "CURDATE()", "10:00:00", "Routine check-up" },
+            { "APT-SEED-0002", java.util.UUID.randomUUID().toString(), "Priya Sharma",
+              "9123456780", "priya@example.com",  "CURDATE()", "10:30:00", "Follow-up visit" },
+            { "APT-SEED-0003", java.util.UUID.randomUUID().toString(), "Arjun Reddy",
+              "9001234567", "arjun@example.com",  "CURDATE()", "11:00:00", "Consultation" },
+            { "APT-SEED-0004", java.util.UUID.randomUUID().toString(), "Meena Patel",
+              "8765432109", "meena@example.com",  "CURDATE()", "14:30:00", "Prescription renewal" },
+            { "APT-SEED-0005", java.util.UUID.randomUUID().toString(), "Suresh Nair",
+              "9988776655", "suresh@example.com", "DATE_ADD(CURDATE(), INTERVAL 1 DAY)", "09:00:00",
+              "Annual health checkup" },
+        };
+
+        for (String[] s : samples) {
+            jdbc.update(
+                "INSERT IGNORE INTO appointmentslog " +
+                "(appointmentId, bookingToken, entryType, name, mobile, email, " +
+                " personToMeet, personName, department, locationId, locationName, " +
+                " appointmentDate, appointmentTime, reasonForVisit) " +
+                "VALUES (?, ?, 'VISITOR', ?, ?, ?, ?, ?, ?, ?, ?, " + s[5] + ", ?, ?)",
+                s[0], s[1], s[2], s[3], s[4],
+                doctorId, doctorName, dept, locId, locName,
+                s[6], s[7]
+            );
+        }
+        log.info("Seeded {} sample appointments into appointmentslog", samples.length);
     }
 }

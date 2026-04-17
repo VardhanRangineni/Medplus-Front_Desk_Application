@@ -17,9 +17,8 @@ import com.medplus.frontdesk_backend.model.Visitor;
 import com.medplus.frontdesk_backend.model.VisitorMember;
 import com.medplus.frontdesk_backend.repository.UserRepository;
 import com.medplus.frontdesk_backend.repository.VisitorRepository;
-import com.medplus.frontdesk_backend.service.CardService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -31,14 +30,20 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class VisitorService {
+
+    private static final Logger log = LoggerFactory.getLogger(VisitorService.class);
 
     private final VisitorRepository visitorRepository;
     private final UserRepository    userRepository;
     private final CardService       cardService;
+
+    public VisitorService(VisitorRepository visitorRepository, UserRepository userRepository, CardService cardService) {
+        this.visitorRepository = visitorRepository;
+        this.userRepository = userRepository;
+        this.cardService = cardService;
+    }
 
     // ── Create ────────────────────────────────────────────────────────────────
 

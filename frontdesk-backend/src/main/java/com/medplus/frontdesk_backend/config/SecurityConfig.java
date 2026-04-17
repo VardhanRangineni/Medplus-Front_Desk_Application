@@ -61,6 +61,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/health").permitAll()
                         .requestMatchers("/register.html").permitAll()
                         .requestMatchers("/api/pre-register/public/**").permitAll()
+                        .requestMatchers("/api/appointment/public/**").permitAll()
                         .requestMatchers("/api/sync/**").hasAnyRole("PRIMARY_ADMIN", "REGIONAL_ADMIN")
                         .anyRequest().authenticated()
                 )

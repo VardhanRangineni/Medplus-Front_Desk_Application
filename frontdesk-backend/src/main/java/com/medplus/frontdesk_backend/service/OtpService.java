@@ -2,7 +2,8 @@ package com.medplus.frontdesk_backend.service;
 
 import com.medplus.frontdesk_backend.dto.OtpSendResponseDto;
 import com.medplus.frontdesk_backend.dto.OtpVerifyResponseDto;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -27,9 +28,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * │  Everything else — storage, expiry, verification — stays as-is.         │
  * └──────────────────────────────────────────────────────────────────────────┘
  */
-@Slf4j
 @Service
 public class OtpService {
+
+    private static final Logger log = LoggerFactory.getLogger(OtpService.class);
 
     private static final int OTP_EXPIRY_MINUTES = 10;
 

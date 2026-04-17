@@ -11,6 +11,7 @@ import CheckInOut      from '../CheckInOut/CheckInOut';
 import UserManagement  from '../UserManagement/UserManagement';
 import Reports         from '../Reports/Reports';
 import Settings        from '../Settings/Settings';
+import Appointments    from '../Appointments/Appointments';
 import { IconPlus, IconMapPin } from '../../components/Icons/Icons';
 import { getDashboardStats, getRecentVisitors } from './dashboardService';
 
@@ -149,6 +150,7 @@ function PageContent({ activeNav, setActiveNav, session }) {
 
   switch (activeNav) {
     case 'home':            return <CheckInOut session={session} />;
+    case 'appointments':    return <Appointments session={session} />;
     case 'user-management': return <UserManagement session={session} />;
     case 'user-master':     return <UserMaster session={session} />;
     case 'location-master': return <LocationMaster session={session} />;

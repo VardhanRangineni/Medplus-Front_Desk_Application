@@ -112,7 +112,37 @@ CREATE TABLE IF NOT EXISTS `visitorlog` (
 
 
 
--- ── 5. visitormember ──────────────────────────────────────────────────────────
+-- ── 5. appointmentslog ───────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS `appointmentslog` (
+    `appointmentId`   VARCHAR(30)                NOT NULL  COMMENT 'Human-readable reference, e.g. APT-20260416-0001',
+    `bookingToken`    VARCHAR(36)                DEFAULT NULL COMMENT 'UUID used by the web app for polling confirmation',
+    `entryType`       ENUM('VISITOR','EMPLOYEE') NOT NULL  DEFAULT 'VISITOR',
+    `name`            VARCHAR(150)               NOT NULL  COMMENT 'Patient / visitor full name',
+    `aadhaarNumber`   VARCHAR(12)                DEFAULT NULL,
+    `email`           VARCHAR(120)               DEFAULT NULL,
+    `mobile`          VARCHAR(20)                DEFAULT NULL,
+    `empId`           VARCHAR(100)               DEFAULT NULL COMMENT 'Employee ID (EMPLOYEE flow only)',
+    `personToMeet`    VARCHAR(100)               NOT NULL  COMMENT 'employeeid of doctor / host',
+    `personName`      VARCHAR(150)               DEFAULT NULL COMMENT 'Full name of doctor / host (denormalised)',
+    `department`      VARCHAR(120)               DEFAULT NULL,
+    `locationId`      VARCHAR(50)                DEFAULT NULL,
+    `locationName`    VARCHAR(150)               DEFAULT NULL,
+    `appointmentDate` DATE                       NOT NULL,
+    `appointmentTime` TIME                       NOT NULL  COMMENT '24-hour format, e.g. 16:00:00',
+    `reasonForVisit`  TEXT                       DEFAULT NULL,
+    `createdAt`       TIMESTAMP                  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`appointmentId`),
+    KEY `idx_appt_date_time`    (`appointmentDate`, `appointmentTime`),
+    KEY `idx_appt_location`     (`locationId`),
+    KEY `idx_appt_booking_token`(`bookingToken`)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='Scheduled appointments from the public booking web app';
+
+
+-- ── 6. visitormember ──────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS `visitormember` (
     `memberId`     VARCHAR(20)                        NOT NULL  COMMENT 'Auto-generated: MED-GM-0001',

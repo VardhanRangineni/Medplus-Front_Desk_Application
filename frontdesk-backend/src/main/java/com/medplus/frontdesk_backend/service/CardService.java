@@ -14,7 +14,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.Optional;
 
 @Slf4j
@@ -43,6 +42,16 @@ public class CardService {
         cardRepository.assignCard(card.get().getId(), visitorId);
         log.info("Card {} assigned to visitor {} at {}", card.get().getCardCode(), visitorId, locationId);
         return Optional.of(card.get().getCardCode());
+    }
+
+    /**
+     * Reads the next available card code for a location WITHOUT assigning it.
+     * Used by the appointment check-in preview so the receptionist sees what
+     * card number will be assigned before confirming.
+     */
+    public Optional<String> peekNextCard(String locationId) {
+        return cardRepository.peekNextAvailable(locationId)
+                .map(CardDto::getCardCode);
     }
 
     /**

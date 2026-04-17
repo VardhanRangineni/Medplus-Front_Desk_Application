@@ -318,3 +318,13 @@ export const IconLink = ({ size = 16, className }) => (
     <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
   </svg>
 );
+
+export const IconClipboardList = ({ size = 16, className }) => (
+  <svg {...iconProps(size)} className={className}>
+    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+    <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+    <line x1="9"  y1="11" x2="15" y2="11" />
+    <line x1="9"  y1="15" x2="15" y2="15" />
+    <line x1="9"  y1="7"  x2="12" y2="7"  />
+  </svg>
+);
