@@ -24,8 +24,10 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
@@ -55,11 +57,16 @@ public class AppointmentService {
     // ── OTP — Visitor (mobile-based) ─────────────────────────────────────────
 
     public OtpSendResponseDto sendVisitorOtp(String mobile) {
+        otpService.revokeVisitorBookingAuth(mobile);
         return otpService.sendOtp(mobile);
     }
 
     public OtpVerifyResponseDto verifyVisitorOtp(String mobile, String otp) {
-        return otpService.verifyOtp(mobile, otp);
+        OtpVerifyResponseDto r = otpService.verifyOtp(mobile, otp);
+        if (r.isVerified()) {
+            otpService.grantVisitorBookingAuth(mobile);
+        }
+        return r;
     }
 
     // ── Employee lookup + OTP ─────────────────────────────────────────────────
@@ -85,6 +92,7 @@ public class AppointmentService {
                     "No registered phone number found for this employee. Please contact HR.");
         }
 
+        otpService.revokeEmployeeBookingAuth(empId);
         OtpSendResponseDto otpResult = otpService.sendOtp(phone);
         if (!otpResult.isSuccess()) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
@@ -116,7 +124,11 @@ public class AppointmentService {
             return new OtpVerifyResponseDto(false,
                     "No phone on record for this employee. Cannot verify OTP.");
         }
-        return otpService.verifyOtp(phone, otp);
+        OtpVerifyResponseDto r = otpService.verifyOtp(phone, otp);
+        if (r.isVerified()) {
+            otpService.grantEmployeeBookingAuth(empId);
+        }
+        return r;
     }
 
     // ── Office locations ──────────────────────────────────────────────────────
@@ -181,6 +193,12 @@ public class AppointmentService {
     public AppointmentConfirmationDto bookAppointment(AppointmentBookingRequestDto req) {
         validateDate(req.getAppointmentDate());
 
+        if ("EMPLOYEE".equalsIgnoreCase(req.getEntryType())) {
+            otpService.assertEmployeeBookingAuth(req.getEmpId());
+        } else {
+            otpService.assertVisitorBookingAuth(req.getMobile());
+        }
+
         PersonToMeetDto person = visitorRepository.findPersonById(req.getPersonToMeetId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Person to meet not found: " + req.getPersonToMeetId()));
@@ -208,6 +226,18 @@ public class AppointmentService {
             if (emp != null) resolvedName = emp.getName();
         }
 
+        // Employee flow does not send mobile in the JSON body; persist HR phone for front-desk list / check-in
+        String mobileForLog = req.getMobile() != null ? req.getMobile().trim() : null;
+        if ((mobileForLog == null || mobileForLog.isBlank()) && "EMPLOYEE".equalsIgnoreCase(req.getEntryType())) {
+            String empId = req.getEmpId();
+            if (empId != null && !empId.isBlank()) {
+                UserMaster master = userRepository.findUserMasterByEmployeeId(empId.trim()).orElse(null);
+                if (master != null && master.getPhone() != null && !master.getPhone().isBlank()) {
+                    mobileForLog = master.getPhone().trim();
+                }
+            }
+        }
+
         String token     = UUID.randomUUID().toString();
         String reference = buildReference(req.getAppointmentDate());
 
@@ -218,7 +248,7 @@ public class AppointmentService {
                 .name           (resolvedName)
                 .aadhaarNumber  (req.getAadhaarNumber())
                 .email          (req.getEmail())
-                .mobile         (req.getMobile())
+                .mobile         (mobileForLog)
                 .empId          (req.getEmpId())
                 .personToMeet   (person.getId())
                 .personName     (person.getName())
@@ -231,6 +261,13 @@ public class AppointmentService {
                 .build();
 
         appointmentRepository.insert(log);
+
+        if ("EMPLOYEE".equalsIgnoreCase(req.getEntryType())) {
+            otpService.consumeEmployeeBookingAuth(req.getEmpId());
+        } else {
+            otpService.consumeVisitorBookingAuth(req.getMobile());
+        }
+
         AppointmentService.log.info("[Appointment] Booked {} {} → {} on {} at {} (ref={})",
                 log.getEntryType(), resolvedName,
                 person.getName(), req.getAppointmentDate(), req.getAppointmentTime(), reference);
@@ -240,7 +277,7 @@ public class AppointmentService {
                 .bookingReference(reference)
                 .entryType       (log.getEntryType())
                 .name            (resolvedName)
-                .mobile          (req.getMobile())
+                .mobile          (mobileForLog)
                 .empId           (req.getEmpId())
                 .email           (req.getEmail())
                 .personToMeet    (person.getName())
@@ -294,8 +331,19 @@ public class AppointmentService {
 
         int totalPages = (total == 0) ? 1 : (int) Math.ceil((double) total / size);
 
+        Set<String> empIdsNeedingPhone = new LinkedHashSet<>();
+        for (AppointmentLog r : rows) {
+            if (!"EMPLOYEE".equalsIgnoreCase(r.getEntryType())) continue;
+            if (r.getMobile() != null && !r.getMobile().isBlank()) continue;
+            if (r.getEmpId() == null || r.getEmpId().isBlank()) continue;
+            empIdsNeedingPhone.add(r.getEmpId().trim());
+        }
+        Map<String, String> phoneByEmpId = empIdsNeedingPhone.isEmpty()
+                ? Map.of()
+                : userRepository.findPhonesByEmployeeIds(empIdsNeedingPhone);
+
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("content",       rows.stream().map(this::toListItem).toList());
+        result.put("content",       rows.stream().map(a -> toListItem(a, phoneByEmpId)).toList());
         result.put("totalElements", total);
         result.put("totalPages",    totalPages);
         result.put("page",          page);
@@ -312,6 +360,13 @@ public class AppointmentService {
     public Map<String, Object> getCheckInPreview(String appointmentId, String callerEmpId) {
         AppointmentLog appt = findAppointmentOrThrow(appointmentId);
 
+        Map<String, String> phoneByEmpId = Map.of();
+        if ("EMPLOYEE".equalsIgnoreCase(appt.getEntryType())
+                && (appt.getMobile() == null || appt.getMobile().isBlank())
+                && appt.getEmpId() != null && !appt.getEmpId().isBlank()) {
+            phoneByEmpId = userRepository.findPhonesByEmployeeIds(List.of(appt.getEmpId().trim()));
+        }
+
         // Cards are only assigned to VISITOR entries, not EMPLOYEE
         String nextCard = null;
         if (!"EMPLOYEE".equalsIgnoreCase(appt.getEntryType())) {
@@ -320,7 +375,7 @@ public class AppointmentService {
         }
 
         Map<String, Object> preview = new LinkedHashMap<>();
-        preview.put("appointment", toListItem(appt));
+        preview.put("appointment", toListItem(appt, phoneByEmpId));
         preview.put("nextCardCode", nextCard);
         return preview;
     }
@@ -344,11 +399,22 @@ public class AppointmentService {
     public VisitorResponseDto performCheckIn(String appointmentId, String callerEmpId) {
         AppointmentLog appt = findAppointmentOrThrow(appointmentId);
 
+        String mobileForCheckIn = appt.getMobile() != null ? appt.getMobile().trim() : null;
+        if ((mobileForCheckIn == null || mobileForCheckIn.isBlank())
+                && "EMPLOYEE".equalsIgnoreCase(appt.getEntryType())
+                && appt.getEmpId() != null && !appt.getEmpId().isBlank()) {
+            mobileForCheckIn = userRepository.findUserMasterByEmployeeId(appt.getEmpId().trim())
+                    .map(UserMaster::getPhone)
+                    .map(String::trim)
+                    .filter(s -> !s.isBlank())
+                    .orElse(null);
+        }
+
         VisitorRequestDto req = new VisitorRequestDto();
         req.setVisitType     ("INDIVIDUAL");
         req.setEntryType     (appt.getEntryType() != null ? appt.getEntryType() : "VISITOR");
         req.setName          (appt.getName() != null ? appt.getName() : "Unknown");
-        req.setMobile        (appt.getMobile());
+        req.setMobile        (mobileForCheckIn);
         req.setEmpId         (appt.getEmpId());
         req.setPersonToMeetId(appt.getPersonToMeet());
         req.setGovtIdType    (appt.getAadhaarNumber() != null ? "AADHAAR" : null);
@@ -437,8 +503,22 @@ public class AppointmentService {
         return value.substring(value.length() - 4);
     }
 
-    /** Converts a DB appointment row to the front-desk list DTO. */
-    private AppointmentListItemDto toListItem(AppointmentLog a) {
+    /**
+     * Converts a DB appointment row to the front-desk list DTO.
+     * When {@code employeePhoneByEmpId} is supplied, fills {@code mobile} from HR for EMPLOYEE rows
+     * that were stored without a phone (older bookings).
+     */
+    private AppointmentListItemDto toListItem(AppointmentLog a, Map<String, String> employeePhoneByEmpId) {
+        String mobile = a.getMobile();
+        if ((mobile == null || mobile.isBlank())
+                && "EMPLOYEE".equalsIgnoreCase(a.getEntryType())
+                && a.getEmpId() != null
+                && employeePhoneByEmpId != null) {
+            String fromHr = employeePhoneByEmpId.get(a.getEmpId().trim());
+            if (fromHr != null && !fromHr.isBlank()) {
+                mobile = fromHr;
+            }
+        }
         String isoDateTime = null;
         if (a.getAppointmentDate() != null && a.getAppointmentTime() != null) {
             isoDateTime = a.getAppointmentDate().toString()
@@ -449,7 +529,7 @@ public class AppointmentService {
         return AppointmentListItemDto.builder()
                 .id          (a.getAppointmentId())
                 .patientName (a.getName())
-                .mobile      (a.getMobile())
+                .mobile      (mobile)
                 .empId       (a.getEmpId())
                 .email       (a.getEmail())
                 .personToMeet(a.getPersonName())

@@ -13,7 +13,10 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Repository
@@ -121,6 +124,37 @@ public class UserRepository {
         );
 
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    }
+
+    /**
+     * Batch-loads work phones from {@code usermaster} for the given employee IDs.
+     * IDs missing from HR master or with blank phone are omitted from the map.
+     */
+    public Map<String, String> findPhonesByEmployeeIds(Collection<String> employeeIds) {
+        if (employeeIds == null || employeeIds.isEmpty()) {
+            return Map.of();
+        }
+        List<String> ids = employeeIds.stream()
+                .filter(id -> id != null && !id.isBlank())
+                .map(String::trim)
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        String sql = "SELECT employeeid, phone FROM usermaster WHERE employeeid IN (:ids)";
+        MapSqlParameterSource params = new MapSqlParameterSource("ids", ids);
+        return namedParameterJdbcTemplate.query(sql, params, rs -> {
+            Map<String, String> out = new HashMap<>();
+            while (rs.next()) {
+                String id = rs.getString("employeeid");
+                String ph = rs.getString("phone");
+                if (id != null && ph != null && !ph.isBlank()) {
+                    out.put(id.trim(), ph.trim());
+                }
+            }
+            return out;
+        });
     }
 
     /**

@@ -4,7 +4,9 @@ import com.medplus.frontdesk_backend.dto.OtpSendResponseDto;
 import com.medplus.frontdesk_backend.dto.OtpVerifyResponseDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.Random;
@@ -35,9 +37,21 @@ public class OtpService {
 
     private static final int OTP_EXPIRY_MINUTES = 10;
 
+    /**
+     * After OTP success, the user may complete {@code /book} within this window.
+     * Separate from OTP expiry so a slow form fill does not force re-OTP immediately.
+     */
+    private static final int BOOKING_AUTH_WINDOW_MINUTES = 30;
+
     // In-memory store: mobile -> OtpEntry
     // Replace with Redis (with TTL) when scaling beyond a single node.
     private final ConcurrentHashMap<String, OtpEntry> otpStore = new ConcurrentHashMap<>();
+
+    /** Visitor: 10-digit mobile → deadline for allowed {@code /book} (VISITOR). */
+    private final ConcurrentHashMap<String, LocalDateTime> visitorBookingAuthUntil = new ConcurrentHashMap<>();
+
+    /** Employee: empId → deadline for allowed {@code /book} (EMPLOYEE). */
+    private final ConcurrentHashMap<String, LocalDateTime> employeeBookingAuthUntil = new ConcurrentHashMap<>();
 
     private final Random random = new Random();
 
@@ -101,6 +115,70 @@ public class OtpService {
         otpStore.remove(mobile);
         log.info("[OTP] Mobile {} verified successfully.", mobile);
         return new OtpVerifyResponseDto(true, "Mobile number verified successfully.");
+    }
+
+    // ── Booking authorization (ties /book to a prior successful OTP) ─────────
+
+    public void revokeVisitorBookingAuth(String mobile) {
+        if (mobile != null && !mobile.isBlank()) {
+            visitorBookingAuthUntil.remove(mobile.trim());
+        }
+    }
+
+    public void grantVisitorBookingAuth(String mobile) {
+        if (mobile == null || mobile.isBlank()) return;
+        visitorBookingAuthUntil.put(
+                mobile.trim(),
+                LocalDateTime.now().plusMinutes(BOOKING_AUTH_WINDOW_MINUTES));
+    }
+
+    public void assertVisitorBookingAuth(String mobile) {
+        if (mobile == null || mobile.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Please verify your mobile number with OTP before booking.");
+        }
+        LocalDateTime until = visitorBookingAuthUntil.get(mobile.trim());
+        if (until == null || LocalDateTime.now().isAfter(until)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Mobile verification expired or missing. Please request a new OTP and verify again.");
+        }
+    }
+
+    public void consumeVisitorBookingAuth(String mobile) {
+        if (mobile != null && !mobile.isBlank()) {
+            visitorBookingAuthUntil.remove(mobile.trim());
+        }
+    }
+
+    public void revokeEmployeeBookingAuth(String empId) {
+        if (empId != null && !empId.isBlank()) {
+            employeeBookingAuthUntil.remove(empId.trim());
+        }
+    }
+
+    public void grantEmployeeBookingAuth(String empId) {
+        if (empId == null || empId.isBlank()) return;
+        employeeBookingAuthUntil.put(
+                empId.trim(),
+                LocalDateTime.now().plusMinutes(BOOKING_AUTH_WINDOW_MINUTES));
+    }
+
+    public void assertEmployeeBookingAuth(String empId) {
+        if (empId == null || empId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Please verify your employee OTP before booking.");
+        }
+        LocalDateTime until = employeeBookingAuthUntil.get(empId.trim());
+        if (until == null || LocalDateTime.now().isAfter(until)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Employee verification expired or missing. Please request a new OTP and verify again.");
+        }
+    }
+
+    public void consumeEmployeeBookingAuth(String empId) {
+        if (empId != null && !empId.isBlank()) {
+            employeeBookingAuthUntil.remove(empId.trim());
+        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

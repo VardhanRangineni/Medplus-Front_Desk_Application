@@ -44,6 +44,7 @@ function normalise(raw) {
  * @property {string|null} reason
  * @property {string|null} locationId
  * @property {string|null} locationName
+ * @property {string|null} entryType       - "VISITOR" | "EMPLOYEE"
  */
 
 /**

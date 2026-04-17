@@ -19,7 +19,7 @@ import {
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const PAGE_SIZE       = 20;
 const SEARCH_DEBOUNCE = 350;
-const COL_COUNT       = 7; // id · name · mobile · doctor · dept · date · actions
+const COL_COUNT       = 8; // id · name · type · mobile · doctor · dept · date · actions
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 function formatDateTime(date) {
@@ -29,6 +29,22 @@ function formatDateTime(date) {
     ', ' +
     date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
   );
+}
+
+/** Maps API `entryType` (VISITOR | EMPLOYEE) to a short table label. */
+function formatVisitorTypeLabel(entryType) {
+  const t = String(entryType || '').trim().toUpperCase();
+  if (t === 'EMPLOYEE') return 'Employee';
+  if (t === 'VISITOR') return 'Visitor';
+  if (!t) return '—';
+  return t.charAt(0) + t.slice(1).toLowerCase();
+}
+
+function visitorTypeBadgeClass(entryType) {
+  const t = String(entryType || '').trim().toUpperCase();
+  if (t === 'EMPLOYEE') return 'apt-type-badge apt-type-badge--employee';
+  if (t === 'VISITOR') return 'apt-type-badge apt-type-badge--visitor';
+  return 'apt-type-badge apt-type-badge--unknown';
 }
 
 // ─── View Appointment Modal ────────────────────────────────────────────────────
@@ -63,6 +79,14 @@ function ViewAppointmentModal({ appt, onClose }) {
             <div className="apt-detail-item">
               <span className="apt-detail-label">Visitor Name</span>
               <span className="apt-detail-value">{appt.patientName ?? '—'}</span>
+            </div>
+            <div className="apt-detail-item">
+              <span className="apt-detail-label">Visitor type</span>
+              <span className="apt-detail-value">
+                {String(appt.entryType || '').trim()
+                  ? <span className={visitorTypeBadgeClass(appt.entryType)}>{formatVisitorTypeLabel(appt.entryType)}</span>
+                  : <span className="apt-muted">—</span>}
+              </span>
             </div>
             <div className="apt-detail-item">
               <span className="apt-detail-label">Mobile</span>
@@ -273,6 +297,11 @@ function AppointmentRow({ appt, onCheckIn, onView }) {
     <tr className="apt-row">
       <td className="apt-col--id">{appt.id}</td>
       <td className="apt-col--name">{appt.patientName}</td>
+      <td className="apt-col--type">
+        {String(appt.entryType || '').trim()
+          ? <span className={visitorTypeBadgeClass(appt.entryType)}>{formatVisitorTypeLabel(appt.entryType)}</span>
+          : <span className="apt-muted">—</span>}
+      </td>
       <td className="apt-col--mobile">{appt.mobile ?? '—'}</td>
       <td className="apt-col--doctor">{appt.personToMeet ?? '—'}</td>
       <td className="apt-col--dept">
@@ -534,6 +563,7 @@ export default function Appointments({ session }) {
               <tr>
                 <th scope="col">Appointment ID</th>
                 <th scope="col">Visitor Name</th>
+                <th scope="col">Visitor type</th>
                 <th scope="col">Mobile</th>
                 <th scope="col">Person to Meet</th>
                 <th scope="col">Department</th>

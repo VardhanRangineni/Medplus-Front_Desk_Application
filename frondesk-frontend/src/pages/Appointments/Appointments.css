@@ -241,7 +241,7 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
-  min-width: 820px;
+  min-width: 900px;
 }
 
 .apt-table thead {
@@ -279,11 +279,38 @@
 /* ── Column widths ───────────────────────────────────────────────────────── */
 .apt-col--id     { font-size: 12px; font-weight: 600; color: #555; white-space: nowrap; }
 .apt-col--name   { font-weight: 600; }
+.apt-col--type   { white-space: nowrap; }
 .apt-col--mobile { color: #555; white-space: nowrap; }
 .apt-col--doctor { color: #333; }
 .apt-col--dept   {}
 .apt-col--date   { white-space: nowrap; color: #555; font-size: 12.5px; }
 .apt-muted       { color: #bbb; }
+
+/* ── Visitor type (entry type) badge ─────────────────────────────────────── */
+.apt-type-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.apt-type-badge--visitor {
+  background: #e8f4fc;
+  color: #1d6fa4;
+  border: 1px solid #b8d8f5;
+}
+.apt-type-badge--employee {
+  background: #f3e8ff;
+  color: #6b21a8;
+  border: 1px solid #d4b5f0;
+}
+.apt-type-badge--unknown {
+  background: #f0f1f5;
+  color: #666;
+  border: 1px solid #e0e2e7;
+}
 
 /* ── Department badge ────────────────────────────────────────────────────── */
 .apt-dept-badge {
