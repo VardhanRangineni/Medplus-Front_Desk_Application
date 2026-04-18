@@ -40,41 +40,180 @@ body {
   gap: 2px;
 }
 .cal-day-btn {
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 2.2rem;
+  height: 2.2rem;
   border-radius: 50%;
   border: none;
   background: transparent;
   font-size: 0.85rem;
+  font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.12s, color 0.12s;
   display: flex;
   align-items: center;
   justify-content: center;
+  /* All selectable dates show in blue — matches reference */
+  color: #2563eb;
 }
-.cal-day-btn:hover:not(:disabled):not(.selected) { background: #dbeafe; color: #1d4ed8; }
-.cal-day-btn.selected  { background: #0d6efd; color: #fff; font-weight: 700; }
-.cal-day-btn.today:not(.selected) { color: #0d6efd; font-weight: 700; }
-.cal-day-btn:disabled  { color: #cbd5e1; cursor: not-allowed; }
-.cal-day-other         { color: #cbd5e1; font-size: 0.8rem; text-align: center; padding: 0.4rem 0; }
+.cal-day-btn:hover:not(:disabled):not(.selected) { background: #dbeafe; }
+.cal-day-btn.selected  { background: #2563eb; color: #fff; font-weight: 700; }
+.cal-day-btn.today:not(.selected) { font-weight: 700; }
+.cal-day-btn:disabled  { color: #d1d5db; cursor: not-allowed; font-weight: 400; }
+.cal-day-other         { color: #d1d5db; font-size: 0.8rem; text-align: center; padding: 0.4rem 0; }
 
 /* ── Time slot button ── */
 .slot-btn {
   flex: 1;
-  padding: 0.6rem 1rem;
-  border-radius: 0.5rem;
-  border: 2px solid #dee2e6;
+  padding: 0.72rem 1rem;
+  border-radius: 0.6rem;
+  border: 1.5px solid #e5e7eb;
   background: #fff;
-  color: #1d4ed8;
-  font-size: 0.875rem;
+  color: #2563eb;
+  font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: border-color 0.12s, background 0.12s;
   text-align: center;
 }
 .slot-btn:hover:not(:disabled):not(.slot-selected) { border-color: #93c5fd; background: #eff6ff; }
-.slot-btn.slot-selected { border-color: #212529; background: #212529; color: #fff; }
-.slot-btn:disabled      { border-color: #e2e8f0; background: #f8fafc; color: #94a3b8; cursor: not-allowed; text-decoration: line-through; }
+.slot-btn.slot-selected { border-color: #1e293b; background: #1e293b; color: #fff; font-weight: 600; }
+.slot-btn.slot-disabled { border-color: #f3f4f6; background: #f9fafb; color: #9ca3af; cursor: not-allowed; text-decoration: line-through; }
+
+/* ── Schedule step layout ── */
+.sched-panes {
+  display: flex;
+  flex-wrap: wrap;
+}
+.sched-cal-pane {
+  flex: 0 0 auto;
+  width: 100%;
+  padding: 1.25rem 1.5rem 1.25rem 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+@media (min-width: 640px) {
+  .sched-panes { flex-wrap: nowrap; }
+  .sched-cal-pane {
+    width: 288px;
+    min-width: 288px;
+    border-bottom: none;
+    border-right: 1px solid #e5e7eb;
+  }
+}
+.sched-month-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.85rem;
+}
+.sched-month-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #111827;
+}
+.sched-nav-btn {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  background: #f3f4f6;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #374151;
+  transition: background 0.12s;
+}
+.sched-nav-btn:hover { background: #e5e7eb; }
+.sched-dow-row { margin-bottom: 0.3rem; }
+.sched-dow {
+  text-align: center;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #9ca3af;
+  padding: 0.2rem 0;
+  letter-spacing: 0.03em;
+}
+.sched-tz {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.85rem;
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+.sched-tz-name {
+  font-weight: 500;
+  color: #374151;
+}
+
+/* Slots pane */
+.sched-slots-pane {
+  flex: 1;
+  padding: 1.25rem 1.5rem;
+  min-width: 0;
+}
+.sched-day-header {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 0.85rem;
+}
+.sched-slot-list {
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.sched-slot-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.sched-confirm-btn {
+  flex-shrink: 0;
+  height: 2.6rem;
+  padding: 0 1.1rem;
+  border: none;
+  border-radius: 0.6rem;
+  background: #2563eb;
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.sched-confirm-btn:hover:not(:disabled) { background: #1d4ed8; }
+.sched-confirm-btn:disabled { background: #93c5fd; cursor: not-allowed; }
+.sched-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1rem;
+  gap: 0.75rem;
+  color: #9ca3af;
+  text-align: center;
+}
+.sched-empty svg { opacity: 0.35; }
+.sched-empty p { font-size: 0.875rem; font-weight: 500; margin: 0; }
+.sched-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 3rem 1rem;
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+.sched-no-slots {
+  text-align: center;
+  color: #6b7280;
+  font-size: 0.875rem;
+  padding: 3rem 1rem;
+}
 
 /* ── Verified badge strip ── */
 .verified-strip {

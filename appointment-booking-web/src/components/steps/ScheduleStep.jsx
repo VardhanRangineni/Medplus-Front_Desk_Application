@@ -18,6 +18,14 @@ function formatDayHeader(s) {
   return `${DAY_NAMES[dt.getDay()]}, ${MONTHS[m-1]} ${d}`;
 }
 
+/** Convert backend "09:00 AM" → display "9:00am", "01:30 PM" → "1:30pm" */
+function fmtSlot(t) {
+  if (!t) return t;
+  const match = t.trim().match(/^0?(\d+):(\d+)\s*(AM|PM)$/i);
+  if (!match) return t;
+  return `${match[1]}:${match[2]}${match[3].toLowerCase()}`;
+}
+
 export default function ScheduleStep() {
   const { bookingDetails, bookingConfirmed, goBack } = useBooking();
   const today = new Date();
@@ -75,7 +83,7 @@ export default function ScheduleStep() {
 
   return (
     <div className="card shadow-sm border rounded-3 overflow-hidden">
-      <div className="p-4 p-sm-4 pb-3">
+      <div className="p-4 pb-3">
         <ProgressSteps steps={STEPS} current={3} />
       </div>
 
@@ -85,7 +93,7 @@ export default function ScheduleStep() {
         {bookingDetails?.personToMeetName && (
           <p className="text-muted small mb-0 mt-1">
             Scheduling with <strong className="text-dark">{bookingDetails.personToMeetName}</strong>
-            {bookingDetails.department ? ` · ${bookingDetails.department}` : ''}
+            {bookingDetails.department ? <span className="text-muted"> · {bookingDetails.department}</span> : ''}
           </p>
         )}
       </div>
@@ -101,30 +109,29 @@ export default function ScheduleStep() {
       )}
 
       {/* Calendar + Slots */}
-      <div className="row g-0">
-        {/* Calendar */}
-        <div className="col-12 col-md-auto border-end p-4" style={{ minWidth: '280px' }}>
-          {/* Month nav */}
-          <div className="d-flex align-items-center justify-content-between mb-3">
-            <button onClick={prevMonth} className="btn btn-sm btn-light rounded-circle p-1" aria-label="Previous month"
-              style={{ width: '2rem', height: '2rem' }}>
-              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <div className="sched-panes">
+
+        {/* ── Calendar pane ── */}
+        <div className="sched-cal-pane">
+          {/* Month navigation */}
+          <div className="sched-month-nav">
+            <button onClick={prevMonth} className="sched-nav-btn" aria-label="Previous month">
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
               </svg>
             </button>
-            <span className="fw-semibold small">{MONTHS[viewMonth]} {viewYear}</span>
-            <button onClick={nextMonth} className="btn btn-sm btn-light rounded-circle p-1" aria-label="Next month"
-              style={{ width: '2rem', height: '2rem' }}>
-              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <span className="sched-month-label">{MONTHS[viewMonth]} {viewYear}</span>
+            <button onClick={nextMonth} className="sched-nav-btn" aria-label="Next month">
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
               </svg>
             </button>
           </div>
 
-          {/* Day headers */}
-          <div className="cal-grid mb-1">
+          {/* Day-of-week headers */}
+          <div className="cal-grid sched-dow-row">
             {DAYS_OF_WEEK.map((d) => (
-              <div key={d} className="text-center text-muted fw-semibold" style={{ fontSize: '0.7rem', padding: '0.25rem 0' }}>{d}</div>
+              <div key={d} className="sched-dow">{d}</div>
             ))}
           </div>
 
@@ -140,53 +147,55 @@ export default function ScheduleStep() {
                 <button key={idx} type="button" disabled={cell.isPast}
                   onClick={() => !cell.isPast && setSelectedDate(cell.dateStr)}
                   aria-label={cell.dateStr} aria-pressed={isSelected}
-                  className={`cal-day-btn mx-auto ${isSelected ? 'selected' : ''} ${isToday && !isSelected ? 'today' : ''}`}>
+                  className={`cal-day-btn mx-auto${isSelected ? ' selected' : ''}${isToday && !isSelected ? ' today' : ''}`}>
                   {cell.day}
                 </button>
               );
             })}
           </div>
 
-          <div className="d-flex align-items-center gap-1 text-muted mt-3" style={{ fontSize: '0.72rem' }}>
-            <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          {/* Time zone */}
+          <div className="sched-tz">
+            <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5a17.92 17.92 0 01-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
             </svg>
-            Indian Standard Time (IST, UTC+5:30)
+            <span>Time zone</span>
+            <span className="sched-tz-name">Indian Standard Time (IST, UTC+5:30)</span>
           </div>
         </div>
 
-        {/* Slots */}
-        <div className="col p-4">
+        {/* ── Slots pane ── */}
+        <div className="sched-slots-pane">
           {!selectedDate ? (
-            <div className="d-flex flex-column align-items-center justify-content-center text-muted text-center py-5 gap-2">
-              <svg width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1} style={{ opacity: 0.35 }}>
+            <div className="sched-empty">
+              <svg width="44" height="44" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
-              <p className="small fw-medium mb-0">Select a date to see available times</p>
+              <p>Select a date to see available times</p>
             </div>
           ) : (
             <>
-              <p className="fw-semibold small mb-3">{formatDayHeader(selectedDate)}</p>
+              <p className="sched-day-header">{formatDayHeader(selectedDate)}</p>
               {slotsLoading ? (
-                <div className="d-flex align-items-center justify-content-center gap-2 text-muted small py-5">
+                <div className="sched-loading">
                   <span className="spinner-border spinner-border-sm" /> Loading slots…
                 </div>
               ) : slots.length === 0 ? (
-                <p className="text-muted small text-center py-5">No slots available for this date.</p>
+                <p className="sched-no-slots">No slots available for this date.</p>
               ) : (
-                <div className="overflow-auto" style={{ maxHeight: '340px' }}>
+                <div className="sched-slot-list">
                   {slots.map((slot) => {
                     const isChosen = selectedSlot?.value === slot.value;
                     return (
-                      <div key={slot.value} className="d-flex gap-2 align-items-center mb-2">
+                      <div key={slot.value} className="sched-slot-row">
                         <button type="button" disabled={!slot.available}
                           onClick={() => slot.available && setSelectedSlot(isChosen ? null : slot)}
-                          className={`slot-btn ${!slot.available ? '' : isChosen ? 'slot-selected' : ''}`}>
-                          {slot.time}
+                          className={`slot-btn${!slot.available ? ' slot-disabled' : isChosen ? ' slot-selected' : ''}`}>
+                          {fmtSlot(slot.time)}
                         </button>
                         {isChosen && (
                           <button type="button" onClick={handleConfirm} disabled={confirming}
-                            className="btn btn-primary btn-sm px-3 flex-shrink-0">
+                            className="sched-confirm-btn">
                             {confirming
                               ? <span className="spinner-border spinner-border-sm" />
                               : 'Confirm'}
@@ -205,8 +214,11 @@ export default function ScheduleStep() {
       {/* Back */}
       <div className="px-4 py-3 border-top bg-light">
         <button type="button" onClick={goBack}
-          className="btn btn-outline-primary d-inline-flex align-items-center gap-2">
-          ← Back
+          className="btn btn-outline-secondary btn-sm d-inline-flex align-items-center gap-1">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+          </svg>
+          Back
         </button>
       </div>
     </div>

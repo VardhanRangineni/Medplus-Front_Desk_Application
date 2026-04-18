@@ -10,11 +10,19 @@ const MONTH_NAMES = [
 ];
 const DOW_LABELS = ['Su','Mo','Tu','We','Th','Fr','Sa'];
 
-const QUICK_PRESETS = [
+const QUICK_PRESETS_PAST = [
   { label: 'Today',   days: 0  },
   { label: '7 days',  days: 6  },
   { label: '30 days', days: 29 },
   { label: '90 days', days: 89 },
+];
+
+/** Future-aware presets used on pages like Appointments where future dates are valid. */
+const QUICK_PRESETS_FUTURE = [
+  { label: 'Today',      fromOffset: 0,  toOffset: 0  },
+  { label: 'Next 7 days',  fromOffset: 0,  toOffset: 6  },
+  { label: 'Next 30 days', fromOffset: 0,  toOffset: 29 },
+  { label: 'Next 90 days', fromOffset: 0,  toOffset: 89 },
 ];
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
@@ -53,7 +61,8 @@ function formatPillDate(iso) {
 
 function MonthGrid({ year, month, from, to, pendingFrom, hoverDate,
                      onDayClick, onDayHover,
-                     showPrev, showNext, onPrev, onNext }) {
+                     showPrev, showNext, onPrev, onNext,
+                     allowFuture }) {
 
   const today     = todayISO();
   const firstDow  = new Date(year, month, 1).getDay();
@@ -95,7 +104,9 @@ function MonthGrid({ year, month, from, to, pendingFrom, hoverDate,
         {cells.map((iso, i) => {
           if (!iso) return <span key={`pad-${i}`} className="drp-pad" />;
 
-          const isFuture = iso > today;
+          // When allowFuture is true, no dates are disabled (all selectable).
+          // Otherwise, only past dates up to today are selectable.
+          const disabled = allowFuture ? false : iso > today;
           const isStart  = iso === (pendingFrom ?? from);
           const isEnd    = pendingFrom ? iso === hoverDate : iso === to;
           const inRange  = rangeL && rangeR && iso > rangeL && iso < rangeR;
@@ -103,17 +114,17 @@ function MonthGrid({ year, month, from, to, pendingFrom, hoverDate,
           const dayNum   = parseInt(iso.split('-')[2], 10);
 
           let cls = 'drp-day';
-          if (isFuture)               cls += ' drp-day--disabled';
-          if (isStart)                cls += ' drp-day--sel drp-day--start';
-          if (isEnd && !isFuture)     cls += ' drp-day--sel drp-day--end';
-          if (inRange)                cls += ' drp-day--in-range';
-          if (isToday && !isStart && !isEnd) cls += ' drp-day--today';
+          if (disabled)                         cls += ' drp-day--disabled';
+          if (isStart)                          cls += ' drp-day--sel drp-day--start';
+          if (isEnd && !disabled)               cls += ' drp-day--sel drp-day--end';
+          if (inRange)                          cls += ' drp-day--in-range';
+          if (isToday && !isStart && !isEnd)    cls += ' drp-day--today';
 
           return (
             <button
               key={iso}
               className={cls}
-              disabled={isFuture}
+              disabled={disabled}
               onClick={() => onDayClick(iso)}
               onMouseEnter={() => onDayHover(iso)}
               onMouseLeave={() => onDayHover(null)}
@@ -129,7 +140,7 @@ function MonthGrid({ year, month, from, to, pendingFrom, hoverDate,
 
 // ─── Date Range Picker ────────────────────────────────────────────────────────
 
-export default function DateRangePicker({ from, to, onChange }) {
+export default function DateRangePicker({ from, to, onChange, allowFuture = false }) {
   const [open,        setOpen]        = useState(false);
   const [pendingFrom, setPendingFrom] = useState(null);
   const [hoverDate,   setHoverDate]   = useState(null);
@@ -187,14 +198,22 @@ export default function DateRangePicker({ from, to, onChange }) {
   }
 
   function applyPreset(preset) {
-    const toD   = new Date();
-    const fromD = new Date();
-    fromD.setDate(fromD.getDate() - preset.days);
+    const base  = new Date();
+    const fromD = new Date(base);
+    const toD   = new Date(base);
+    if (allowFuture) {
+      // Future presets: fromOffset / toOffset days from today
+      fromD.setDate(fromD.getDate() + (preset.fromOffset ?? 0));
+      toD.setDate(toD.getDate()   + (preset.toOffset   ?? preset.fromOffset ?? 0));
+    } else {
+      fromD.setDate(fromD.getDate() - preset.days);
+    }
     onChange({ from: toISODate(fromD), to: toISODate(toD) });
     setPendingFrom(null);
     setOpen(false);
   }
 
+  const presets      = allowFuture ? QUICK_PRESETS_FUTURE : QUICK_PRESETS_PAST;
   const pillLabel    = `${formatPillDate(from)} – ${formatPillDate(to)}`;
   const isSelecting  = pendingFrom !== null;
 
@@ -223,6 +242,7 @@ export default function DateRangePicker({ from, to, onChange }) {
               onDayClick={handleDayClick} onDayHover={setHoverDate}
               showPrev onPrev={prevMonth}
               showNext={false} onNext={nextMonth}
+              allowFuture={allowFuture}
             />
             <div className="drp-divider" />
             <MonthGrid
@@ -232,12 +252,13 @@ export default function DateRangePicker({ from, to, onChange }) {
               onDayClick={handleDayClick} onDayHover={setHoverDate}
               showPrev={false} onPrev={prevMonth}
               showNext onNext={nextMonth}
+              allowFuture={allowFuture}
             />
           </div>
 
           <div className="drp-footer">
             <span className="drp-footer-label">Quick select:</span>
-            {QUICK_PRESETS.map((p) => (
+            {presets.map((p) => (
               <button key={p.label} className="drp-preset-btn" onClick={() => applyPreset(p)}>
                 {p.label}
               </button>

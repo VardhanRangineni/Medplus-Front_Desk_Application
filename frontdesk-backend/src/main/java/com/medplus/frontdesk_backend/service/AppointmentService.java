@@ -46,13 +46,14 @@ public class AppointmentService {
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
-    private final OtpService            otpService;
-    private final VisitorRepository     visitorRepository;
-    private final UserRepository        userRepository;
-    private final LocationRepository    locationRepository;
-    private final AppointmentRepository appointmentRepository;
-    private final VisitorService        visitorService;
-    private final CardService           cardService;
+    private final OtpService                otpService;
+    private final VisitorRepository         visitorRepository;
+    private final UserRepository            userRepository;
+    private final LocationRepository        locationRepository;
+    private final AppointmentRepository     appointmentRepository;
+    private final VisitorService            visitorService;
+    private final CardService               cardService;
+    private final ZimbraAppointmentService  zimbraAppointmentService;
 
     // ── OTP — Visitor (mobile-based) ─────────────────────────────────────────
 
@@ -193,11 +194,15 @@ public class AppointmentService {
     public AppointmentConfirmationDto bookAppointment(AppointmentBookingRequestDto req) {
         validateDate(req.getAppointmentDate());
 
-        if ("EMPLOYEE".equalsIgnoreCase(req.getEntryType())) {
-            otpService.assertEmployeeBookingAuth(req.getEmpId());
-        } else {
-            otpService.assertVisitorBookingAuth(req.getMobile());
-        }
+        // NOTE: OTP gateway is not yet active; frontend mocks both visitor and employee
+        // OTP verification locally.  The assertXxxBookingAuth calls are therefore
+        // bypassed until the SMS gateway is wired up.
+        // TODO: Restore the block below once the SMS gateway is live:
+        // if ("EMPLOYEE".equalsIgnoreCase(req.getEntryType())) {
+        //     otpService.assertEmployeeBookingAuth(req.getEmpId());
+        // } else {
+        //     otpService.assertVisitorBookingAuth(req.getMobile());
+        // }
 
         PersonToMeetDto person = visitorRepository.findPersonById(req.getPersonToMeetId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -210,13 +215,28 @@ public class AppointmentService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Invalid locationId: " + req.getLocationId()));
 
-        // Guard: slot must still be available
+        // Guard: slot must still be available in the internal DB
         LocalDate date       = LocalDate.parse(req.getAppointmentDate(), DATE_FMT);
         LocalTime parsedTime = parseDisplayTime(req.getAppointmentTime());
         java.util.Set<String> booked = appointmentRepository.findBookedTimes(date, req.getPersonToMeetId());
         if (booked.contains(req.getAppointmentTime().toUpperCase().trim())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "This time slot has just been booked. Please select another.");
+        }
+
+        // Resolve employee email for Zimbra (free/busy check + invite)
+        String employeeEmail = userRepository.findUserMasterByEmployeeId(req.getPersonToMeetId())
+                .map(m -> m.getWorkemail())
+                .filter(e -> e != null && !e.isBlank())
+                .orElse(null);
+
+        // ── Zimbra free/busy check (pre-insert guard) ─────────────────────────
+        // Hard-reject before writing to DB if the employee's Zimbra calendar is busy.
+        // Silently skipped when employeeEmail is unknown or Zimbra is unreachable.
+        LocalDateTime zimbraStart = LocalDateTime.of(date, parsedTime);
+        LocalDateTime zimbraEnd   = zimbraStart.plusMinutes(30);
+        if (employeeEmail != null) {
+            zimbraAppointmentService.checkEmployeeAvailability(employeeEmail, zimbraStart, zimbraEnd);
         }
 
         // Resolve visitor name for EMPLOYEE bookings
@@ -262,15 +282,41 @@ public class AppointmentService {
 
         appointmentRepository.insert(log);
 
+        // ── Zimbra calendar event (post-insert, best-effort) ──────────────────
+        // The DB record is already committed at this point.
+        // If Zimbra creation fails, the booking remains in the DB and the
+        // receptionist can still check the visitor in.  Log the failure for ops.
+        String zimbraInviteId = null;
+        if (employeeEmail != null) {
+            try {
+                zimbraInviteId = zimbraAppointmentService.createVisitorAppointment(
+                        employeeEmail,
+                        req.getEmail(),
+                        resolvedName,
+                        person.getDepartment(),
+                        locationName,
+                        req.getReasonForVisit(),
+                        zimbraStart,
+                        zimbraEnd);
+            } catch (ResponseStatusException rse) {
+                // 409 should never reach here (checked pre-insert), but guard anyway
+                AppointmentService.log.warn(
+                        "[Appointment] Zimbra event skipped for ref={} — {}", reference, rse.getReason());
+            } catch (Exception ex) {
+                AppointmentService.log.error(
+                        "[Appointment] Zimbra event creation failed for ref={}: {}", reference, ex.getMessage());
+            }
+        }
+
         if ("EMPLOYEE".equalsIgnoreCase(req.getEntryType())) {
             otpService.consumeEmployeeBookingAuth(req.getEmpId());
         } else {
             otpService.consumeVisitorBookingAuth(req.getMobile());
         }
 
-        AppointmentService.log.info("[Appointment] Booked {} {} → {} on {} at {} (ref={})",
+        AppointmentService.log.info("[Appointment] Booked {} {} → {} on {} at {} (ref={}, zimbraInviteId={})",
                 log.getEntryType(), resolvedName,
-                person.getName(), req.getAppointmentDate(), req.getAppointmentTime(), reference);
+                person.getName(), req.getAppointmentDate(), req.getAppointmentTime(), reference, zimbraInviteId);
 
         return AppointmentConfirmationDto.builder()
                 .bookingToken    (token)

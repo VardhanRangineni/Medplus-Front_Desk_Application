@@ -536,6 +536,7 @@ export default function Appointments({ session }) {
               from={customRange?.from ?? new Date().toISOString().slice(0, 10)}
               to={customRange?.to   ?? new Date().toISOString().slice(0, 10)}
               onChange={handleRangeChange}
+              allowFuture
             />
           </div>
         </div>

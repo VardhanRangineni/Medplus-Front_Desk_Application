@@ -75,6 +75,20 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error("External HR API is unreachable. " + ex.getMessage()));
     }
 
+    @ExceptionHandler(ZimbraException.class)
+    public ResponseEntity<ApiResponse<Void>> handleZimbra(ZimbraException ex) {
+        log.warn("Zimbra error: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(ApiResponse.error(ex.getMessage()));
+    }
+
+    @ExceptionHandler(ZimbraSessionNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleZimbraSession(ZimbraSessionNotFoundException ex) {
+        log.warn("Zimbra session error: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.error("Session expired. Please login again."));
+    }
+
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<ApiResponse<Void>> handleResponseStatus(ResponseStatusException ex) {
         String msg = ex.getReason() != null ? ex.getReason() : ex.getMessage();
