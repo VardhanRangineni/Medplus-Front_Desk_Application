@@ -23,4 +23,11 @@ public class MeetingRespondRequestDto {
     @NotBlank(message = "status is required")
     @Pattern(regexp = "^(AC|DE|TE)$", message = "status must be AC, DE, or TE")
     private String status;
+
+    /**
+     * Event start datetime string returned by the calendar API, e.g. {@code "2026-04-20 10:00"}.
+     * Required when {@code status = DE} so the backend can find and free the slot in the DB.
+     * Optional for AC / TE.
+     */
+    private String eventStart;
 }

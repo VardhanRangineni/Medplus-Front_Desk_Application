@@ -157,14 +157,44 @@ public class AppointmentService {
     // ── Time slots ────────────────────────────────────────────────────────────
 
     /**
-     * Returns available booking slots for a given date and doctor.
-     * Queries the DB for already-booked slots instead of the old in-memory map.
+     * Returns available booking slots for a given date and employee.
+     *
+     * <p><b>Availability strategy — Zimbra is the source of truth:</b>
+     * <ol>
+     *   <li>Fetch the employee's Zimbra free/busy for the day (via service account).</li>
+     *   <li>If Zimbra responds: a slot is <em>available</em> when Zimbra shows the
+     *       employee as <em>free</em> for that 30-minute window.  Declined invites are
+     *       automatically freed because Zimbra removes the attendee from their busy list
+     *       on decline.</li>
+     *   <li>If Zimbra is unreachable: fall back to the internal DB ({@code appointmentslog})
+     *       to prevent double-booking.</li>
+     * </ol>
      */
     public List<AppointmentSlotDto> getAvailableSlots(String dateStr, String personToMeetId) {
         validateDate(dateStr);
 
         LocalDate date = LocalDate.parse(dateStr, DATE_FMT);
-        java.util.Set<String> bookedSlots = appointmentRepository.findBookedTimes(date, personToMeetId);
+
+        // ── Try Zimbra free/busy (primary source of truth) ────────────────────
+        String employeeEmail = userRepository.findUserMasterByEmployeeId(personToMeetId)
+                .map(UserMaster::getWorkemail)
+                .filter(e -> e != null && !e.isBlank())
+                .orElse(null);
+
+        List<long[]> zimbraBusy = null;
+        if (employeeEmail != null) {
+            zimbraBusy = zimbraAppointmentService.getEmployeeBusyPeriods(employeeEmail, date);
+        }
+
+        // ── Fall back to DB when Zimbra is unavailable ────────────────────────
+        java.util.Set<String> dbBooked = (zimbraBusy == null)
+                ? appointmentRepository.findBookedTimes(date, personToMeetId)
+                : java.util.Set.of();
+
+        log.debug("[Slots] date={} employee={} zimbra={} dbFallback={}",
+                dateStr, employeeEmail,
+                zimbraBusy != null ? "ok" : "unavailable",
+                zimbraBusy == null);
 
         // Fixed daily schedule: 09:00–17:00, every 30 minutes
         List<AppointmentSlotDto> slots = new ArrayList<>();
@@ -176,13 +206,34 @@ public class AppointmentService {
 
         for (int[] hm : schedule) {
             String display = formatSlotDisplay(hm[0], hm[1]);
+            boolean available;
+
+            if (zimbraBusy != null) {
+                // Zimbra available: slot is free only when Zimbra says free
+                long slotStartMs = LocalDateTime.of(date, LocalTime.of(hm[0], hm[1]))
+                        .atZone(java.time.ZoneId.of("Asia/Kolkata")).toInstant().toEpochMilli();
+                long slotEndMs = slotStartMs + 30L * 60 * 1000;
+                available = !isZimbraBusy(zimbraBusy, slotStartMs, slotEndMs);
+            } else {
+                // Zimbra unavailable: use DB to prevent double-booking
+                available = !dbBooked.contains(display);
+            }
+
             slots.add(AppointmentSlotDto.builder()
                     .value(String.format("%02d:%02d", hm[0], hm[1]))
                     .time(display)
-                    .available(!bookedSlots.contains(display))
+                    .available(available)
                     .build());
         }
         return slots;
+    }
+
+    /** Returns true when [slotStart, slotEnd) overlaps any busy period from Zimbra. */
+    private static boolean isZimbraBusy(List<long[]> busyPeriods, long slotStart, long slotEnd) {
+        for (long[] period : busyPeriods) {
+            if (slotStart < period[1] && slotEnd > period[0]) return true;
+        }
+        return false;
     }
 
     // ── Booking ───────────────────────────────────────────────────────────────

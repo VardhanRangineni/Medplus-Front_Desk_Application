@@ -35,11 +35,14 @@ export const calendarApi = {
 
   /**
    * Respond to a meeting invite.
-   * @param {string} inviteId - the `invId` field from the CalendarEventDto
+   * @param {string} inviteId   - the `invId` field from the CalendarEventDto
    * @param {'AC'|'DE'|'TE'} status - participation status
+   * @param {string|null} eventStart - event start string (e.g. "2026-04-20 10:00"),
+   *   required when status='DE' so the backend can free the DB slot immediately
    */
-  respondToMeeting: (inviteId, status) =>
-    api.post(`/calendar/events/${encodeURIComponent(inviteId)}/respond`, { status }),
+  respondToMeeting: (inviteId, status, eventStart = null) =>
+    api.post(`/calendar/events/${encodeURIComponent(inviteId)}/respond`,
+      { status, ...(eventStart ? { eventStart } : {}) }),
 }
 
 export const dashboardApi = {

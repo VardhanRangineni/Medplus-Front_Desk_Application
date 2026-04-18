@@ -4,6 +4,8 @@ import com.medplus.frontdesk_backend.config.ZimbraCache;
 import com.medplus.frontdesk_backend.dto.zimbra.CalendarEventDto;
 import com.medplus.frontdesk_backend.integration.ZimbraContext;
 import com.medplus.frontdesk_backend.integration.ZimbraSoapClient;
+import com.medplus.frontdesk_backend.repository.AppointmentRepository;
+import com.medplus.frontdesk_backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -25,9 +27,13 @@ public class ZimbraCalendarService {
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private static final DateTimeFormatter DT_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(IST);
+    private static final DateTimeFormatter SLOT_FMT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
-    private final ZimbraSoapClient zimbraSoapClient;
-    private final ZimbraCache cache;
+    private final ZimbraSoapClient     zimbraSoapClient;
+    private final ZimbraCache          cache;
+    private final UserRepository       userRepository;
+    private final AppointmentRepository appointmentRepository;
 
     public List<CalendarEventDto> getEvents(String fromDate, String toDate) {
         String email = ZimbraContext.getEmail();
@@ -67,7 +73,7 @@ public class ZimbraCalendarService {
      * @param status   participation code: {@code AC}, {@code DE}, or {@code TE}
      * @return the updated event DTO with the new {@code ptst} value
      */
-    public CalendarEventDto respondToMeeting(String inviteId, String status) {
+    public CalendarEventDto respondToMeeting(String inviteId, String status, String eventStart) {
         if (inviteId == null || inviteId.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "inviteId is required");
         }
@@ -76,23 +82,63 @@ public class ZimbraCalendarService {
         String email     = ZimbraContext.getEmail();
 
         Set<String> valid = Set.of("AC", "DE", "TE");
-        if (!valid.contains(status.toUpperCase())) {
+        String upperStatus = status.toUpperCase();
+        if (!valid.contains(upperStatus)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "status must be AC, DE, or TE — got: " + status);
         }
 
         long t0 = System.currentTimeMillis();
-        zimbraSoapClient.sendInviteReply(authToken, inviteId, status.toUpperCase());
+        zimbraSoapClient.sendInviteReply(authToken, inviteId, upperStatus);
         log.info("[Zimbra] respondToMeeting inviteId={} status={} email={} latency={}ms",
-                inviteId, status, email, System.currentTimeMillis() - t0);
+                inviteId, upperStatus, email, System.currentTimeMillis() - t0);
 
         // Evict calendar cache so the next getEvents() call returns fresh ptst values
         cache.evictByPrefix(email + ":calendar");
 
+        // ── On DECLINE: free the slot in appointmentslog ──────────────────────
+        // This ensures the booking web-app immediately shows the slot as available
+        // without depending on Zimbra free/busy API availability.
+        if ("DE".equals(upperStatus) && eventStart != null && !eventStart.isBlank()) {
+            freeSlotsOnDecline(email, eventStart);
+        }
+
         return CalendarEventDto.builder()
                 .invId(inviteId)
-                .ptst(status.toUpperCase())
+                .ptst(upperStatus)
                 .build();
+    }
+
+    /**
+     * Deletes the appointment from {@code appointmentslog} that matches the
+     * employee (by their Zimbra email → employeeid lookup) and the declined slot.
+     *
+     * @param employeeEmail  Zimbra email of the declining employee
+     * @param eventStart     event start string from the calendar DTO, e.g. "2026-04-20 10:00"
+     */
+    private void freeSlotsOnDecline(String employeeEmail, String eventStart) {
+        try {
+            LocalDateTime dt = LocalDateTime.parse(eventStart.trim(), SLOT_FMT);
+            LocalDate slotDate = dt.toLocalDate();
+            LocalTime slotTime = dt.toLocalTime();
+
+            String employeeId = userRepository.findUserMasterByWorkemail(employeeEmail)
+                    .map(m -> m.getEmployeeid())
+                    .orElse(null);
+
+            if (employeeId == null) {
+                log.warn("[ZimbraDecline] No employee found for email={}", employeeEmail);
+                return;
+            }
+
+            int deleted = appointmentRepository.deleteByPersonAndSlot(employeeId, slotDate, slotTime);
+            log.info("[ZimbraDecline] Freed {} slot(s) for employee={} on {} at {}",
+                    deleted, employeeId, slotDate, slotTime);
+
+        } catch (Exception ex) {
+            log.warn("[ZimbraDecline] Could not free slot for email={} eventStart={}: {}",
+                    employeeEmail, eventStart, ex.getMessage());
+        }
     }
 
     // ── parsers ──────────────────────────────────────────────────────────────

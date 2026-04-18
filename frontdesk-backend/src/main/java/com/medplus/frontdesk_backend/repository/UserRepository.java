@@ -126,6 +126,29 @@ public class UserRepository {
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
     }
 
+    /** Looks up a UserMaster record by their Zimbra work-email address. */
+    public Optional<UserMaster> findUserMasterByWorkemail(String workemail) {
+        String sql = """
+                SELECT employeeid, fullName, workemail, phone, designation, role, worklocation, department
+                FROM usermaster
+                WHERE workemail = :workemail
+                """;
+        List<UserMaster> results = namedParameterJdbcTemplate.query(sql,
+                new MapSqlParameterSource("workemail", workemail),
+                (rs, rowNum) -> UserMaster.builder()
+                        .employeeid(rs.getString("employeeid"))
+                        .fullName(rs.getString("fullName"))
+                        .workemail(rs.getString("workemail"))
+                        .phone(rs.getString("phone"))
+                        .designation(rs.getString("designation"))
+                        .role(rs.getString("role"))
+                        .worklocation(rs.getString("worklocation"))
+                        .department(rs.getString("department"))
+                        .build()
+        );
+        return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    }
+
     /**
      * Batch-loads work phones from {@code usermaster} for the given employee IDs.
      * IDs missing from HR master or with blank phone are omitted from the map.

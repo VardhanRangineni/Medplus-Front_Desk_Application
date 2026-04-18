@@ -9,8 +9,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 import org.w3c.dom.Document;
+import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -38,6 +40,48 @@ public class ZimbraAppointmentService {
 
     private final ZimbraSoapClient          zimbraSoapClient;
     private final ZimbraServiceAccountSession serviceAccountSession;
+
+    /**
+     * Returns the employee's busy time periods from Zimbra for an entire day.
+     *
+     * <p>Used by the slot-availability check so that <b>declined</b> invites are
+     * automatically reflected as free slots — Zimbra removes the attendee from
+     * the busy list when they decline a meeting.
+     *
+     * @param employeeEmail employee's Zimbra work email
+     * @param date          the date to check (IST)
+     * @return list of {@code [startEpochMs, endEpochMs]} pairs for all busy blocks;
+     *         {@code null} when Zimbra is unreachable (caller should fall back to DB)
+     */
+    public List<long[]> getEmployeeBusyPeriods(String employeeEmail, LocalDate date) {
+        try {
+            String token    = serviceAccountSession.getToken();
+            long   dayStart = date.atStartOfDay(IST).toInstant().toEpochMilli();
+            long   dayEnd   = date.plusDays(1).atStartOfDay(IST).toInstant().toEpochMilli();
+
+            Document doc = zimbraSoapClient.getFreeBusy(token, employeeEmail, dayStart, dayEnd);
+
+            List<long[]> periods = new ArrayList<>();
+            NodeList busyNodes = doc.getElementsByTagName("b");
+            for (int i = 0; i < busyNodes.getLength(); i++) {
+                if (busyNodes.item(i) instanceof Element b) {
+                    String s = b.getAttribute("s");
+                    String e = b.getAttribute("e");
+                    if (!s.isBlank() && !e.isBlank()) {
+                        try { periods.add(new long[]{ Long.parseLong(s), Long.parseLong(e) }); }
+                        catch (NumberFormatException ignored) {}
+                    }
+                }
+            }
+            log.debug("[ZimbraFreeBusy] {} on {}: {} busy period(s)", employeeEmail, date, periods.size());
+            return periods;
+
+        } catch (Exception ex) {
+            log.warn("[ZimbraFreeBusy] Could not fetch free/busy for {} on {}: {}",
+                    employeeEmail, date, ex.getMessage());
+            return null; // null = "Zimbra unavailable, caller falls back to DB"
+        }
+    }
 
     /**
      * Standalone conflict check — call this BEFORE persisting to the DB.

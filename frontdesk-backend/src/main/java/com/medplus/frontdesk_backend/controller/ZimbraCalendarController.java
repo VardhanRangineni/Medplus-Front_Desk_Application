@@ -45,7 +45,7 @@ public class ZimbraCalendarController {
     public ResponseEntity<CalendarEventDto> respondToMeeting(
             @PathVariable String inviteId,
             @Valid @RequestBody MeetingRespondRequestDto body) {
-        CalendarEventDto updated = zimbraCalendarService.respondToMeeting(inviteId, body.getStatus());
+        CalendarEventDto updated = zimbraCalendarService.respondToMeeting(inviteId, body.getStatus(), body.getEventStart());
         return ResponseEntity.ok(updated);
     }
 }

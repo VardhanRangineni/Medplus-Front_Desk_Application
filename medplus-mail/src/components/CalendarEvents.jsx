@@ -127,7 +127,7 @@ export default function CalendarEvents() {
     setRsvpState(s => ({ ...s, [invId]: status }))
 
     try {
-      await calendarApi.respondToMeeting(invId, status)
+      await calendarApi.respondToMeeting(invId, status, status === 'DE' ? ev.start : null)
       // Update the events list so the badge is correct after a month refresh too
       setEvents(prev => prev.map(e => e.invId === invId ? { ...e, ptst: status } : e))
     } catch {

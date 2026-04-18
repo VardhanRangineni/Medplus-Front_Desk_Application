@@ -62,6 +62,29 @@ public class AppointmentRepository {
         );
     }
 
+    /**
+     * Removes appointments matching an employee + date + time slot.
+     * Called when the employee declines the Zimbra meeting invite so the slot
+     * is freed immediately in the booking web-app.
+     *
+     * @param personToMeetId  employee's ID (the {@code personToMeet} column value)
+     * @param date            appointment date
+     * @param time            appointment start time (matched via DATE() and TIME())
+     * @return number of rows deleted
+     */
+    public int deleteByPersonAndSlot(String personToMeetId, LocalDate date, LocalTime time) {
+        return jdbc.update(
+            "DELETE FROM appointmentslog " +
+            "WHERE personToMeet = :personId " +
+            "  AND appointmentDate = :date " +
+            "  AND appointmentTime = :time",
+            new MapSqlParameterSource()
+                .addValue("personId", personToMeetId)
+                .addValue("date", Date.valueOf(date))
+                .addValue("time", Time.valueOf(time))
+        );
+    }
+
     // ── Read ──────────────────────────────────────────────────────────────────
 
     /** Finds a single appointment by its human-readable reference ID. */
