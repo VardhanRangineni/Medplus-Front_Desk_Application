@@ -1044,6 +1044,85 @@ input {
   white-space: nowrap;
 }
 
+/* ── RSVP ───────────────────────────────────────────────────────────────────── */
+.gcal-rsvp {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gcal-ptst-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  width: fit-content;
+  letter-spacing: 0.2px;
+}
+
+.gcal-rsvp-btns {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.gcal-rsvp-btn {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  background: transparent;
+  transition: background 0.15s, opacity 0.15s;
+  white-space: nowrap;
+  line-height: 1.6;
+}
+.gcal-rsvp-btn:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* Accept */
+.gcal-rsvp-accept {
+  color: #188038;
+  border-color: #188038;
+}
+.gcal-rsvp-accept:hover:not(:disabled) { background: #e6f4ea; }
+.gcal-rsvp-accept.active {
+  background: #188038;
+  color: #fff;
+  opacity: 1;
+}
+
+/* Tentative */
+.gcal-rsvp-tentative {
+  color: #e37400;
+  border-color: #e37400;
+}
+.gcal-rsvp-tentative:hover:not(:disabled) { background: #fef3e2; }
+.gcal-rsvp-tentative.active {
+  background: #e37400;
+  color: #fff;
+  opacity: 1;
+}
+
+/* Decline */
+.gcal-rsvp-decline {
+  color: #d93025;
+  border-color: #d93025;
+}
+.gcal-rsvp-decline:hover:not(:disabled) { background: #fce8e6; }
+.gcal-rsvp-decline.active {
+  background: #d93025;
+  color: #fff;
+  opacity: 1;
+}
+
 /* ── Scrollbar ─────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }

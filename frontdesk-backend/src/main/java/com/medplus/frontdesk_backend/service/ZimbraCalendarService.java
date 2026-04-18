@@ -6,13 +6,16 @@ import com.medplus.frontdesk_backend.integration.ZimbraContext;
 import com.medplus.frontdesk_backend.integration.ZimbraSoapClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 import org.w3c.dom.*;
 
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -50,6 +53,48 @@ public class ZimbraCalendarService {
         return getEvents(today.toString(), today.toString());
     }
 
+    /**
+     * Responds to a Zimbra meeting invite on behalf of the currently
+     * authenticated employee.
+     *
+     * <p>Uses the employee's own {@code authToken} (from {@link ZimbraContext}),
+     * NOT the service account — so the reply is sent from their mailbox.
+     *
+     * <p>After a successful reply the calendar cache is cleared so the
+     * refreshed {@code ptst} value is visible immediately.
+     *
+     * @param inviteId Zimbra invite message ID ({@code invId} from the event DTO)
+     * @param status   participation code: {@code AC}, {@code DE}, or {@code TE}
+     * @return the updated event DTO with the new {@code ptst} value
+     */
+    public CalendarEventDto respondToMeeting(String inviteId, String status) {
+        if (inviteId == null || inviteId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "inviteId is required");
+        }
+
+        String authToken = ZimbraContext.getAuthToken();
+        String email     = ZimbraContext.getEmail();
+
+        Set<String> valid = Set.of("AC", "DE", "TE");
+        if (!valid.contains(status.toUpperCase())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "status must be AC, DE, or TE — got: " + status);
+        }
+
+        long t0 = System.currentTimeMillis();
+        zimbraSoapClient.sendInviteReply(authToken, inviteId, status.toUpperCase());
+        log.info("[Zimbra] respondToMeeting inviteId={} status={} email={} latency={}ms",
+                inviteId, status, email, System.currentTimeMillis() - t0);
+
+        // Evict calendar cache so the next getEvents() call returns fresh ptst values
+        cache.evictByPrefix(email + ":calendar");
+
+        return CalendarEventDto.builder()
+                .invId(inviteId)
+                .ptst(status.toUpperCase())
+                .build();
+    }
+
     // ── parsers ──────────────────────────────────────────────────────────────
 
     private List<CalendarEventDto> parseAppointments(Document doc) {
@@ -59,23 +104,32 @@ public class ZimbraCalendarService {
         for (int i = 0; i < appts.getLength(); i++) {
             Element appt = (Element) appts.item(i);
             String id       = attr(appt, "id");
+            String invId    = attr(appt, "invId");
             String title    = attr(appt, "name");
             String location = attr(appt, "loc");
             boolean allDay  = "1".equals(attr(appt, "allDay"));
 
+            // ptst is on the <appt> element itself or on the first <inst> child
+            String ptst = attr(appt, "ptst");
             NodeList insts = appt.getElementsByTagName("inst");
+            if (ptst.isBlank() && insts.getLength() > 0) {
+                ptst = attr((Element) insts.item(0), "ptst");
+            }
+
             if (insts.getLength() > 0) {
                 Element inst = (Element) insts.item(0);
                 String startMs = attr(inst, "s");
                 String durMs   = attr(inst, "dur");
                 result.add(CalendarEventDto.builder()
-                        .id(id).title(title).location(location).allDay(allDay)
+                        .id(id).invId(invId).title(title).location(location)
+                        .allDay(allDay).ptst(ptst.isBlank() ? "NE" : ptst)
                         .start(formatEpochMs(startMs))
                         .end(computeEnd(startMs, durMs))
                         .build());
             } else {
                 result.add(CalendarEventDto.builder()
-                        .id(id).title(title).location(location).allDay(allDay)
+                        .id(id).invId(invId).title(title).location(location)
+                        .allDay(allDay).ptst(ptst.isBlank() ? "NE" : ptst)
                         .start("").end("").build());
             }
         }

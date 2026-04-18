@@ -205,6 +205,79 @@ public class ZimbraSoapClient {
         return postSoap(soap);
     }
 
+    /**
+     * MsgActionRequest — marks a message as read in the authenticated user's mailbox.
+     *
+     * @param authToken employee's Zimbra auth token
+     * @param messageId the message ID to mark as read
+     */
+    public Document markMessageRead(String authToken, String messageId) {
+        String soap = """
+                <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+                  <soap:Header>
+                    <context xmlns="urn:zimbra">
+                      <authToken>%s</authToken>
+                    </context>
+                  </soap:Header>
+                  <soap:Body>
+                    <MsgActionRequest xmlns="urn:zimbraMail">
+                      <action op="read" id="%s"/>
+                    </MsgActionRequest>
+                  </soap:Body>
+                </soap:Envelope>
+                """.formatted(authToken, escapeXml(messageId));
+
+        return postSoap(soap);
+    }
+
+    /**
+     * SendInviteReplyRequest — responds to a meeting invite on behalf of the
+     * authenticated employee.
+     *
+     * <p>The {@code inviteId} is the Zimbra <b>message</b> ID of the invite
+     * notification email (the {@code invId} attribute on the {@code <appt>}
+     * element returned by SearchRequest, not the calendar item id).
+     *
+     * <p>Mapping of {@code ptst} codes to SOAP verb:
+     * <ul>
+     *   <li>{@code AC} → ACCEPT</li>
+     *   <li>{@code DE} → DECLINE</li>
+     *   <li>{@code TE} → TENTATIVE</li>
+     * </ul>
+     *
+     * @param authToken  employee's Zimbra auth token (from ZimbraContext, NOT the service account)
+     * @param inviteId   invite message ID ({@code invId} from the calendar search)
+     * @param ptst       participation status code: AC, DE, or TE
+     * @return parsed Zimbra SOAP response document
+     */
+    public Document sendInviteReply(String authToken, String inviteId, String ptst) {
+        String verb = switch (ptst.toUpperCase()) {
+            case "AC" -> "ACCEPT";
+            case "DE" -> "DECLINE";
+            case "TE" -> "TENTATIVE";
+            default   -> throw new ZimbraException("Unknown participation status: " + ptst);
+        };
+
+        String soap = """
+                <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+                  <soap:Header>
+                    <context xmlns="urn:zimbra">
+                      <authToken>%s</authToken>
+                    </context>
+                  </soap:Header>
+                  <soap:Body>
+                    <SendInviteReplyRequest xmlns="urn:zimbraMail"
+                        id="%s"
+                        compNum="0"
+                        verb="%s"
+                        updateOrganizer="TRUE"/>
+                  </soap:Body>
+                </soap:Envelope>
+                """.formatted(authToken, escapeXml(inviteId), verb);
+
+        return postSoap(soap);
+    }
+
     // ── internals ────────────────────────────────────────────────────────────
 
     private Document postSoap(String soapXml) {

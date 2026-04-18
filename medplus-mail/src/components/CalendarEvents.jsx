@@ -1,6 +1,21 @@
 import { useEffect, useState, useCallback } from 'react'
 import { calendarApi } from '../services/api'
 
+// ── RSVP helpers ─────────────────────────────────────────────────────────────
+
+const PTST_LABEL = { AC: 'Accepted', DE: 'Declined', TE: 'Tentative', NE: 'No response' }
+const PTST_COLOR = { AC: '#188038', DE: '#d93025', TE: '#e37400', NE: '#70757a' }
+
+function PtstBadge({ ptst }) {
+  const label = PTST_LABEL[ptst] || 'No response'
+  const color = PTST_COLOR[ptst] || PTST_COLOR.NE
+  return (
+    <span className="gcal-ptst-badge" style={{ color, borderColor: color }}>
+      {label}
+    </span>
+  )
+}
+
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -63,14 +78,18 @@ export default function CalendarEvents() {
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(false)
   const [selectedDay, setSelectedDay] = useState(toDateStr(today))
+  // { [inviteId]: 'AC'|'DE'|'TE'|null } — null means a request is in-flight
+  const [rsvpState, setRsvpState] = useState({})
 
   const year = viewDate.getFullYear()
   const month = viewDate.getMonth()
   const grid = buildGrid(year, month)
 
-  // Group events by date string
+  // Group events by date string — skip events the user has declined
   const byDate = {}
   events.forEach(ev => {
+    const effectivePtst = rsvpState[ev.invId] ?? ev.ptst
+    if (effectivePtst === 'DE') return           // hide declined events everywhere
     const d = eventDateStr(ev.start)
     if (d) { if (!byDate[d]) byDate[d] = []; byDate[d].push(ev) }
   })
@@ -93,6 +112,29 @@ export default function CalendarEvents() {
     setViewDate(new Date(today.getFullYear(), today.getMonth(), 1))
     setSelectedDay(toDateStr(today))
   }
+
+  /**
+   * Responds to a meeting invite.
+   * Optimistic update: status is set immediately in local state.
+   * On failure, the optimistic value is rolled back.
+   */
+  const handleRsvp = useCallback(async (ev, status) => {
+    const invId = ev.invId
+    if (!invId) return
+    const previous = rsvpState[invId] ?? ev.ptst
+
+    // Optimistic update
+    setRsvpState(s => ({ ...s, [invId]: status }))
+
+    try {
+      await calendarApi.respondToMeeting(invId, status)
+      // Update the events list so the badge is correct after a month refresh too
+      setEvents(prev => prev.map(e => e.invId === invId ? { ...e, ptst: status } : e))
+    } catch {
+      // Rollback on failure
+      setRsvpState(s => ({ ...s, [invId]: previous }))
+    }
+  }, [rsvpState])
 
   const todayStr = toDateStr(today)
   const selectedEvents = byDate[selectedDay] || []
@@ -208,41 +250,81 @@ export default function CalendarEvents() {
                 <p>No events</p>
               </div>
             ) : (
-              selectedEvents.map(ev => (
-                <div key={ev.id} className="gcal-panel-event">
-                  <div
-                    className="gcal-panel-event-bar"
-                    style={{ background: colorFor(ev.id) }}
-                  />
-                  <div className="gcal-panel-event-body">
-                    <div className="gcal-panel-event-title">
-                      {ev.title || '(No title)'}
+              selectedEvents.map(ev => {
+                const currentPtst = rsvpState[ev.invId] ?? ev.ptst ?? 'NE'
+                const isResponding = rsvpState[ev.invId] === null
+                const hasInvite = !!ev.invId
+
+                return (
+                  <div key={ev.id} className="gcal-panel-event">
+                    <div
+                      className="gcal-panel-event-bar"
+                      style={{ background: colorFor(ev.id) }}
+                    />
+                    <div className="gcal-panel-event-body">
+                      <div className="gcal-panel-event-title">
+                        {ev.title || '(No title)'}
+                      </div>
+
+                      {!ev.allDay && ev.start && (
+                        <div className="gcal-panel-event-time">
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <circle cx="6" cy="6" r="5" />
+                            <path d="M6 3v3l2 2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                          {eventTime(ev.start)}
+                          {ev.end && ev.end !== ev.start && ` – ${eventTime(ev.end)}`}
+                        </div>
+                      )}
+                      {ev.allDay && (
+                        <div className="gcal-panel-event-time gcal-allday-badge">All day</div>
+                      )}
+                      {ev.location && (
+                        <div className="gcal-panel-event-loc">
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <path d="M6 1a3.5 3.5 0 0 1 3.5 3.5C9.5 7.5 6 11 6 11S2.5 7.5 2.5 4.5A3.5 3.5 0 0 1 6 1z" />
+                            <circle cx="6" cy="4.5" r="1" />
+                          </svg>
+                          {ev.location}
+                        </div>
+                      )}
+
+                      {/* ── RSVP section (only for events with an invite) ── */}
+                      {hasInvite && (
+                        <div className="gcal-rsvp">
+                          <PtstBadge ptst={currentPtst} />
+                          <div className="gcal-rsvp-btns">
+                            <button
+                              className={`gcal-rsvp-btn gcal-rsvp-accept${currentPtst === 'AC' ? ' active' : ''}`}
+                              disabled={isResponding || currentPtst === 'AC'}
+                              onClick={() => handleRsvp(ev, 'AC')}
+                              title="Accept"
+                            >
+                              ✓ Accept
+                            </button>
+                            <button
+                              className={`gcal-rsvp-btn gcal-rsvp-tentative${currentPtst === 'TE' ? ' active' : ''}`}
+                              disabled={isResponding || currentPtst === 'TE'}
+                              onClick={() => handleRsvp(ev, 'TE')}
+                              title="Tentative"
+                            >
+                              ? Maybe
+                            </button>
+                            <button
+                              className={`gcal-rsvp-btn gcal-rsvp-decline${currentPtst === 'DE' ? ' active' : ''}`}
+                              disabled={isResponding || currentPtst === 'DE'}
+                              onClick={() => handleRsvp(ev, 'DE')}
+                              title="Decline"
+                            >
+                              ✕ Decline
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    {!ev.allDay && ev.start && (
-                      <div className="gcal-panel-event-time">
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
-                          <circle cx="6" cy="6" r="5" />
-                          <path d="M6 3v3l2 2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        {eventTime(ev.start)}
-                        {ev.end && ev.end !== ev.start && ` – ${eventTime(ev.end)}`}
-                      </div>
-                    )}
-                    {ev.allDay && (
-                      <div className="gcal-panel-event-time gcal-allday-badge">All day</div>
-                    )}
-                    {ev.location && (
-                      <div className="gcal-panel-event-loc">
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
-                          <path d="M6 1a3.5 3.5 0 0 1 3.5 3.5C9.5 7.5 6 11 6 11S2.5 7.5 2.5 4.5A3.5 3.5 0 0 1 6 1z" />
-                          <circle cx="6" cy="4.5" r="1" />
-                        </svg>
-                        {ev.location}
-                      </div>
-                    )}
                   </div>
-                </div>
-              ))
+                )
+              })
             )}
           </div>
         </div>

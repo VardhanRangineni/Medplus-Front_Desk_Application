@@ -52,6 +52,18 @@ public class ZimbraMailService {
         return result;
     }
 
+    /**
+     * Marks a message as read in Zimbra and evicts the inbox cache so the
+     * next {@link #getInbox} call returns the updated unread flag.
+     */
+    public void markAsRead(String messageId) {
+        String email = ZimbraContext.getEmail();
+        zimbraSoapClient.markMessageRead(ZimbraContext.getAuthToken(), messageId);
+        // Evict all inbox cache entries for this user so the blue dot clears on next load
+        cache.evictByPrefix(email + ":inbox");
+        log.debug("[Zimbra] markAsRead email={} msgId={}", email, messageId);
+    }
+
     // ── parsers ──────────────────────────────────────────────────────────────
 
     private List<MailDto> parseMessages(Document doc) {

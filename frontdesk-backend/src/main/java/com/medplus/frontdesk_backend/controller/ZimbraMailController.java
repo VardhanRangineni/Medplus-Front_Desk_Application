@@ -27,4 +27,18 @@ public class ZimbraMailController {
         MailDetailDto mail = zimbraMailService.getMessageById(id);
         return mail != null ? ResponseEntity.ok(mail) : ResponseEntity.notFound().build();
     }
+
+    /**
+     * Marks a message as read in Zimbra.
+     *
+     * <pre>PUT /zimbra/mails/{id}/read</pre>
+     *
+     * Called by the frontend when the user opens an email.
+     * Returns 204 No Content on success.
+     */
+    @PutMapping("/{id}/read")
+    public ResponseEntity<Void> markAsRead(@PathVariable String id) {
+        zimbraMailService.markAsRead(id);
+        return ResponseEntity.noContent().build();
+    }
 }

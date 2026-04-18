@@ -9,6 +9,14 @@ export default function EmailList() {
   const [error, setError] = useState('')
   const [selectedId, setSelectedId] = useState(null)
 
+  const openMail = (id) => {
+    setSelectedId(id)
+    // Optimistic: remove the blue dot immediately
+    setEmails(prev => prev.map(m => m.id === id ? { ...m, unread: false } : m))
+    // Tell Zimbra the message has been read (fire-and-forget)
+    mailApi.markRead(id).catch(() => {/* non-critical — dot already cleared */})
+  }
+
   useEffect(() => {
     loadEmails()
   }, [])
@@ -58,7 +66,7 @@ export default function EmailList() {
             <button
               key={mail.id}
               className={`email-item ${mail.unread ? 'email-unread' : ''}`}
-              onClick={() => setSelectedId(mail.id)}
+              onClick={() => openMail(mail.id)}
             >
               <div className="email-avatar">
                 {(mail.fromName || mail.from || '?')[0].toUpperCase()}

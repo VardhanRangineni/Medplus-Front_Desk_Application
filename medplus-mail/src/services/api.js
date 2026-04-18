@@ -25,12 +25,21 @@ export const authApi = {
 }
 
 export const mailApi = {
-  getInbox: (limit = 20) => api.get('/mails/inbox', { params: { limit } }),
-  getMail:  (id)          => api.get(`/mails/${id}`),
+  getInbox:  (limit = 20) => api.get('/mails/inbox', { params: { limit } }),
+  getMail:   (id)          => api.get(`/mails/${id}`),
+  markRead:  (id)          => api.put(`/mails/${id}/read`),
 }
 
 export const calendarApi = {
   getEvents: (fromDate, toDate) => api.get('/calendar/events', { params: { fromDate, toDate } }),
+
+  /**
+   * Respond to a meeting invite.
+   * @param {string} inviteId - the `invId` field from the CalendarEventDto
+   * @param {'AC'|'DE'|'TE'} status - participation status
+   */
+  respondToMeeting: (inviteId, status) =>
+    api.post(`/calendar/events/${encodeURIComponent(inviteId)}/respond`, { status }),
 }
 
 export const dashboardApi = {
