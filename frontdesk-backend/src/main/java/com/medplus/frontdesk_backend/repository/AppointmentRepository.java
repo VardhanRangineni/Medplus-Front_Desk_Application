@@ -1,6 +1,7 @@
 package com.medplus.frontdesk_backend.repository;
 
 import com.medplus.frontdesk_backend.model.AppointmentLog;
+import com.medplus.frontdesk_backend.model.AppointmentStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -11,6 +12,7 @@ import java.sql.Date;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
@@ -30,10 +32,10 @@ public class AppointmentRepository {
             "INSERT INTO appointmentslog " +
             "(appointmentId, bookingToken, entryType, name, aadhaarNumber, email, mobile, empId, " +
             " personToMeet, personName, department, locationId, locationName, " +
-            " appointmentDate, appointmentTime, reasonForVisit) " +
+            " appointmentDate, appointmentTime, reasonForVisit, status, zimbraInviteId) " +
             "VALUES (:appointmentId, :bookingToken, :entryType, :name, :aadhaarNumber, :email, :mobile, :empId, " +
             "        :personToMeet, :personName, :department, :locationId, :locationName, " +
-            "        :appointmentDate, :appointmentTime, :reasonForVisit)",
+            "        :appointmentDate, :appointmentTime, :reasonForVisit, :status, :zimbraInviteId)",
             new MapSqlParameterSource()
                 .addValue("appointmentId",  a.getAppointmentId())
                 .addValue("bookingToken",   a.getBookingToken())
@@ -51,7 +53,114 @@ public class AppointmentRepository {
                 .addValue("appointmentDate",a.getAppointmentDate() != null ? Date.valueOf(a.getAppointmentDate()) : null)
                 .addValue("appointmentTime",a.getAppointmentTime() != null ? Time.valueOf(a.getAppointmentTime()) : null)
                 .addValue("reasonForVisit", a.getReasonForVisit())
+                .addValue("status",         (a.getStatus() != null ? a.getStatus() : AppointmentStatus.PENDING).name())
+                .addValue("zimbraInviteId", a.getZimbraInviteId())
         );
+    }
+
+    // ── Status / reschedule mutations ─────────────────────────────────────────
+
+    /**
+     * Stamps the Zimbra invite ID on an existing booking.
+     * Called after Zimbra returns {@code invId} from CreateAppointmentRequest,
+     * so later reschedules can target the same event.
+     */
+    public int setZimbraInviteId(String appointmentId, String zimbraInviteId) {
+        return jdbc.update(
+            "UPDATE appointmentslog SET zimbraInviteId = :invId WHERE appointmentId = :id",
+            new MapSqlParameterSource()
+                .addValue("id",    appointmentId)
+                .addValue("invId", zimbraInviteId)
+        );
+    }
+
+    /** Updates lifecycle status, optionally recording a decline reason. */
+    public int updateStatus(String appointmentId, AppointmentStatus status, String reason) {
+        return jdbc.update(
+            "UPDATE appointmentslog " +
+            "   SET status = :status, " +
+            "       declineReason = COALESCE(:reason, declineReason) " +
+            " WHERE appointmentId = :id",
+            new MapSqlParameterSource()
+                .addValue("id",     appointmentId)
+                .addValue("status", status.name())
+                .addValue("reason", reason)
+        );
+    }
+
+    /**
+     * Moves a booking to a new date/time slot (reschedule).
+     * Status is also flipped to RESCHEDULED in the same update.
+     */
+    public int reschedule(String appointmentId, LocalDate newDate, LocalTime newTime) {
+        return jdbc.update(
+            "UPDATE appointmentslog " +
+            "   SET appointmentDate = :date, " +
+            "       appointmentTime = :time, " +
+            "       status = 'RESCHEDULED' " +
+            " WHERE appointmentId = :id",
+            new MapSqlParameterSource()
+                .addValue("id",   appointmentId)
+                .addValue("date", Date.valueOf(newDate))
+                .addValue("time", Time.valueOf(newTime))
+        );
+    }
+
+    /**
+     * Looks up a single PENDING/RESCHEDULED booking matching the employee +
+     * slot. Used by the decline flow to translate a Zimbra rejection back to
+     * a specific row (so we can mark it DECLINED instead of deleting it).
+     */
+    public Optional<AppointmentLog> findActiveByPersonAndSlot(String personToMeetId,
+                                                              LocalDate date,
+                                                              LocalTime time) {
+        List<AppointmentLog> rows = jdbc.query(
+            "SELECT * FROM appointmentslog " +
+            " WHERE personToMeet = :personId " +
+            "   AND appointmentDate = :date " +
+            "   AND appointmentTime = :time " +
+            "   AND status IN ('PENDING','RESCHEDULED') " +
+            " LIMIT 1",
+            new MapSqlParameterSource()
+                .addValue("personId", personToMeetId)
+                .addValue("date",     Date.valueOf(date))
+                .addValue("time",     Time.valueOf(time)),
+            AppointmentRepository::mapRow
+        );
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    /**
+     * Counts PENDING/RESCHEDULED appointments overlapping the given window
+     * for an employee. Used by {@code AvailabilityService} before booking or
+     * rescheduling. {@code excludeAppointmentId} lets a reschedule ignore
+     * the row being moved.
+     */
+    public int countActiveOverlapping(String personToMeetId,
+                                      LocalDateTime start,
+                                      LocalDateTime end,
+                                      String excludeAppointmentId) {
+        // Appointments are stored as separate DATE + TIME columns.
+        // We treat every appointment as a 30-minute window starting at (date,time).
+        var params = new MapSqlParameterSource()
+                .addValue("personId", personToMeetId)
+                .addValue("start",    Timestamp.valueOf(start))
+                .addValue("end",      Timestamp.valueOf(end));
+
+        String sql =
+            "SELECT COUNT(*) FROM appointmentslog " +
+            " WHERE personToMeet = :personId " +
+            "   AND status IN ('PENDING','RESCHEDULED') " +
+            "   AND TIMESTAMP(appointmentDate, appointmentTime) < :end " +
+            "   AND DATE_ADD(TIMESTAMP(appointmentDate, appointmentTime), INTERVAL 30 MINUTE) > :start";
+
+        if (excludeAppointmentId != null && !excludeAppointmentId.isBlank()) {
+            sql += " AND appointmentId <> :excludeId";
+            params.addValue("excludeId", excludeAppointmentId);
+        }
+
+        Integer n = jdbc.queryForObject(sql, params, Integer.class);
+        return n == null ? 0 : n;
     }
 
     /** Removes an appointment by ID (called after successful check-in). */
@@ -191,6 +300,10 @@ public class AppointmentRepository {
                                       MapSqlParameterSource params) {
         var sb = new StringBuilder("WHERE 1=1");
 
+        // Declined / cancelled rows are retained for reporting but hidden from
+        // the operational list (front desk should only see actionable bookings).
+        sb.append(" AND status NOT IN ('DECLINED','CANCELLED')");
+
         // Default front-desk view: today only, from the current clock time onward (not future calendar days).
         if (defaultView) {
             sb.append(" AND appointmentDate = CURDATE() AND appointmentTime >= CURTIME()");
@@ -240,7 +353,20 @@ public class AppointmentRepository {
                 .appointmentDate(d  != null ? d.toLocalDate()      : null)
                 .appointmentTime(t  != null ? t.toLocalTime()      : null)
                 .reasonForVisit (rs.getString("reasonForVisit"))
+                .status         (AppointmentStatus.fromString(safeGetString(rs, "status")))
+                .zimbraInviteId (safeGetString(rs, "zimbraInviteId"))
+                .declineReason  (safeGetString(rs, "declineReason"))
                 .createdAt      (ca != null ? ca.toLocalDateTime() : null)
                 .build();
+    }
+
+    /**
+     * Returns a column value or {@code null} when the column is absent from the
+     * ResultSet (e.g. during the brief window between migrations running and
+     * a schema reload). Keeps the mapper resilient against drift.
+     */
+    private static String safeGetString(java.sql.ResultSet rs, String col) {
+        try { return rs.getString(col); }
+        catch (java.sql.SQLException e) { return null; }
     }
 }

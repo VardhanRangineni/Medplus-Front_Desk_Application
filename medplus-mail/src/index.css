@@ -374,7 +374,7 @@ input {
 
 /* ── Section ───────────────────────────────────────────────────────────────── */
 .section-container {
-  max-width: 860px;
+  width: 100%;
 }
 
 .section-header {
@@ -631,7 +631,7 @@ input {
 }
 
 .modal-title {
-  font-size: 16px;
+    font-size: 16px;
   font-weight: 700;
   color: var(--color-text-primary);
   line-height: 1.4;
@@ -1121,6 +1121,200 @@ input {
   background: #d93025;
   color: #fff;
   opacity: 1;
+}
+
+/* ── Gmail-style inline email reader ───────────────────────────────────────── */
+.mail-reader {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.mail-reader-toolbar {
+  display: flex;
+  align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.mail-reader-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-full);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.mail-reader-back:hover {
+  background: var(--color-border);
+  color: var(--color-text-primary);
+}
+
+.mail-reader-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 8px 4px 32px;
+}
+
+.mail-reader-subject {
+  font-size: 22px;
+  font-weight: 400;
+  color: var(--color-text-primary);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.mail-reader-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.mail-reader-avatar {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.mail-reader-sender {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mail-reader-from {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mail-reader-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.mail-reader-email {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.mail-reader-to {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.mail-reader-date {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.mail-reader-body {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+.mail-reader-body .mail-html img { max-width: 100%; height: auto; }
+.mail-reader-body .mail-html a { color: var(--color-primary); }
+.mail-reader-body .mail-text {
+  font-family: inherit;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* ── Email attachments (Gmail-style chips) ─────────────────────────────────── */
+.mail-attachments {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.mail-attachments-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 10px;
+}
+
+.mail-attachments-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.mail-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  min-width: 200px;
+  max-width: 320px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.mail-attachment:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+  box-shadow: var(--shadow-sm);
+}
+.mail-attachment svg {
+  flex: 0 0 auto;
+  color: var(--color-text-secondary);
+}
+.mail-attachment:hover svg { color: var(--color-primary); }
+
+.mail-attachment-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.mail-attachment-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mail-attachment-size {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ── Scrollbar ─────────────────────────────────────────────────────────────── */

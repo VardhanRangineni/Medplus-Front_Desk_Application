@@ -206,6 +206,131 @@ public class ZimbraSoapClient {
     }
 
     /**
+     * ModifyAppointmentRequest — reschedule an existing calendar event in place.
+     *
+     * <p>Zimbra requires the caller to replay the full invite (comp/or/at/desc)
+     * so we build the same envelope as {@link #createAppointment} with the new
+     * start/end and the target event's {@code id} + {@code comp="0"} attrs on
+     * the {@code <ModifyAppointmentRequest>} root.
+     *
+     * @param authToken  caller's auth token (service account when reschedule is
+     *                   initiated by the booking system)
+     * @param inviteId   Zimbra {@code invId} returned at create-time
+     * @param event      new event payload (new start/end + unchanged metadata)
+     */
+    public Document modifyAppointment(String authToken, String inviteId, ZimbraEventRequestDto event) {
+        DateTimeFormatter dtFmt = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss");
+        String startStr = event.getStart().format(dtFmt);
+        String endStr   = event.getEnd().format(dtFmt);
+
+        List<String> emails = event.getAttendeeEmails() != null ? event.getAttendeeEmails() : List.of();
+        String attendeeXml = emails.stream()
+                .map(a -> "<at a=\"%s\" role=\"REQ\" ptst=\"NE\" rsvp=\"1\"/>".formatted(escapeXml(a)))
+                .collect(Collectors.joining("\n                        "));
+        String toXml = emails.stream()
+                .map(a -> "<e t=\"t\" a=\"%s\"/>".formatted(escapeXml(a)))
+                .collect(Collectors.joining("\n                    "));
+
+        String location    = escapeXml(event.getLocation()       != null ? event.getLocation()       : "");
+        String description = escapeXml(event.getDescription()    != null ? event.getDescription()    : "");
+        String title       = escapeXml(event.getTitle()          != null ? event.getTitle()          : "");
+        String organizer   = escapeXml(event.getOrganizerEmail() != null ? event.getOrganizerEmail() : "");
+
+        // id = invite id; comp=0 = primary component; the rest of the <m> payload
+        // is identical to create — Zimbra replaces the event atomically.
+        String soap = """
+                <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+                  <soap:Header>
+                    <context xmlns="urn:zimbra">
+                      <authToken>%s</authToken>
+                    </context>
+                  </soap:Header>
+                  <soap:Body>
+                    <ModifyAppointmentRequest xmlns="urn:zimbraMail" id="%s" comp="0">
+                      <m>
+                        <inv>
+                          <comp name="%s" status="CONF" allDay="0" class="PUB" transp="O" fb="B" loc="%s">
+                            <s d="%s" tz="Asia/Kolkata"/>
+                            <e d="%s" tz="Asia/Kolkata"/>
+                            <or a="%s" d="Front Desk Calendar"/>
+                            %s
+                            <desc>%s</desc>
+                          </comp>
+                        </inv>
+                        %s
+                        <su>%s</su>
+                        <mp ct="multipart/alternative">
+                          <mp ct="text/plain">
+                            <content>%s</content>
+                          </mp>
+                        </mp>
+                      </m>
+                    </ModifyAppointmentRequest>
+                  </soap:Body>
+                </soap:Envelope>
+                """.formatted(
+                authToken,
+                escapeXml(inviteId),
+                title, location,
+                startStr, endStr,
+                organizer,
+                attendeeXml,
+                description,
+                toXml,
+                title,
+                description
+        );
+
+        return postSoap(soap);
+    }
+
+    /**
+     * CancelAppointmentRequest — used when an employee declines so the
+     * service-account organiser removes the event from every attendee's calendar.
+     * Accepts the Zimbra {@code invId} produced at create-time.
+     */
+    public Document cancelAppointment(String authToken, String inviteId) {
+        String soap = """
+                <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+                  <soap:Header>
+                    <context xmlns="urn:zimbra">
+                      <authToken>%s</authToken>
+                    </context>
+                  </soap:Header>
+                  <soap:Body>
+                    <CancelAppointmentRequest xmlns="urn:zimbraMail" id="%s" comp="0"/>
+                  </soap:Body>
+                </soap:Envelope>
+                """.formatted(authToken, escapeXml(inviteId));
+        return postSoap(soap);
+    }
+
+    /**
+     * GetFolderRequest for the Inbox (id=2). The returned {@code <folder>}
+     * element carries a {@code u} attribute with the unread-message count.
+     * This is the authoritative way to get unread count in Zimbra (the
+     * SearchResponse {@code size} attribute is not a total match count).
+     */
+    public Document getInboxFolder(String authToken) {
+        String soap = """
+                <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+                  <soap:Header>
+                    <context xmlns="urn:zimbra">
+                      <authToken>%s</authToken>
+                    </context>
+                  </soap:Header>
+                  <soap:Body>
+                    <GetFolderRequest xmlns="urn:zimbraMail">
+                      <folder path="/Inbox"/>
+                    </GetFolderRequest>
+                  </soap:Body>
+                </soap:Envelope>
+                """.formatted(authToken);
+
+        return postSoap(soap);
+    }
+
+    /**
      * MsgActionRequest — marks a message as read in the authenticated user's mailbox.
      *
      * @param authToken employee's Zimbra auth token
@@ -276,6 +401,40 @@ public class ZimbraSoapClient {
                 """.formatted(authToken, escapeXml(inviteId), verb);
 
         return postSoap(soap);
+    }
+
+    /**
+     * Fetches an email attachment's binary content from Zimbra's REST
+     * endpoint — {@code /service/home/~/?id=<msgId>&part=<partId>}.
+     * Authenticates via the {@code ZM_AUTH_TOKEN} cookie so the service
+     * account / user token we already hold in memory is honored without
+     * exposing it to the browser.
+     *
+     * @return response entity with the raw bytes, preserving Zimbra's
+     *         {@code Content-Type} and (when present) {@code Content-Disposition}
+     */
+    public ResponseEntity<byte[]> downloadAttachment(String authToken,
+                                                     String messageId,
+                                                     String partId) {
+        // Build REST base from the SOAP URL: strip the "/service/soap" suffix
+        String base = zimbraSoapUrl.endsWith("/service/soap")
+                ? zimbraSoapUrl.substring(0, zimbraSoapUrl.length() - "/service/soap".length())
+                : zimbraSoapUrl.replaceAll("/service/.*$", "");
+
+        String url = base + "/service/home/~/?auth=co&id=" + messageId + "&part=" + partId;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.COOKIE, "ZM_AUTH_TOKEN=" + authToken);
+        headers.setAccept(List.of(MediaType.ALL));
+
+        try {
+            return restTemplate.exchange(
+                    url, HttpMethod.GET, new HttpEntity<>(headers), byte[].class);
+        } catch (HttpClientErrorException | HttpServerErrorException ex) {
+            log.warn("Zimbra attachment download failed {} msg={} part={}: {}",
+                    ex.getStatusCode(), messageId, partId, ex.getMessage());
+            throw new ZimbraException("Failed to download attachment: " + ex.getStatusCode());
+        }
     }
 
     // ── internals ────────────────────────────────────────────────────────────

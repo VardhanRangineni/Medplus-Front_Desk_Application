@@ -131,15 +131,39 @@ CREATE TABLE IF NOT EXISTS `appointmentslog` (
     `appointmentDate` DATE                       NOT NULL,
     `appointmentTime` TIME                       NOT NULL  COMMENT '24-hour format, e.g. 16:00:00',
     `reasonForVisit`  TEXT                       DEFAULT NULL,
+    `status`          VARCHAR(20)                NOT NULL DEFAULT 'PENDING'
+                      COMMENT 'PENDING | DECLINED | RESCHEDULED | CHECKED_IN | CANCELLED',
+    `zimbraInviteId`  VARCHAR(128)               DEFAULT NULL
+                      COMMENT 'Zimbra invId — used for reschedule/decline',
+    `declineReason`   VARCHAR(500)               DEFAULT NULL,
     `createdAt`       TIMESTAMP                  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`appointmentId`),
     KEY `idx_appt_date_time`    (`appointmentDate`, `appointmentTime`),
     KEY `idx_appt_location`     (`locationId`),
-    KEY `idx_appt_booking_token`(`bookingToken`)
+    KEY `idx_appt_booking_token`(`bookingToken`),
+    KEY `idx_appt_status`       (`status`)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_0900_ai_ci
   COMMENT='Scheduled appointments from the public booking web app';
+
+
+-- ── 5b. busy_slots ───────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS `busy_slots` (
+    `id`             VARCHAR(36)  NOT NULL,
+    `employeeId`     VARCHAR(100) NOT NULL COMMENT 'FK → usermaster.employeeid',
+    `startTime`      DATETIME     NOT NULL,
+    `endTime`        DATETIME     NOT NULL,
+    `reason`         VARCHAR(255) DEFAULT NULL,
+    `zimbraEventId`  VARCHAR(128) DEFAULT NULL COMMENT 'Zimbra invId if synced to calendar',
+    `createdBy`      VARCHAR(100) DEFAULT NULL,
+    `createdAt`      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_busy_employee_range` (`employeeId`, `startTime`, `endTime`)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COMMENT='Manual busy-time blocks owned by employees';
 
 
 -- ── 6. visitormember ──────────────────────────────────────────────────────────

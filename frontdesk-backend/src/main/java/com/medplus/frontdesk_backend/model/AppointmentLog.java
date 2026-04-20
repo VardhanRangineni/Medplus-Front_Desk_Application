@@ -52,5 +52,16 @@ public class AppointmentLog {
     private LocalTime appointmentTime;
 
     private String reasonForVisit;
+
+    /** Lifecycle status — see {@link AppointmentStatus}. Defaults to PENDING in DB. */
+    @lombok.Builder.Default
+    private AppointmentStatus status = AppointmentStatus.PENDING;
+
+    /** Zimbra {@code invId} returned from CreateAppointmentRequest — needed for reschedule. */
+    private String zimbraInviteId;
+
+    /** Optional note captured when status transitions to DECLINED. */
+    private String declineReason;
+
     private LocalDateTime createdAt;
 }

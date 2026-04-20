@@ -72,7 +72,7 @@ function buildGrid(year, month) {
   return cells
 }
 
-export default function CalendarEvents() {
+export default function CalendarEvents({ onTodayCountChange } = {}) {
   const today = new Date()
   const [viewDate, setViewDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1))
   const [events, setEvents] = useState([])
@@ -85,11 +85,14 @@ export default function CalendarEvents() {
   const month = viewDate.getMonth()
   const grid = buildGrid(year, month)
 
-  // Group events by date string — skip events the user has declined
+  // Group events by date string
+  // Declined events are already excluded by the backend parser, but also
+  // apply the optimistic rsvpState so the event disappears the instant
+  // the user clicks Decline (before the API response arrives).
   const byDate = {}
   events.forEach(ev => {
     const effectivePtst = rsvpState[ev.invId] ?? ev.ptst
-    if (effectivePtst === 'DE') return           // hide declined events everywhere
+    if (effectivePtst === 'DE') return
     const d = eventDateStr(ev.start)
     if (d) { if (!byDate[d]) byDate[d] = []; byDate[d].push(ev) }
   })
@@ -138,6 +141,17 @@ export default function CalendarEvents() {
 
   const todayStr = toDateStr(today)
   const selectedEvents = byDate[selectedDay] || []
+
+  // Report today's visible event count (excluding declined, per `byDate`) up
+  // to the Dashboard so the "N events today" chip stays in sync with what
+  // the user sees on the calendar.
+  useEffect(() => {
+    if (typeof onTodayCountChange === 'function') {
+      onTodayCountChange((byDate[todayStr] || []).length)
+    }
+    // byDate is recomputed every render; depending on events/rsvpState is enough
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events, rsvpState, todayStr, onTodayCountChange])
 
   return (
     <div className="gcal-root">

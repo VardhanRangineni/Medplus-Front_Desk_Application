@@ -28,6 +28,16 @@ export const mailApi = {
   getInbox:  (limit = 20) => api.get('/mails/inbox', { params: { limit } }),
   getMail:   (id)          => api.get(`/mails/${id}`),
   markRead:  (id)          => api.put(`/mails/${id}/read`),
+
+  /**
+   * Build a browser-downloadable URL for an attachment.
+   * The backend proxies the request to Zimbra using the current session's
+   * authToken, so the link is valid as long as the user is logged in.
+   */
+  attachmentUrl: (messageId, partId, filename) => {
+    const qs = filename ? `?filename=${encodeURIComponent(filename)}` : ''
+    return `/zimbra/mails/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(partId)}${qs}`
+  },
 }
 
 export const calendarApi = {

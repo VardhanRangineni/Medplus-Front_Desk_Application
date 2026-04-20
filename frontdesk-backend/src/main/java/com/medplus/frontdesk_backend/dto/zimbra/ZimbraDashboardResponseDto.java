@@ -10,4 +10,7 @@ import java.util.List;
 public class ZimbraDashboardResponseDto {
     private List<MailDto> emails;
     private List<CalendarEventDto> events;
+
+    /** Total unread email count across the full inbox (not just the top 5 shown). */
+    private int unreadEmailCount;
 }

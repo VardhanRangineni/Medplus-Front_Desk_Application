@@ -161,6 +161,11 @@ public class ZimbraCalendarService {
             if (ptst.isBlank() && insts.getLength() > 0) {
                 ptst = attr((Element) insts.item(0), "ptst");
             }
+            if (ptst.isBlank()) ptst = "NE";
+
+            // Skip declined events — keeps both the calendar view and the
+            // dashboard summary count consistent (no "ghost" badge numbers)
+            if ("DE".equals(ptst)) continue;
 
             if (insts.getLength() > 0) {
                 Element inst = (Element) insts.item(0);
@@ -168,14 +173,14 @@ public class ZimbraCalendarService {
                 String durMs   = attr(inst, "dur");
                 result.add(CalendarEventDto.builder()
                         .id(id).invId(invId).title(title).location(location)
-                        .allDay(allDay).ptst(ptst.isBlank() ? "NE" : ptst)
+                        .allDay(allDay).ptst(ptst)
                         .start(formatEpochMs(startMs))
                         .end(computeEnd(startMs, durMs))
                         .build());
             } else {
                 result.add(CalendarEventDto.builder()
                         .id(id).invId(invId).title(title).location(location)
-                        .allDay(allDay).ptst(ptst.isBlank() ? "NE" : ptst)
+                        .allDay(allDay).ptst(ptst)
                         .start("").end("").build());
             }
         }

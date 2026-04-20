@@ -65,7 +65,49 @@ public class DatabaseMigrationRunner implements ApplicationRunner {
         seedCardsForExistingLocations();
         seedInitialCardRequests();
         seedSampleAppointments();
+
+        // ── Appointment lifecycle (decline / reschedule support) ──────────────
+        // Appointments now carry an explicit status so declined/rescheduled rows
+        // can be kept for reporting instead of being physically deleted.
+        addColumnIfMissing("appointmentslog", "status",
+                "VARCHAR(20) NOT NULL DEFAULT 'PENDING' " +
+                "COMMENT 'PENDING | DECLINED | RESCHEDULED | CHECKED_IN | CANCELLED'",
+                "AFTER `reasonForVisit`");
+        addColumnIfMissing("appointmentslog", "zimbraInviteId",
+                "VARCHAR(128) DEFAULT NULL " +
+                "COMMENT 'Zimbra invId returned by CreateAppointmentRequest — used for reschedule/decline'",
+                "AFTER `status`");
+        addColumnIfMissing("appointmentslog", "declineReason",
+                "VARCHAR(500) DEFAULT NULL " +
+                "COMMENT 'Optional note captured when status = DECLINED'",
+                "AFTER `zimbraInviteId`");
+        createBusySlotTable();
+
         log.info("Database migrations complete.");
+    }
+
+    /**
+     * Employee-blocked time windows (e.g. "out of office", "lunch").
+     * Used by AvailabilityService to reject overlapping bookings.
+     * An optional {@code zimbraEventId} is populated when we push the block
+     * to the employee's Zimbra calendar as a "Busy" event.
+     */
+    private void createBusySlotTable() {
+        jdbc.execute(
+            "CREATE TABLE IF NOT EXISTS `busy_slots` (" +
+            "  `id`             VARCHAR(36)  NOT NULL," +
+            "  `employeeId`     VARCHAR(100) NOT NULL COMMENT 'FK → usermaster.employeeid'," +
+            "  `startTime`      DATETIME     NOT NULL," +
+            "  `endTime`        DATETIME     NOT NULL," +
+            "  `reason`         VARCHAR(255) DEFAULT NULL," +
+            "  `zimbraEventId`  VARCHAR(128) DEFAULT NULL COMMENT 'Zimbra invId if synced to calendar'," +
+            "  `createdBy`      VARCHAR(100) DEFAULT NULL," +
+            "  `createdAt`      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+            "  PRIMARY KEY (`id`)," +
+            "  KEY `idx_busy_employee_range` (`employeeId`, `startTime`, `endTime`)" +
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4" +
+            "  COMMENT='Manual busy-time blocks owned by employees'"
+        );
     }
 
     private void createCardTables() {

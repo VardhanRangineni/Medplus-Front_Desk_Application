@@ -1,7 +1,9 @@
 package com.medplus.frontdesk_backend.service;
 
 import com.medplus.frontdesk_backend.dto.*;
+import com.medplus.frontdesk_backend.dto.zimbra.ZimbraEventRequestDto;
 import com.medplus.frontdesk_backend.model.AppointmentLog;
+import com.medplus.frontdesk_backend.model.AppointmentStatus;
 import com.medplus.frontdesk_backend.model.Location;
 import com.medplus.frontdesk_backend.model.UserManagement;
 import com.medplus.frontdesk_backend.model.UserMaster;
@@ -54,6 +56,9 @@ public class AppointmentService {
     private final VisitorService            visitorService;
     private final CardService               cardService;
     private final ZimbraAppointmentService  zimbraAppointmentService;
+    private final AvailabilityService       availabilityService;
+    private final ZimbraServiceAccountSession  serviceAccountSession;
+    private final com.medplus.frontdesk_backend.integration.ZimbraSoapClient zimbraSoapClient;
 
     // ── OTP — Visitor (mobile-based) ─────────────────────────────────────────
 
@@ -349,6 +354,10 @@ public class AppointmentService {
                         req.getReasonForVisit(),
                         zimbraStart,
                         zimbraEnd);
+                // Stamp the invite id on the row so reschedule / cancel can target it
+                if (zimbraInviteId != null && !zimbraInviteId.isBlank()) {
+                    appointmentRepository.setZimbraInviteId(reference, zimbraInviteId);
+                }
             } catch (ResponseStatusException rse) {
                 // 409 should never reach here (checked pre-insert), but guard anyway
                 AppointmentService.log.warn(
@@ -388,6 +397,137 @@ public class AppointmentService {
                 .status          ("PENDING")
                 .createdAt       (LocalDateTime.now())
                 .build();
+    }
+
+    // ── Decline ───────────────────────────────────────────────────────────────
+
+    /**
+     * Marks an existing booking as {@link AppointmentStatus#DECLINED} and
+     * cancels the Zimbra event so all attendees see the rejection in their
+     * calendars. The row is kept for reporting.
+     *
+     * @param appointmentId human-readable reference (e.g. APT-20260420-0001)
+     * @param reason        optional free-text reason (max 500 chars)
+     * @return the refreshed DB row
+     */
+    @Transactional
+    public AppointmentLog declineAppointment(String appointmentId, String reason) {
+        AppointmentLog appt = appointmentRepository.findById(appointmentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Appointment not found: " + appointmentId));
+
+        if (appt.getStatus() == AppointmentStatus.DECLINED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Appointment is already declined.");
+        }
+
+        // 1. DB first — so the slot is freed even if Zimbra is unreachable
+        appointmentRepository.updateStatus(appointmentId, AppointmentStatus.DECLINED, reason);
+
+        // 2. Zimbra side — best-effort cancel using the service-account token
+        String invId = appt.getZimbraInviteId();
+        if (invId != null && !invId.isBlank()) {
+            try {
+                zimbraSoapClient.cancelAppointment(serviceAccountSession.getToken(), invId);
+                log.info("[Appointment] Cancelled Zimbra event invId={} for ref={}", invId, appointmentId);
+            } catch (Exception ex) {
+                log.warn("[Appointment] Zimbra cancel failed for ref={} invId={}: {}",
+                        appointmentId, invId, ex.getMessage());
+            }
+        }
+
+        log.info("[Appointment] Declined ref={} reason='{}'", appointmentId, reason);
+        appt.setStatus(AppointmentStatus.DECLINED);
+        appt.setDeclineReason(reason);
+        return appt;
+    }
+
+    // ── Reschedule ────────────────────────────────────────────────────────────
+
+    /**
+     * Moves a booking to a new date/time after checking availability against
+     * existing appointments, busy slots, and the employee's Zimbra calendar.
+     *
+     * <p>If Zimbra has the event we call {@code ModifyAppointmentRequest} so
+     * the same invite is updated (attendees see one event moved, not two).
+     * If Zimbra sync fails the DB is still updated and the failure is logged.
+     *
+     * @param appointmentId human-readable reference
+     * @param newDateStr    new date, yyyy-MM-dd
+     * @param newTimeStr    new time, e.g. "10:30 AM"
+     * @return the refreshed DB row
+     */
+    @Transactional
+    public AppointmentLog rescheduleAppointment(String appointmentId,
+                                                String newDateStr,
+                                                String newTimeStr) {
+        validateDate(newDateStr);
+
+        AppointmentLog appt = appointmentRepository.findById(appointmentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Appointment not found: " + appointmentId));
+
+        if (appt.getStatus() == AppointmentStatus.DECLINED
+                || appt.getStatus() == AppointmentStatus.CANCELLED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Cannot reschedule a " + appt.getStatus() + " appointment.");
+        }
+
+        LocalDate newDate  = LocalDate.parse(newDateStr, DATE_FMT);
+        LocalTime newTime  = parseDisplayTime(newTimeStr);
+        LocalDateTime newStart = LocalDateTime.of(newDate, newTime);
+        LocalDateTime newEnd   = newStart.plusMinutes(30);
+
+        // Availability: DB + busy_slots + Zimbra, excluding THIS appointment
+        boolean free = availabilityService.isAvailable(
+                appt.getPersonToMeet(), newStart, newEnd, appointmentId);
+        if (!free) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "The new slot conflicts with another appointment or busy block.");
+        }
+
+        // 1. Move the DB row
+        appointmentRepository.reschedule(appointmentId, newDate, newTime);
+
+        // 2. Zimbra — try to modify the existing event in place
+        String invId = appt.getZimbraInviteId();
+        if (invId != null && !invId.isBlank()) {
+            try {
+                String employeeEmail = userRepository.findUserMasterByEmployeeId(appt.getPersonToMeet())
+                        .map(UserMaster::getWorkemail).orElse(null);
+
+                java.util.List<String> attendees = new ArrayList<>();
+                if (employeeEmail != null && !employeeEmail.isBlank()) attendees.add(employeeEmail);
+                if (appt.getEmail() != null && !appt.getEmail().isBlank()) attendees.add(appt.getEmail());
+
+                ZimbraEventRequestDto event = ZimbraEventRequestDto.builder()
+                        .title("Visitor Meeting - %s (%s)".formatted(appt.getName(), appt.getDepartment()))
+                        .description("Rescheduled via Front Desk — " +
+                                (appt.getReasonForVisit() != null ? appt.getReasonForVisit() : ""))
+                        .location(appt.getLocationName() != null ? appt.getLocationName() : "")
+                        .start(newStart)
+                        .end(newEnd)
+                        .organizerEmail(serviceAccountSession.getEmail())
+                        .attendeeEmails(attendees)
+                        .build();
+
+                zimbraSoapClient.modifyAppointment(
+                        serviceAccountSession.getToken(), invId, event);
+                log.info("[Appointment] Zimbra event invId={} moved to {} for ref={}",
+                        invId, newStart, appointmentId);
+            } catch (Exception ex) {
+                log.warn("[Appointment] Zimbra reschedule failed for ref={} invId={}: {}",
+                        appointmentId, invId, ex.getMessage());
+            }
+        } else {
+            log.debug("[Appointment] No Zimbra invId on ref={} — DB-only reschedule", appointmentId);
+        }
+
+        log.info("[Appointment] Rescheduled ref={} → {} {}", appointmentId, newDateStr, newTimeStr);
+        appt.setAppointmentDate(newDate);
+        appt.setAppointmentTime(newTime);
+        appt.setStatus(AppointmentStatus.RESCHEDULED);
+        return appt;
     }
 
     // ── Confirmation retrieval ─────────────────────────────────────────────────
@@ -632,7 +772,7 @@ public class AppointmentService {
                 .personToMeet(a.getPersonName())
                 .department  (a.getDepartment())
                 .appointmentDate(isoDateTime)
-                .status      ("PENDING")
+                .status      (a.getStatus() != null ? a.getStatus().name() : "PENDING")
                 .reason      (a.getReasonForVisit())
                 .locationId  (a.getLocationId())
                 .locationName(a.getLocationName())
@@ -660,7 +800,7 @@ public class AppointmentService {
                 .reasonForVisit  (a.getReasonForVisit())
                 .appointmentDate (a.getAppointmentDate() != null ? a.getAppointmentDate().toString() : null)
                 .appointmentTime (timeDisplay)
-                .status          ("PENDING")
+                .status          (a.getStatus() != null ? a.getStatus().name() : "PENDING")
                 .createdAt       (a.getCreatedAt())
                 .build();
     }

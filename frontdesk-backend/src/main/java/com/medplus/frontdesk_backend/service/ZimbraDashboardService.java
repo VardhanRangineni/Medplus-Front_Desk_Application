@@ -24,13 +24,15 @@ public class ZimbraDashboardService {
 
         List<MailDto> emails = zimbraMailService.getInbox(5);
         List<CalendarEventDto> events = zimbraCalendarService.getTodaysEvents();
+        int unreadCount = zimbraMailService.getUnreadCount();
 
-        log.info("[Zimbra] getDashboard email={} emails={} events={} latency={}ms",
-                email, emails.size(), events.size(), System.currentTimeMillis() - start);
+        log.info("[Zimbra] getDashboard email={} emails={} unread={} events={} latency={}ms",
+                email, emails.size(), unreadCount, events.size(), System.currentTimeMillis() - start);
 
         return ZimbraDashboardResponseDto.builder()
                 .emails(emails)
                 .events(events)
+                .unreadEmailCount(unreadCount)
                 .build();
     }
 }
