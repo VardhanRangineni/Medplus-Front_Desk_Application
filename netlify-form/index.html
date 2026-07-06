@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="MedPlus visitor pre-registration (MVMS) — get your QR code for reception check-in." />
+  <title>MedPlus — Pre-Registration</title>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <style>
+    :root {
+      --brand: #c2181d;
+      --brand-dark: #9e1418;
+      --brand-light: rgba(194, 24, 29, 0.08);
+      --brand-ring: rgba(194, 24, 29, 0.18);
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --bg: #f0f2f7;
+      --card: #ffffff;
+      --success: #16a34a;
+      --success-bg: #f0fdf4;
+      --radius: 14px;
+      --shadow: 0 4px 24px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.06);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      min-height: 100vh;
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    .page {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    .hero {
+      background: linear-gradient(135deg, #b9151a 0%, var(--brand) 45%, #d42a2f 100%);
+      color: #fff;
+      padding: 28px 20px 36px;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 90% 10%, rgba(255,255,255,0.12) 0%, transparent 50%);
+      pointer-events: none;
+    }
+    .hero__inner {
+      max-width: 520px;
+      margin: 0 auto;
+      position: relative;
+      z-index: 1;
+    }
+    .hero__badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.25);
+      padding: 5px 10px;
+      border-radius: 999px;
+      margin-bottom: 12px;
+    }
+    .hero__logo {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 6px;
+    }
+    .hero__tagline {
+      font-size: 15px;
+      opacity: 0.92;
+      max-width: 340px;
+      font-weight: 500;
+    }
+
+    /* ── Card ── */
+    .shell {
+      flex: 1;
+      padding: 0 16px 32px;
+      margin-top: -18px;
+      position: relative;
+      z-index: 2;
+    }
+    .card {
+      max-width: 520px;
+      margin: 0 auto;
+      background: var(--card);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+    .card__head {
+      padding: 22px 24px 18px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .card__title {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+    .card__sub {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 6px;
+    }
+    .card__body {
+      padding: 22px 24px 26px;
+    }
+
+    /* ── Type toggle ── */
+    .type-toggle {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      padding: 4px;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 22px;
+    }
+    .type-toggle__btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      padding: 14px 10px;
+      border: 2px solid transparent;
+      border-radius: 10px;
+      background: transparent;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+    }
+    .type-toggle__btn:hover {
+      background: #fff;
+    }
+    .type-toggle__btn.active {
+      background: #fff;
+      border-color: var(--brand);
+      box-shadow: 0 2px 8px var(--brand-ring);
+    }
+    .type-toggle__icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f1f5f9;
+      color: #64748b;
+    }
+    .type-toggle__btn.active .type-toggle__icon {
+      background: var(--brand-light);
+      color: var(--brand);
+    }
+    .type-toggle__label {
+      font-size: 13px;
+      font-weight: 700;
+      color: #475569;
+    }
+    .type-toggle__btn.active .type-toggle__label {
+      color: var(--brand);
+    }
+
+    /* ── Fields ── */
+    .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #94a3b8;
+      margin-bottom: 12px;
+    }
+    .field {
+      margin-bottom: 18px;
+    }
+    .field label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #334155;
+      margin-bottom: 7px;
+    }
+    .field label .req { color: var(--brand); margin-left: 2px; }
+    .field label .opt { font-weight: 500; color: #94a3b8; font-size: 12px; }
+    .field input,
+    .field textarea,
+    .field select {
+      width: 100%;
+      padding: 11px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      font-size: 14px;
+      font-family: inherit;
+      color: var(--text);
+      background: #fff;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      outline: none;
+    }
+    .field input:focus,
+    .field textarea:focus {
+      border-color: var(--brand);
+      box-shadow: 0 0 0 3px var(--brand-ring);
+    }
+    .field input.mono {
+      font-family: 'Cascadia Code', 'Consolas', monospace;
+      font-size: 15px;
+      letter-spacing: 0.04em;
+    }
+    .field textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+    .field .hint {
+      font-size: 12px;
+      color: #94a3b8;
+      margin-top: 6px;
+      line-height: 1.45;
+    }
+
+    /* HRMS verify */
+    .verify-box {
+      margin-top: 10px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      display: none;
+      align-items: flex-start;
+      gap: 10px;
+      line-height: 1.45;
+    }
+    .verify-box--checking {
+      display: flex;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+    }
+    .verify-box--ok {
+      display: flex;
+      background: var(--success-bg);
+      border: 1px solid #bbf7d0;
+      color: #166534;
+      font-weight: 600;
+    }
+    .verify-box--err {
+      display: flex;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #b91c1c;
+    }
+    .verify-spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #e2e8f0;
+      border-top-color: var(--brand);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Company toggle */
+    .switch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      background: #f8fafc;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 10px;
+    }
+    .switch-row__label {
+      font-size: 13px;
+      font-weight: 500;
+      color: #475569;
+      padding-right: 12px;
+    }
+    .switch {
+      position: relative;
+      width: 44px;
+      height: 26px;
+      flex-shrink: 0;
+      background: #cbd5e1;
+      border: none;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .switch[aria-checked="true"] { background: var(--brand); }
+    .switch__thumb {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 20px;
+      height: 20px;
+      background: #fff;
+      border-radius: 50%;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+      transition: transform 0.2s;
+      pointer-events: none;
+    }
+    .switch[aria-checked="true"] .switch__thumb {
+      transform: translateX(18px);
+    }
+
+    .aadhaar-err {
+      font-size: 12px;
+      color: var(--brand);
+      margin-top: 6px;
+      display: none;
+    }
+
+    .banner {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #b91c1c;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 13px;
+      margin-bottom: 18px;
+      line-height: 1.45;
+    }
+
+    .submit-btn {
+      width: 100%;
+      padding: 14px 20px;
+      margin-top: 8px;
+      background: var(--brand);
+      color: #fff;
+      border: none;
+      border-radius: 11px;
+      font-size: 15px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.18s, transform 0.12s, box-shadow 0.18s;
+      box-shadow: 0 4px 14px rgba(194, 24, 29, 0.28);
+    }
+    .submit-btn:hover:not(:disabled) {
+      background: var(--brand-dark);
+      transform: translateY(-1px);
+    }
+    .submit-btn:disabled {
+      background: #cbd5e1;
+      box-shadow: none;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .footer-note {
+      max-width: 520px;
+      margin: 16px auto 0;
+      text-align: center;
+      font-size: 12px;
+      color: #94a3b8;
+      padding: 0 8px;
+    }
+
+    /* Success */
+    .success {
+      text-align: center;
+      padding: 8px 4px 4px;
+    }
+    .success__icon {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 16px;
+      background: var(--success-bg);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--success);
+    }
+    .success__title {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+    .success__sub {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 24px;
+      line-height: 1.55;
+    }
+    .qr-frame {
+      display: inline-block;
+      padding: 14px;
+      background: #fff;
+      border: 2px solid #f1f5f9;
+      border-radius: 14px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+      margin-bottom: 16px;
+    }
+    .qr-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 16px;
+      align-items: center;
+    }
+    .download-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 22px;
+      background: #fff;
+      color: var(--brand);
+      border: 2px solid var(--brand);
+      border-radius: 11px;
+      font-size: 14px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.18s, color 0.18s;
+      width: 100%;
+      max-width: 280px;
+    }
+    .download-btn:hover {
+      background: var(--brand-light);
+    }
+    .download-btn:disabled {
+      opacity: 0.6;
+      cursor: wait;
+    }
+    .qr-hint {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+    .token-pill {
+      display: inline-block;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 12px;
+      color: #64748b;
+      word-break: break-all;
+    }
+    .token-pill strong {
+      font-family: 'Cascadia Code', monospace;
+      color: #334155;
+      font-size: 11px;
+    }
+
+    @media (max-width: 540px) {
+      .shell { padding: 0 0 24px; margin-top: 0; }
+      .card { border-radius: 0; border-left: none; border-right: none; min-height: calc(100vh - 120px); }
+      .hero { padding: 24px 18px 28px; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+  <header class="hero">
+    <div class="hero__inner">
+      <div class="hero__badge">MVMS · Reception check-in</div>
+      <h1 class="hero__logo">MedPlus</h1>
+      <p class="hero__tagline">Pre-register your visit and get a QR code to show at reception.</p>
+    </div>
+  </header>
+
+  <main class="shell">
+    <div class="card">
+      <div class="card__head">
+        <h2 class="card__title">Register your visit</h2>
+        <p class="card__sub">Complete the form below. You will receive a QR code to scan when you arrive.</p>
+      </div>
+      <div class="card__body" id="main-body">
+        <div id="error-banner" class="banner" style="display:none" role="alert"></div>
+
+        <div id="form-section">
+          <div class="type-toggle" role="tablist" aria-label="Visitor type">
+            <button type="button" class="type-toggle__btn active" id="btn-visitor" role="tab" aria-selected="true" onclick="selectType('VISITOR')">
+              <span class="type-toggle__icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              </span>
+              <span class="type-toggle__label">Visitor</span>
+            </button>
+            <button type="button" class="type-toggle__btn" id="btn-employee" role="tab" aria-selected="false" onclick="selectType('EMPLOYEE')">
+              <span class="type-toggle__icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+              </span>
+              <span class="type-toggle__label">Employee</span>
+            </button>
+          </div>
+
+          <p class="section-label" id="section-personal">Your details</p>
+
+          <div id="field-name" class="field">
+            <label for="f-name">Full name <span class="req">*</span></label>
+            <input id="f-name" type="text" placeholder="As on your ID" autocomplete="name" />
+          </div>
+
+          <div id="field-mobile" class="field">
+            <label for="f-mobile">Mobile number <span class="req">*</span></label>
+            <input id="f-mobile" type="tel" inputmode="numeric" placeholder="10-digit mobile" maxlength="10" />
+          </div>
+
+          <div id="field-email" class="field">
+            <label for="f-email">Email <span class="opt">(optional)</span></label>
+            <input id="f-email" type="email" placeholder="you@company.com" autocomplete="email" />
+          </div>
+
+          <div id="field-aadhaar" class="field">
+            <label for="f-aadhaar">Aadhaar number <span class="opt">(optional)</span></label>
+            <input id="f-aadhaar" type="text" inputmode="numeric" placeholder="XXXX XXXX XXXX" maxlength="14" class="mono" oninput="fmtAadhaar(this)" />
+            <p class="hint">12-digit UID for identity verification at entry</p>
+            <p class="aadhaar-err" id="aadhaar-err">Enter a valid 12-digit Aadhaar number.</p>
+          </div>
+
+          <div id="field-empid" class="field" style="display:none">
+            <label for="f-empid">Employee ID or HRMS ID <span class="req">*</span></label>
+            <input id="f-empid" type="text" class="mono" placeholder="e.g. OTG001 or MED1098233" autocomplete="off" />
+            <p class="hint">Enter either your official Employee ID or HRMS ID — we will verify against HR records.</p>
+            <div id="verify-box" class="verify-box" role="status" aria-live="polite"></div>
+          </div>
+
+          <p class="section-label" style="margin-top:8px">Visit details</p>
+
+          <div class="field">
+            <label for="f-ptm-mobile">Person you want to meet — mobile number <span class="req">*</span></label>
+            <input id="f-ptm-mobile" type="tel" inputmode="numeric" placeholder="10-digit mobile number" maxlength="10" />
+            <p class="hint">Enter the mobile number of the person you are visiting. We will verify against HRMS.</p>
+            <div id="ptm-verify-box" class="verify-box" role="status" aria-live="polite"></div>
+          </div>
+
+          <div class="field" id="field-company">
+            <label>Representing a company? <span class="opt">(optional)</span></label>
+            <div class="switch-row">
+              <span class="switch-row__label" id="company-toggle-label">No</span>
+              <button type="button" id="company-toggle-btn" class="switch" role="switch" aria-checked="false" onclick="toggleCompany()">
+                <span class="switch__thumb"></span>
+              </button>
+            </div>
+            <input id="f-company" type="text" placeholder="Company / organisation name" style="display:none" autocomplete="organization" />
+          </div>
+
+          <div class="field">
+            <label for="f-reason">Reason for visit <span class="opt">(optional)</span></label>
+            <textarea id="f-reason" placeholder="e.g. Meeting, interview, delivery…"></textarea>
+          </div>
+
+          <button type="button" class="submit-btn" id="submit-btn" onclick="handleSubmit()">
+            Submit &amp; get my QR code
+          </button>
+        </div>
+      </div>
+    </div>
+    <p class="footer-note">Your information is used only for MedPlus visitor management check-in. Show your QR code at reception when you arrive.</p>
+  </main>
+</div>
+
+<script>
+  const _params = new URLSearchParams(window.location.search);
+  const BASE = (_params.get('api') || 'http://localhost:9090').replace(/\/$/, '');
+
+  let selectedType = 'VISITOR';
+  let companyToggled = false;
+  let hrmsVerified = false;
+  let verifiedEmployeeName = null;
+  let hrmsVerifyTimer = null;
+
+  let ptmVerified = false;
+  let verifiedPtm = null;
+  let ptmVerifyTimer = null;
+
+  const empInput = document.getElementById('f-empid');
+  const ptmInput = document.getElementById('f-ptm-mobile');
+  empInput.addEventListener('input', () => {
+    hrmsVerified = false;
+    verifiedEmployeeName = null;
+    clearTimeout(hrmsVerifyTimer);
+    const raw = empInput.value.trim();
+    if (!raw || selectedType !== 'EMPLOYEE') {
+      hideVerifyBox();
+      return;
+    }
+    hrmsVerifyTimer = setTimeout(() => verifyHrms(raw), 450);
+  });
+
+  ptmInput.addEventListener('input', () => {
+    ptmVerified = false;
+    verifiedPtm = null;
+    clearTimeout(ptmVerifyTimer);
+    const digits = ptmInput.value.replace(/\D/g, '');
+    if (digits.length < 10) {
+      hidePtmVerifyBox();
+      return;
+    }
+    ptmVerifyTimer = setTimeout(() => verifyPersonToMeet(digits), 450);
+  });
+
+  function setVerifyBox(state, html) {
+    const box = document.getElementById('verify-box');
+    box.className = 'verify-box verify-box--' + state;
+    box.style.display = 'flex';
+    box.innerHTML = html;
+  }
+
+  function hideVerifyBox() {
+    const box = document.getElementById('verify-box');
+    box.style.display = 'none';
+    box.className = 'verify-box';
+    box.innerHTML = '';
+  }
+
+  function setPtmVerifyBox(state, html) {
+    const box = document.getElementById('ptm-verify-box');
+    box.className = 'verify-box verify-box--' + state;
+    box.style.display = 'flex';
+    box.innerHTML = html;
+  }
+
+  function hidePtmVerifyBox() {
+    const box = document.getElementById('ptm-verify-box');
+    box.style.display = 'none';
+    box.className = 'verify-box';
+    box.innerHTML = '';
+  }
+
+  async function verifyPersonToMeet(phone) {
+    setPtmVerifyBox('checking', '<span class="verify-spinner"></span><span>Looking up in HRMS…</span>');
+    try {
+      const res = await fetch(`${BASE}/api/pre-register/public/hrms-verify-phone?phone=${encodeURIComponent(phone)}`);
+      const json = await res.json();
+      if (json.success && json.data?.found) {
+        ptmVerified = true;
+        verifiedPtm = {
+          employeeId: json.data.employeeId,
+          name: json.data.name,
+          department: json.data.department || '',
+        };
+        const label = verifiedPtm.name
+          ? `${verifiedPtm.name}${verifiedPtm.department ? ' · ' + verifiedPtm.department : ''}`
+          : 'Employee verified';
+        setPtmVerifyBox('ok', `<span aria-hidden="true">✓</span><span>${esc(label)}</span>`);
+      } else {
+        ptmVerified = false;
+        verifiedPtm = null;
+        setPtmVerifyBox('err', `<span aria-hidden="true">✕</span><span>${esc(json.message || 'No employee found in HRMS for this mobile number.')}</span>`);
+      }
+    } catch {
+      ptmVerified = false;
+      verifiedPtm = null;
+      setPtmVerifyBox('err', '<span aria-hidden="true">✕</span><span>Could not verify right now. Check your connection and try again.</span>');
+    }
+  }
+
+  async function verifyHrms(id) {
+    setVerifyBox('checking', '<span class="verify-spinner"></span><span>Verifying with HRMS…</span>');
+    try {
+      const res = await fetch(`${BASE}/api/pre-register/public/hrms-verify?id=${encodeURIComponent(id)}`);
+      const json = await res.json();
+      if (json.success && json.data?.found) {
+        hrmsVerified = true;
+        verifiedEmployeeName = json.data.name || null;
+        setVerifyBox('ok', '<span aria-hidden="true">✓</span><span>ID verified — you can continue with your visit details.</span>');
+      } else {
+        hrmsVerified = false;
+        verifiedEmployeeName = null;
+        setVerifyBox('err', `<span aria-hidden="true">✕</span><span>${esc(json.message || 'No employee found in HRMS for this ID.')}</span>`);
+      }
+    } catch {
+      hrmsVerified = false;
+      verifiedEmployeeName = null;
+      setVerifyBox('err', '<span aria-hidden="true">✕</span><span>Could not verify right now. Check your connection and try again.</span>');
+    }
+  }
+
+  function toggleCompany() {
+    companyToggled = !companyToggled;
+    const btn = document.getElementById('company-toggle-btn');
+    const label = document.getElementById('company-toggle-label');
+    const input = document.getElementById('f-company');
+    btn.setAttribute('aria-checked', companyToggled);
+    label.textContent = companyToggled ? 'Yes — enter company below' : 'No';
+    input.style.display = companyToggled ? '' : 'none';
+    if (companyToggled) input.focus();
+  }
+
+  function selectType(type) {
+    selectedType = type;
+    const isVisitor = type === 'VISITOR';
+    document.getElementById('btn-visitor').classList.toggle('active', isVisitor);
+    document.getElementById('btn-employee').classList.toggle('active', !isVisitor);
+    document.getElementById('btn-visitor').setAttribute('aria-selected', isVisitor);
+    document.getElementById('btn-employee').setAttribute('aria-selected', !isVisitor);
+    document.getElementById('field-name').style.display = isVisitor ? '' : 'none';
+    document.getElementById('field-mobile').style.display = isVisitor ? '' : 'none';
+    document.getElementById('field-email').style.display = isVisitor ? '' : 'none';
+    document.getElementById('field-aadhaar').style.display = isVisitor ? '' : 'none';
+    document.getElementById('field-empid').style.display = isVisitor ? 'none' : '';
+    document.getElementById('field-company').style.display = isVisitor ? '' : 'none';
+    document.getElementById('section-personal').textContent = isVisitor ? 'Your details' : 'Your employee ID';
+    if (!isVisitor && companyToggled) toggleCompany();
+    hrmsVerified = false;
+    verifiedEmployeeName = null;
+    hideVerifyBox();
+    ptmVerified = false;
+    verifiedPtm = null;
+    hidePtmVerifyBox();
+    hideBanner();
+    document.getElementById('aadhaar-err').style.display = 'none';
+    if (!isVisitor && empInput.value.trim()) verifyHrms(empInput.value.trim());
+  }
+
+  function fmtAadhaar(input) {
+    const d = input.value.replace(/\D/g, '').slice(0, 12);
+    input.value = d.replace(/(\d{4})(\d{0,4})(\d{0,4})/, (_, a, b, c) => [a, b, c].filter(Boolean).join(' '));
+  }
+
+  function showBanner(msg) {
+    const el = document.getElementById('error-banner');
+    el.textContent = msg;
+    el.style.display = '';
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function hideBanner() {
+    document.getElementById('error-banner').style.display = 'none';
+  }
+
+  function esc(s) {
+    return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  async function handleSubmit() {
+    hideBanner();
+    document.getElementById('aadhaar-err').style.display = 'none';
+
+    const isVisitor = selectedType === 'VISITOR';
+    const name = isVisitor ? (document.getElementById('f-name').value || '').trim() : null;
+    const mobile = isVisitor ? (document.getElementById('f-mobile').value || '').replace(/\D/g, '') : null;
+    const email = isVisitor ? (document.getElementById('f-email').value || '').trim() : null;
+    const aadhaar = isVisitor ? (document.getElementById('f-aadhaar').value || '').replace(/\D/g, '') : null;
+    const empId = !isVisitor ? (document.getElementById('f-empid').value || '').trim() : null;
+    const ptmMobile = (document.getElementById('f-ptm-mobile').value || '').replace(/\D/g, '');
+    const reason = (document.getElementById('f-reason').value || '').trim();
+    const company = companyToggled ? (document.getElementById('f-company').value || '').trim() : null;
+
+    if (isVisitor && !name) { showBanner('Please enter your full name.'); return; }
+    if (isVisitor && mobile.length < 10) { showBanner('Please enter a valid 10-digit mobile number.'); return; }
+    if (!isVisitor && !empId) {
+      showBanner('Please enter your Employee ID or HRMS ID.');
+      return;
+    }
+    if (!isVisitor && !hrmsVerified) {
+      showBanner('Please wait for HRMS verification, or enter a valid Employee ID / HRMS ID.');
+      empInput.focus();
+      if (empId) verifyHrms(empId);
+      return;
+    }
+    if (isVisitor && aadhaar.length > 0 && aadhaar.length !== 12) {
+      document.getElementById('aadhaar-err').style.display = 'block';
+      document.getElementById('f-aadhaar').focus();
+      return;
+    }
+    if (ptmMobile.length < 10) {
+      showBanner('Please enter a valid 10-digit mobile number for the person you want to meet.');
+      return;
+    }
+    if (!ptmVerified || !verifiedPtm?.employeeId) {
+      showBanner('Please wait for HRMS verification of the person to meet, or check the mobile number.');
+      ptmInput.focus();
+      if (ptmMobile.length >= 10) verifyPersonToMeet(ptmMobile);
+      return;
+    }
+
+    const btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+    btn.textContent = 'Submitting…';
+
+    try {
+      const payload = {
+        entryType: selectedType,
+        name: isVisitor ? name : null,
+        mobile: isVisitor ? mobile : null,
+        empId: !isVisitor ? empId : null,
+        email: isVisitor ? (email || null) : null,
+        govtIdType: isVisitor && aadhaar ? 'AADHAAR' : null,
+        govtIdNumber: isVisitor ? (aadhaar || null) : null,
+        personToMeetId: verifiedPtm.employeeId,
+        personName: verifiedPtm.name,
+        reasonForVisit: reason || null,
+        companyName: isVisitor ? (company || null) : null,
+      };
+
+      const res = await fetch(`${BASE}/api/pre-register/public/walk-in`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message || 'Submission failed.');
+      showSuccess(json.data);
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Submit & get my QR code';
+      showBanner(e.message || 'Submission failed. Please try again.');
+    }
+  }
+
+  function displayName(data) {
+    const fromApi = (data.name || '').trim();
+    if (fromApi) return fromApi;
+    if (selectedType === 'EMPLOYEE' && verifiedEmployeeName) return verifiedEmployeeName.trim();
+    return 'there';
+  }
+
+  function getQrImageDataUrl() {
+    const container = document.getElementById('qrcode-container');
+    if (!container) return null;
+    const canvas = container.querySelector('canvas');
+    if (canvas) return canvas.toDataURL('image/png');
+    const img = container.querySelector('img');
+    if (!img) return null;
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth || img.width;
+    c.height = img.naturalHeight || img.height;
+    c.getContext('2d').drawImage(img, 0, 0);
+    return c.toDataURL('image/png');
+  }
+
+  function loadImage(src) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = src;
+    });
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    const radius = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.arcTo(x + w, y, x + w, y + h, radius);
+    ctx.arcTo(x + w, y + h, x, y + h, radius);
+    ctx.arcTo(x, y + h, x, y, radius);
+    ctx.arcTo(x, y, x + w, y, radius);
+    ctx.closePath();
+  }
+
+  function drawBadge(ctx, text, x, y, opts) {
+    opts = opts || {};
+    ctx.font = opts.font || '600 11px system-ui, "Segoe UI", sans-serif';
+    var padX = opts.padX != null ? opts.padX : 12;
+    var h = opts.h != null ? opts.h : 24;
+    var textW = ctx.measureText(text).width;
+    var w = textW + padX * 2;
+    ctx.fillStyle = opts.bg || 'rgba(255,255,255,0.18)';
+    roundRect(ctx, x, y, w, h, h / 2);
+    ctx.fill();
+    ctx.fillStyle = opts.color || '#ffffff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + padX, y + h / 2);
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  function wrapText(ctx, text, maxWidth) {
+    const words = text.split(' ');
+    const lines = [];
+    let line = '';
+    for (const word of words) {
+      const test = line ? line + ' ' + word : word;
+      if (ctx.measureText(test).width > maxWidth && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = test;
+      }
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  async function buildVisitCardDataUrl(qrDataUrl, name, token) {
+    const W = 420, H = 640;
+    const BRAND = '#c2181d', BRAND_DARK = '#9e1418', BRAND_LIGHT = '#b9151a';
+    const TEXT = '#0f172a', TEXT_MUTED = '#64748b';
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = '#e8ecf2';
+    ctx.fillRect(0, 0, W, H);
+
+    const cardX = 20, cardY = 20, cardW = W - 40, cardH = H - 40;
+    ctx.save();
+    roundRect(ctx, cardX, cardY, cardW, cardH, 18);
+    ctx.shadowColor = 'rgba(15, 23, 42, 0.14)';
+    ctx.shadowBlur = 24;
+    ctx.shadowOffsetY = 8;
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.restore();
+
+    const headerH = 108;
+    ctx.save();
+    roundRect(ctx, cardX, cardY, cardW, cardH, 18);
+    ctx.clip();
+    const grad = ctx.createLinearGradient(cardX, cardY, cardX + cardW, cardY + headerH);
+    grad.addColorStop(0, BRAND_LIGHT);
+    grad.addColorStop(0.5, BRAND);
+    grad.addColorStop(1, '#d42a2f');
+    ctx.fillStyle = grad;
+    ctx.fillRect(cardX, cardY, cardW, headerH);
+
+    drawBadge(ctx, 'MVMS · RECEPTION CHECK-IN', cardX + 24, cardY + 22);
+    ctx.font = '800 30px system-ui, "Segoe UI", sans-serif';
+    ctx.fillText('MedPlus', cardX + 24, cardY + 78);
+    ctx.font = '500 13px system-ui, "Segoe UI", sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.fillText('Visitor Pass', cardX + 24, cardY + 98);
+    ctx.restore();
+
+    const qrSize = 220;
+    const qrX = cardX + (cardW - qrSize) / 2;
+    const qrY = cardY + headerH + 36;
+    ctx.fillStyle = '#f8fafc';
+    roundRect(ctx, qrX - 14, qrY - 14, qrSize + 28, qrSize + 28, 14);
+    ctx.fill();
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 2;
+    roundRect(ctx, qrX - 14, qrY - 14, qrSize + 28, qrSize + 28, 14);
+    ctx.stroke();
+
+    const qrImg = await loadImage(qrDataUrl);
+    ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
+
+    const displayName = (name || 'Visitor').trim();
+    const shortRef = (token || '').slice(0, 8).toUpperCase();
+    let y = qrY + qrSize + 44;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = TEXT_MUTED;
+    ctx.font = '600 11px system-ui, "Segoe UI", sans-serif';
+    ctx.fillText('VISITOR', cardX + cardW / 2, y);
+    y += 28;
+    ctx.fillStyle = TEXT;
+    ctx.font = '700 22px system-ui, "Segoe UI", sans-serif';
+    for (const line of wrapText(ctx, displayName, cardW - 48).slice(0, 2)) {
+      ctx.fillText(line, cardX + cardW / 2, y);
+      y += 28;
+    }
+    y += 8;
+    ctx.fillStyle = '#f1f5f9';
+    const refW = Math.min(cardW - 48, 280);
+    const refX = cardX + (cardW - refW) / 2;
+    roundRect(ctx, refX, y - 18, refW, 36, 8);
+    ctx.fill();
+    ctx.fillStyle = TEXT_MUTED;
+    ctx.font = '500 12px ui-monospace, Consolas, monospace';
+    ctx.fillText('Ref · ' + shortRef, cardX + cardW / 2, y + 6);
+    y += 52;
+    ctx.fillStyle = TEXT_MUTED;
+    ctx.font = '500 13px system-ui, "Segoe UI", sans-serif';
+    for (const line of wrapText(ctx, 'Show this card at MedPlus reception when you arrive.', cardW - 56)) {
+      ctx.fillText(line, cardX + cardW / 2, y);
+      y += 20;
+    }
+    ctx.strokeStyle = BRAND;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cardX + 48, cardY + cardH - 28);
+    ctx.lineTo(cardX + cardW - 48, cardY + cardH - 28);
+    ctx.stroke();
+    ctx.fillStyle = BRAND_DARK;
+    ctx.font = '700 11px system-ui, "Segoe UI", sans-serif';
+    ctx.fillText('SCAN AT RECEPTION', cardX + cardW / 2, cardY + cardH - 10);
+
+    return canvas.toDataURL('image/png');
+  }
+
+  async function downloadQrCode(token, name) {
+    const btn = document.getElementById('download-qr-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Preparing…';
+    }
+    const qrDataUrl = getQrImageDataUrl();
+    if (!qrDataUrl) {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = downloadBtnLabel();
+      }
+      showBanner('QR image is not ready yet. Please try again in a moment.');
+      return;
+    }
+    const shortRef = (token || 'card').slice(0, 8);
+    const filename = `MedPlus-VisitCard-${shortRef}.png`;
+
+    try {
+      const dataUrl = await buildVisitCardDataUrl(qrDataUrl, name, token);
+      const blob = await (await fetch(dataUrl)).blob();
+      const file = new File([blob], filename, { type: 'image/png' });
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: 'MedPlus visit card',
+          text: 'Save this visit card for MVMS reception check-in.',
+        });
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = downloadBtnLabel();
+        }
+        return;
+      }
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      if (err && err.name === 'AbortError') {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = downloadBtnLabel();
+        }
+        return;
+      }
+      showBanner('Could not prepare visit card. Please try again.');
+    }
+
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = downloadBtnLabel();
+    }
+  }
+
+  function downloadBtnLabel() {
+    return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download visit card';
+  }
+
+  function showSuccess(data) {
+    const name = displayName(data);
+    const token = data.token || '';
+
+    document.getElementById('form-section').innerHTML = `
+      <div class="success">
+        <div class="success__icon" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+        </div>
+        <h3 class="success__title">You're registered</h3>
+        <p class="success__sub">
+          Hi <strong>${esc(name)}</strong>, your visit is confirmed.<br>
+          Show this QR code at MedPlus reception (MVMS) when you arrive.
+        </p>
+        <div class="qr-frame"><div id="qrcode-container"></div></div>
+        <div class="qr-actions">
+          <button type="button" class="download-btn" id="download-qr-btn">
+            ${downloadBtnLabel()}
+          </button>
+        </div>
+        <p class="qr-hint">Download your visit card — save it on your phone for reception check-in.</p>
+        <div class="token-pill">Reference: <strong>${esc(token)}</strong></div>
+      </div>`;
+
+    new QRCode(document.getElementById('qrcode-container'), {
+      text: 'PREREG:' + token,
+      width: 200,
+      height: 200,
+      colorDark: '#0f172a',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.M,
+    });
+
+    document.getElementById('download-qr-btn').addEventListener('click', () => downloadQrCode(token, name));
+  }
+</script>
+</body>
+</html>

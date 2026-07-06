@@ -28,10 +28,18 @@ import lombok.NoArgsConstructor;
 public class UserLookupDto {
 
     private String id;
+    /** HRMS identifier (e.g. MED000849); returned by HRMS lookup only. */
+    private String hrmsId;
     private String name;
     private String location;
     private String designation;
     private String department;
     private String email;
     private String phone;
+
+    /** Role FK — 3 = Receptionist. */
+    private Integer roleId;
+
+    /** Human-readable role from roles.displayName. */
+    private String roleName;
 }

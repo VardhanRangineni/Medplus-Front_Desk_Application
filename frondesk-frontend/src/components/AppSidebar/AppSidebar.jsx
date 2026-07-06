@@ -1,18 +1,27 @@
 import './AppSidebar.css';
+import { hasAnyRole } from '../../services/locationScope';
 import {
   IconGrid, IconHome, IconUsers, IconBarChart,
-  IconSettings, IconLogOut, IconUserCog, IconBuilding,
+  IconLogOut,
   IconClipboardList,
+  IconMapPin,
+  IconMonitor,
 } from '../Icons/Icons';
 
+/**
+ * Role hierarchy for navigation visibility:
+ *   PRIMARY_ADMIN  (Admin)       — all screens, all locations' data
+ *   REGIONAL_ADMIN (Supervisor)  — all screens, their location's data only
+ *   RECEPTIONIST                 — operational screens only, their location's data only
+ */
 const ALL_NAV_ITEMS = [
-  { id: 'dashboard',       icon: <IconGrid size={20} />,            label: 'Dashboard',       roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST'] },
-  { id: 'home',            icon: <IconHome size={20} />,            label: 'Home',            roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST'] },
-  { id: 'appointments',    icon: <IconClipboardList size={20} />,   label: 'Appointments',    roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST'] },
-  { id: 'user-management', icon: <IconUsers size={20} />,           label: 'User Management', roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
-  { id: 'reports',         icon: <IconBarChart size={20} />,        label: 'Reports',         roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST'] },
-  { id: 'user-master',     icon: <IconUserCog size={20} />,         label: 'User Master',     roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
-  { id: 'location-master', icon: <IconBuilding size={20} />,        label: 'Location Master', roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
+  { id: 'dashboard',       icon: <IconGrid size={20} />,            label: 'Dashboard',        roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST'] },
+  { id: 'home',            icon: <IconHome size={20} />,            label: 'Check In / Out',   roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST'] },
+  { id: 'reports',         icon: <IconBarChart size={20} />,        label: 'Reports',          roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST'] },
+  { id: 'staff-activity',  icon: <IconClipboardList size={20} />,   label: 'Staff Activity',   roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
+  { id: 'user-management', icon: <IconUsers size={20} />,           label: 'User Management',  roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
+  { id: 'location-master', icon: <IconMapPin size={20} />,          label: 'Location Master',  roles: ['PRIMARY_ADMIN'] },
+  { id: 'device-master',   icon: <IconMonitor size={20} />,         label: 'Device Master',    roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
 ];
 
 /**
@@ -27,9 +36,7 @@ const ALL_NAV_ITEMS = [
  *   onLogout    – () => void
  */
 export default function AppSidebar({ session, activeNav, onNavChange, onLogout }) {
-  const role = session?.role ?? 'RECEPTIONIST';
-
-  const visibleItems = ALL_NAV_ITEMS.filter(item => item.roles.includes(role));
+  const visibleItems = ALL_NAV_ITEMS.filter((item) => hasAnyRole(session, item.roles));
 
   return (
     <aside className="app-sidebar">
@@ -37,6 +44,8 @@ export default function AppSidebar({ session, activeNav, onNavChange, onLogout }
         {visibleItems.map(item => (
           <button
             key={item.id}
+            type="button"
+            title={item.label}
             className={`app-nav-btn${activeNav === item.id ? ' app-nav-btn--active' : ''}`}
             onClick={() => onNavChange?.(item.id)}
           >
@@ -47,14 +56,7 @@ export default function AppSidebar({ session, activeNav, onNavChange, onLogout }
       </nav>
 
       <div className="app-sidebar__bottom">
-        <button
-          className={`app-nav-btn${activeNav === 'settings' ? ' app-nav-btn--active' : ''}`}
-          onClick={() => onNavChange?.('settings')}
-        >
-          <span className="app-nav-btn__icon"><IconSettings size={20} /></span>
-          <span className="app-nav-label">Settings</span>
-        </button>
-        <button className="app-nav-btn app-nav-btn--logout" onClick={onLogout}>
+        <button type="button" title="Log Out" className="app-nav-btn app-nav-btn--logout" onClick={onLogout}>
           <span className="app-nav-btn__icon"><IconLogOut size={20} /></span>
           <span className="app-nav-label">Log Out</span>
         </button>

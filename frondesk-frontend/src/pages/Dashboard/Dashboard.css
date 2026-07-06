@@ -28,6 +28,22 @@
   flex-shrink: 0;
 }
 
+.db-scope-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-right: 2px;
+}
+
+.db-load-error {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #b91c1c;
+}
+
 /* ── Filter bar ──────────────────────────────────────────────────────────── */
 .db-filter-bar {
   display: flex;
@@ -203,8 +219,9 @@
   font-size: 26px;
   font-weight: 800;
   color: #ffffff;
-  line-height: 1.2;
+  line-height: 1.25;
   margin: 0;
+  word-break: break-word;
 }
 
 .db-summary__sub {
@@ -283,6 +300,20 @@
   flex: 1;
   min-height: 0;
   height: 130px;
+}
+
+.db-chart-loading,
+.db-table-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px !important;
+  border: none !important;
+}
+
+.db-chart-loading {
+  height: 100%;
+  min-height: 120px;
 }
 
 /* ── Recent Visitors table ───────────────────────────────────────────────── */

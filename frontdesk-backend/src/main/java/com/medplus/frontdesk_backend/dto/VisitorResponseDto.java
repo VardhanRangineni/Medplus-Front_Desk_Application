@@ -6,7 +6,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 @Data
 @Builder
@@ -14,14 +13,11 @@ import java.util.List;
 @AllArgsConstructor
 public class VisitorResponseDto {
 
-    /** e.g. "MED-V-0001" or "MED-GV-0001" */
+    /** e.g. "MED-V-0001" */
     private String id;
 
     /** "VISITOR" or "EMPLOYEE" */
     private String type;
-
-    /** "INDIVIDUAL" or "GROUP" */
-    private String visitType;
 
     private String name;
     private String mobile;
@@ -46,14 +42,8 @@ public class VisitorResponseDto {
     /** Location human-readable name (resolved from locationmaster) */
     private String locationName;
 
-    /** Visitor card / badge number (manually entered — integer, legacy) */
+    /** Printed visitor card number entered at check-in. */
     private Integer card;
-
-    /** Lead card number — same as card for GROUP visits, null for INDIVIDUAL */
-    private Integer leadCardNumber;
-
-    /** Auto-assigned card code from cardmaster, e.g. "MSOH-VISITOR-7". Preferred over card if set. */
-    private String cardCode;
 
     /** Government ID type used at check-in — e.g. "AADHAAR", "PAN" */
     private String govtIdType;
@@ -61,9 +51,37 @@ public class VisitorResponseDto {
     /** Government ID number corresponding to govtIdType */
     private String govtIdNumber;
 
+    /** e.g. "INDIVIDUAL", "GROUP" */
+    private String visitType;
+
     private LocalDateTime checkIn;
     private LocalDateTime checkOut;
     private String        reasonForVisit;
 
-    private List<VisitorMemberDto> members;
+    /** Company or organisation the visitor is representing — null if not applicable. */
+    private String        companyName;
+
+    /** Receptionist / staff employee ID who performed check-in. */
+    private String        createdBy;
+
+    /** Workstation MAC recorded at check-in (same desk = shift handoff checkout). */
+    private String        workstationMac;
+
+    /** Desk walk-in visit pass QR token (preregistrations.token). */
+    private String        visitPassToken;
+
+    /** PENDING | SENT | FAILED | SKIPPED */
+    private String        visitPassSmsStatus;
+
+    /** User-facing note about visit pass SMS delivery. */
+    private String        visitPassMessage;
+
+    /** Kiosk/device where check-in was recorded. */
+    private String        checkInDeviceId;
+    private String        checkInDeviceName;
+
+    /** Most recent zone scan or checkout device. */
+    private String        lastScanDeviceId;
+    private String        lastScanDeviceName;
+    private LocalDateTime lastScanAt;
 }

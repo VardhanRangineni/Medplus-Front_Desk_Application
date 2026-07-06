@@ -3,21 +3,50 @@
  *
  * Flow:
  *  1. Camera scans QR  → extracts PREREG:token
- *  2. GET /preview/{token} → show visitor details
- *     - If EMPLOYEE: shows ✅/❌ employee verification result
- *     - Person to Meet: auto-searches by name visitor typed; staff can override
- *  3. Staff selects a person to meet → Accept button enables
- *  4. POST /checkin/{token} with resolvedPersonId → success
+ *  2. GET /preview/{token} → show visitor details (person-to-meet from HRMS, read-only)
+ *  3. POST /checkin/{token} with pre-validated personToMeetId → success
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import './QrScanModal.css';
-import { IconX, IconCamera } from '../../../components/Icons/Icons';
-import { getPreRegPreview, searchPreRegStaff, checkInByQr } from '../checkInOutService';
+import {
+  IconX,
+  IconCamera,
+  IconUser,
+  IconBuilding,
+  IconEye,
+  IconEyeOff,
+  IconCheck,
+  IconCheckCircle,
+  IconAlertCircle,
+} from '../../../components/Icons/Icons';
+import { getPreRegPreview, checkInByQr, recordZoneScan } from '../checkInOutService';
 
-const SCAN_INTERVAL_MS  = 300;
-const SEARCH_DEBOUNCE   = 350;
+const SCAN_INTERVAL_MS = 300;
+const jsQrReady = import('jsqr').then((m) => m.default);
+
+function isMovementPayload(raw) {
+  const v = (raw ?? '').trim();
+  if (!v) return false;
+  if (/^VISITOR:/i.test(v)) return true;
+  return /^MED-V-\d{4}$/i.test(v);
+}
+
+function normalizeToken(rawData) {
+  let token = rawData.trim();
+  if (token.startsWith('PREREG:')) token = token.slice('PREREG:'.length);
+  return token.trim();
+}
+
+function personFromPreview(preview) {
+  if (!preview?.personToMeetId) return null;
+  return {
+    id: preview.personToMeetId,
+    name: preview.personName || '—',
+    department: preview.hostDepartment || '',
+  };
+}
 
 function fmtAadhaar(num) {
   if (!num) return '—';
@@ -31,33 +60,29 @@ function maskAadhaar(num) {
   return `${d.slice(0, 4)} XXXX ${d.slice(8)}`;
 }
 
-export default function QrScanModal({ onClose, onSuccess }) {
-  // page: 'scan' | 'loading' | 'preview' | 'accepting' | 'done' | 'error'
-  const [page,          setPage]          = useState('scan');
-  const [statusMsg,     setStatusMsg]     = useState('');
-  const [preview,       setPreview]       = useState(null);
-  const [checkedEntry,  setCheckedEntry]  = useState(null);
-  const [aadhaarFull,   setAadhaarFull]   = useState(false);
+export default function QrScanModal({ onClose, onSuccess, mode = 'PREREG_CHECKIN' }) {
+  const isZoneScan = mode === 'ZONE_SCAN';
+  const [page,         setPage]         = useState('scan');
+  const [statusMsg,    setStatusMsg]    = useState('');
+  const [preview,      setPreview]      = useState(null);
+  const [checkedEntry, setCheckedEntry] = useState(null);
+  const [aadhaarFull,  setAadhaarFull]  = useState(false);
+  const [resolvedPerson, setResolvedPerson] = useState(null);
+  const [visitorCardNumber, setVisitorCardNumber] = useState('');
 
-  // Camera
-  const [cameraActive,  setCameraActive]  = useState(false);
-  const [cameraError,   setCameraError]   = useState('');
-  const [manualToken,   setManualToken]   = useState('');
-  const [showManual,    setShowManual]    = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError,  setCameraError]  = useState('');
+  const [manualToken,  setManualToken]  = useState('');
+  const [showManual,   setShowManual]   = useState(false);
 
-  // Person-to-meet search
-  const [searchQuery,   setSearchQuery]   = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [searching,     setSearching]     = useState(false);
-  const [selectedPerson,setSelectedPerson]= useState(null); // {id, name, department}
+  const videoRef     = useRef(null);
+  const canvasRef    = useRef(null);
+  const streamRef    = useRef(null);
+  const scanTimerRef = useRef(null);
+  const onCloseRef   = useRef(onClose);
+  const processingRef = useRef(false);
 
-  const videoRef      = useRef(null);
-  const canvasRef     = useRef(null);
-  const streamRef     = useRef(null);
-  const scanTimerRef  = useRef(null);
-  const searchTimerRef= useRef(null);
-  const onCloseRef    = useRef(onClose);
-  useEffect(() => { onCloseRef.current = onClose; });
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   useEffect(() => {
     const h = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
@@ -75,37 +100,6 @@ export default function QrScanModal({ onClose, onSuccess }) {
     }
   }, [cameraActive]);
 
-  // Auto-search when preview loads
-  useEffect(() => {
-    if (preview?.personName) {
-      setSearchQuery(preview.personName);
-      doSearch(preview.personName, preview.token);
-    }
-  }, [preview?.token]);
-
-  // Debounced search on manual query change
-  useEffect(() => {
-    if (!preview?.token || !searchQuery.trim()) { setSearchResults([]); return; }
-    clearTimeout(searchTimerRef.current);
-    searchTimerRef.current = setTimeout(() => doSearch(searchQuery, preview.token), SEARCH_DEBOUNCE);
-    return () => clearTimeout(searchTimerRef.current);
-  }, [searchQuery]);
-
-  async function doSearch(query, token) {
-    if (!query || query.trim().length < 2) { setSearchResults([]); return; }
-    setSearching(true);
-    try {
-      const results = await searchPreRegStaff(query.trim(), token);
-      setSearchResults(results);
-      // Auto-select if exactly one result and name matches
-      if (results.length === 1 && !selectedPerson) {
-        setSelectedPerson(results[0]);
-      }
-    } catch { setSearchResults([]); }
-    finally { setSearching(false); }
-  }
-
-  // ── Camera ──────────────────────────────────────────────────────────────────
   async function startCamera() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -142,46 +136,87 @@ export default function QrScanModal({ onClose, onSuccess }) {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     try {
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const jsQR = (await import('jsqr')).default;
+      const jsQR = await jsQrReady;
       const code  = jsQR(imageData.data, imageData.width, imageData.height);
       if (code?.data) handleQrDetected(code.data);
     } catch { /* silent */ }
   }
 
+  const completeZoneScan = useCallback(async (rawData) => {
+    setStatusMsg('Recording movement…');
+    const result = await recordZoneScan(rawData);
+    setCheckedEntry({
+      id: result.visitorId,
+      name: result.visitorName,
+      deviceName: result.deviceName,
+      message: result.message,
+      duplicate: result.duplicateSuppressed,
+    });
+    setPage('done');
+    onSuccess?.(result);
+  }, [onSuccess]);
+
   const handleQrDetected = useCallback(async (rawData) => {
-    if (page !== 'scan') return;
+    if (page !== 'scan' || processingRef.current) return;
+    processingRef.current = true;
     clearInterval(scanTimerRef.current);
 
-    let token = rawData;
-    if (rawData.startsWith('PREREG:')) token = rawData.slice('PREREG:'.length);
-    else if (!rawData.match(/^[a-f0-9]{32}$/i)) { startScanLoop(); return; }
-
     setPage('loading');
-    setStatusMsg('QR detected — loading visitor details…');
     stopCamera();
 
     try {
+      if (isZoneScan || isMovementPayload(rawData)) {
+        await completeZoneScan(rawData);
+        return;
+      }
+
+      const token = normalizeToken(rawData);
+      if (!token.match(/^[a-f0-9]{32}$/i)) {
+        setPage('scan');
+        processingRef.current = false;
+        await startCamera();
+        startScanLoop();
+        return;
+      }
+
+      setStatusMsg('QR detected — loading visitor details…');
+
       const data = await getPreRegPreview(token);
+      if (data.alreadyCheckedIn) {
+        await completeZoneScan(rawData.startsWith('PREREG:') ? rawData : `PREREG:${token}`);
+        return;
+      }
+
       setPreview(data);
-      setSelectedPerson(null);
-      setSearchResults([]);
-      setSearchQuery(data.personName || '');
+      setResolvedPerson(personFromPreview(data));
       setPage('preview');
     } catch (e) {
-      setStatusMsg(e?.message || 'Failed to load visitor details.');
+      const msg = e?.message || '';
+      if (/already been used/i.test(msg)) {
+        try {
+          const token = normalizeToken(rawData);
+          await completeZoneScan(rawData.startsWith('PREREG:') ? rawData : `PREREG:${token}`);
+          return;
+        } catch (zoneErr) {
+          setStatusMsg(zoneErr?.message || 'Zone scan failed.');
+          setPage('error');
+          return;
+        }
+      }
+      setStatusMsg(msg || 'Failed to load visitor details.');
       setPage('error');
     }
-  }, [page]);
+  }, [page, isZoneScan, completeZoneScan]);
 
-  // ── Accept ───────────────────────────────────────────────────────────────────
   async function handleAccept() {
-    if (!preview || !selectedPerson) return;
+    if (!preview || !resolvedPerson) return;
+
     setPage('accepting');
     try {
-      const entry = await checkInByQr(preview.token, selectedPerson.id);
-      setCheckedEntry(entry);
-      setPage('done');
-      onSuccess?.(entry);
+      const cardNo = preview.entryType === 'VISITOR' ? visitorCardNumber.trim() : null;
+      const entry = await checkInByQr(preview.token, resolvedPerson.id, cardNo);
+      onSuccess?.({ ...entry, type: entry.type || entry.entryType || preview.entryType });
+      onClose();
     } catch (e) {
       setStatusMsg(e?.message || 'Check-in failed.');
       setPage('error');
@@ -189,12 +224,14 @@ export default function QrScanModal({ onClose, onSuccess }) {
   }
 
   function handleReject() {
+    processingRef.current = false;
     resetPreview();
     setPage('scan');
     startCamera();
   }
 
   function handleRetry() {
+    processingRef.current = false;
     resetPreview();
     setPage('scan');
     startCamera();
@@ -205,10 +242,9 @@ export default function QrScanModal({ onClose, onSuccess }) {
     setCheckedEntry(null);
     setStatusMsg('');
     setAadhaarFull(false);
-    setSelectedPerson(null);
-    setSearchResults([]);
-    setSearchQuery('');
+    setResolvedPerson(null);
     setManualToken('');
+    setVisitorCardNumber('');
   }
 
   async function handleManualCheckin() {
@@ -219,17 +255,22 @@ export default function QrScanModal({ onClose, onSuccess }) {
 
   const handleOverlayClick = (e) => { if (e.target === e.currentTarget) onClose(); };
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  const canAccept = resolvedPerson
+    && !preview?.alreadyCheckedIn
+    && !(preview?.entryType === 'EMPLOYEE' && !preview?.empFound)
+    && !(preview?.entryType === 'VISITOR' && !visitorCardNumber.trim());
+
   return createPortal(
     <div className="qsm-overlay" role="dialog" aria-modal="true" onClick={handleOverlayClick}>
       <div className="qsm-dialog">
 
         <div className="qsm-header">
           <div>
-            <h2 className="qsm-title">Scan Visitor QR</h2>
+            <h2 className="qsm-title">{isZoneScan ? 'Zone Scan' : 'Scan Visitor QR'}</h2>
             <p className="qsm-sub">
-              {page === 'preview'  ? 'Verify details and select person to meet before accepting.' :
-               page === 'done'     ? 'Check-in completed successfully.' :
+              {page === 'preview'  ? 'Verify visitor details before accepting.' :
+               page === 'done'     ? (isZoneScan ? 'Movement recorded.' : 'Check-in completed successfully.') :
+               isZoneScan ? 'Scan a checked-in visitor\'s pass to record movement at this kiosk.' :
                'Point camera at the visitor\'s QR code.'}
             </p>
           </div>
@@ -238,7 +279,6 @@ export default function QrScanModal({ onClose, onSuccess }) {
 
         <div className="qsm-body">
 
-          {/* ── SCAN / LOADING ── */}
           {(page === 'scan' || page === 'loading') && (
             <>
               <div className={`qsm-camera-wrap${cameraActive ? ' qsm-camera-wrap--live' : ''}`}>
@@ -273,27 +313,28 @@ export default function QrScanModal({ onClose, onSuccess }) {
             </>
           )}
 
-          {/* ── PREVIEW ── */}
           {page === 'preview' && preview && (
             <div className="qsm-preview">
 
-              {/* Visitor identity */}
               <div className="qsm-id-card">
                 <div className="qsm-id-card__type">
                   <span className={`qsm-type-badge qsm-type-badge--${preview.entryType?.toLowerCase()}`}>
-                    {preview.entryType === 'EMPLOYEE' ? '🏢 Employee' : '👤 Visitor'}
+                    {preview.entryType === 'EMPLOYEE'
+                      ? <><IconBuilding size={14} /> Employee</>
+                      : <><IconUser size={14} /> Visitor</>}
                   </span>
                 </div>
                 <div className="qsm-id-card__name">{preview.name}</div>
 
-                {/* Aadhaar — visitor only */}
                 {preview.entryType === 'VISITOR' && (
                   <div className="qsm-id-card__aadhaar">
                     <div className="qsm-id-card__aadhaar-label">
                       {preview.govtIdType || 'Aadhaar'} Number
                       {preview.govtIdNumber && (
-                        <button className="qsm-toggle-mask" onClick={() => setAadhaarFull(v => !v)}>
-                          {aadhaarFull ? '🙈 Hide' : '👁 Show full'}
+                        <button type="button" className="qsm-toggle-mask" onClick={() => setAadhaarFull((v) => !v)}>
+                          {aadhaarFull
+                            ? <><IconEyeOff size={13} /> Hide</>
+                            : <><IconEye size={13} /> Show full</>}
                         </button>
                       )}
                     </div>
@@ -305,93 +346,85 @@ export default function QrScanModal({ onClose, onSuccess }) {
                   </div>
                 )}
 
-                {/* Employee verification */}
                 {preview.entryType === 'EMPLOYEE' && (
                   <div className={`qsm-emp-verify qsm-emp-verify--${preview.empFound ? 'found' : 'notfound'}`}>
-                    <span className="qsm-emp-verify__icon">{preview.empFound ? '✅' : '❌'}</span>
+                    <span className="qsm-emp-verify__icon">
+                      {preview.empFound ? <IconCheckCircle size={20} /> : <IconAlertCircle size={20} />}
+                    </span>
                     <div>
                       <div className="qsm-emp-verify__label">Employee Verification</div>
                       {preview.empFound
-                        ? <div className="qsm-emp-verify__detail">{preview.empFullName} · {preview.empDept}</div>
-                        : <div className="qsm-emp-verify__detail">Employee ID "{preview.empId}" not found in system</div>
+                        ? <div className="qsm-emp-verify__detail">{preview.empFullName}{preview.empDept ? ` · ${preview.empDept}` : ''}</div>
+                        : <div className="qsm-emp-verify__detail">Employee ID &quot;{preview.empId}&quot; not found in HRMS</div>
                       }
                     </div>
                   </div>
                 )}
 
-                {/* Secondary details */}
+                {preview.entryType === 'EMPLOYEE' && preview.empFound && !preview.alreadyCheckedIn && (
+                  <div className="qsm-emp-reminder">
+                    Ensure the employee is wearing their official ID badge before accepting.
+                  </div>
+                )}
+
                 <div className="qsm-id-card__details">
-                  {preview.mobile        && <div className="qsm-id-detail"><span>Mobile</span><strong>{preview.mobile}</strong></div>}
+                  {preview.mobile         && <div className="qsm-id-detail"><span>Mobile</span><strong>{preview.mobile}</strong></div>}
                   {preview.empId && preview.entryType === 'VISITOR' && <div className="qsm-id-detail"><span>Emp ID</span><strong>{preview.empId}</strong></div>}
-                  {preview.reasonForVisit&& <div className="qsm-id-detail"><span>Purpose</span><strong>{preview.reasonForVisit}</strong></div>}
+                  {preview.reasonForVisit && <div className="qsm-id-detail"><span>Purpose</span><strong>{preview.reasonForVisit}</strong></div>}
                 </div>
               </div>
 
-              {/* ── Person to Meet section ── */}
               <div className="qsm-ptm-section">
                 <div className="qsm-ptm-header">
                   <span className="qsm-ptm-title">Person to Meet</span>
-                  {selectedPerson
-                    ? <span className="qsm-ptm-status qsm-ptm-status--ok">✅ Selected</span>
-                    : <span className="qsm-ptm-status qsm-ptm-status--none">Not selected</span>
-                  }
+                  {resolvedPerson
+                    ? (
+                      <span className="qsm-ptm-status qsm-ptm-status--ok">
+                        <IconCheck size={13} /> Verified
+                      </span>
+                    )
+                    : <span className="qsm-ptm-status qsm-ptm-status--none">Not available</span>}
                 </div>
 
-                {/* What visitor typed */}
-                {preview.personName && (
-                  <div className="qsm-ptm-typed">
-                    Visitor said: <em>"{preview.personName}"</em>
-                    {preview.hostDepartment && <span> · {preview.hostDepartment}</span>}
+                {resolvedPerson ? (
+                  <div className="qsm-ptm-readonly">
+                    <div className="qsm-ptm-readonly__row">
+                      <span className="qsm-ptm-readonly__label">Name</span>
+                      <span className="qsm-ptm-readonly__value">{resolvedPerson.name}</span>
+                    </div>
+                    {resolvedPerson.department && (
+                      <div className="qsm-ptm-readonly__row">
+                        <span className="qsm-ptm-readonly__label">Department</span>
+                        <span className="qsm-ptm-readonly__value">{resolvedPerson.department}</span>
+                      </div>
+                    )}
                   </div>
-                )}
-
-                {/* Selected person chip */}
-                {selectedPerson && (
-                  <div className="qsm-ptm-selected">
-                    <span className="qsm-ptm-selected__name">{selectedPerson.name}</span>
-                    <span className="qsm-ptm-selected__dept">{selectedPerson.department}</span>
-                    <button className="qsm-ptm-selected__clear" onClick={() => setSelectedPerson(null)} title="Change">✕</button>
-                  </div>
-                )}
-
-                {/* Search box */}
-                <div className="qsm-ptm-search-wrap">
-                  <input
-                    className="qsm-ptm-search"
-                    type="text"
-                    placeholder="Search by name, emp ID, or mobile…"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                  {searching && <span className="qsm-ptm-searching">Searching…</span>}
-                </div>
-
-                {/* Search results */}
-                {searchResults.length > 0 && (
-                  <div className="qsm-ptm-results">
-                    {searchResults.map((p) => (
-                      <button
-                        key={p.id}
-                        className={`qsm-ptm-result${selectedPerson?.id === p.id ? ' qsm-ptm-result--active' : ''}`}
-                        onClick={() => setSelectedPerson(p)}
-                      >
-                        <span className="qsm-ptm-result__check">{selectedPerson?.id === p.id ? '✓' : ' '}</span>
-                        <span className="qsm-ptm-result__name">{p.name}</span>
-                        <span className="qsm-ptm-result__dept">{p.department}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {!searching && searchQuery.trim().length >= 2 && searchResults.length === 0 && (
-                  <div className="qsm-ptm-no-results">No matching staff found</div>
+                ) : (
+                  <div className="qsm-ptm-no-results">Person-to-meet details are missing from this registration.</div>
                 )}
               </div>
 
-              {/* Already checked-in block */}
+              {preview.entryType === 'VISITOR' && !preview.alreadyCheckedIn && (
+                <div className="qsm-card-field">
+                  <label className="qsm-card-field__label" htmlFor="qsm-visitor-card">
+                    Visitor ID Card Number <span aria-hidden="true">*</span>
+                  </label>
+                  <input
+                    id="qsm-visitor-card"
+                    className="qsm-card-field__input"
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Enter printed card number"
+                    value={visitorCardNumber}
+                    onChange={(e) => setVisitorCardNumber(e.target.value)}
+                  />
+                </div>
+              )}
+
               {preview.alreadyCheckedIn && (
                 <div className="qsm-emp-blocked qsm-emp-blocked--duplicate">
-                  ⚠️ Already checked in — {preview.entryType === 'EMPLOYEE'
+                  <IconAlertCircle size={16} className="qsm-inline-icon" />
+                  Already checked in — {preview.entryType === 'EMPLOYEE'
                     ? `Employee ${preview.empId} (${preview.empFullName || preview.name})`
                     : preview.name
                   } is currently checked in (entry {preview.activeEntryId}).
@@ -399,80 +432,72 @@ export default function QrScanModal({ onClose, onSuccess }) {
                 </div>
               )}
 
-              {/* Employee not found block */}
               {preview.entryType === 'EMPLOYEE' && !preview.empFound && !preview.alreadyCheckedIn && (
                 <div className="qsm-emp-blocked">
-                  ❌ Check-in blocked — Employee ID "{preview.empId}" was not found in the system.
-                  Ask the person to contact HR or use the correct Employee ID.
+                  <IconAlertCircle size={16} className="qsm-inline-icon" />
+                  Check-in blocked — Employee ID &quot;{preview.empId}&quot; was not found in HRMS.
+                  Ask the person to contact HR or verify their Employee ID / HRMS ID.
                 </div>
               )}
 
               <div className="qsm-preview-actions">
-                <button className="qsm-reject-btn" onClick={handleReject}>✕ Reject</button>
+                <button type="button" className="qsm-reject-btn" onClick={handleReject}>
+                  <IconX size={15} /> Reject
+                </button>
                 <button
+                  type="button"
                   className="qsm-accept-btn"
                   onClick={handleAccept}
-                  disabled={
-                    !selectedPerson ||
-                    preview.alreadyCheckedIn ||
-                    (preview.entryType === 'EMPLOYEE' && !preview.empFound)
-                  }
+                  disabled={!canAccept}
                 >
-                  ✓ Accept &amp; Check In
+                  <IconCheck size={15} /> Accept &amp; Check In
                 </button>
               </div>
-              <p className="qsm-preview-note">
-                {preview.alreadyCheckedIn
-                  ? "This person is already inside — check-in is not permitted."
-                  : preview.entryType === 'VISITOR'
-                    ? "Verify Aadhaar against the visitor\u2019s physical ID card before accepting."
-                    : preview.empFound
-                      ? "Verify the employee\u2019s physical ID before accepting."
-                      : "Employee not found \u2014 check-in is not permitted."}
-              </p>
             </div>
           )}
 
-          {/* ── ACCEPTING ── */}
           {page === 'accepting' && (
             <div className="qsm-status qsm-status--checking">Checking in {preview?.name}…</div>
           )}
 
-          {/* ── DONE ── */}
           {page === 'done' && (
             <div className="qsm-result qsm-result--success">
-              <div className="qsm-result-icon">✅</div>
-              <div className="qsm-result-title">Checked In!</div>
+              <div className="qsm-result-icon"><IconCheckCircle size={44} /></div>
+              <div className="qsm-result-title">{isZoneScan ? 'Scan Recorded' : 'Checked In!'}</div>
               <div className="qsm-result-name">{checkedEntry?.name}</div>
-              <div className="qsm-result-meta">
-                {checkedEntry?.department  && <span>{checkedEntry.department}</span>}
-                {checkedEntry?.personToMeet&& <span>→ {checkedEntry.personToMeet}</span>}
-              </div>
-              {/* Show assigned card */}
-              {(checkedEntry?.cardCode || checkedEntry?.card != null) && (
+              {isZoneScan ? (
+                <div className="qsm-result-meta">
+                  {checkedEntry?.deviceName && <span>at {checkedEntry.deviceName}</span>}
+                  {checkedEntry?.message && <span>{checkedEntry.message}</span>}
+                </div>
+              ) : (
+                <div className="qsm-result-meta">
+                  {checkedEntry?.department   && <span>{checkedEntry.department}</span>}
+                  {checkedEntry?.personToMeet && <span>→ {checkedEntry.personToMeet}</span>}
+                </div>
+              )}
+              {!isZoneScan && checkedEntry?.card != null && (
                 <div className="qsm-result-card">
                   <span className="qsm-result-card__label">Visitor Card</span>
-                  <span className="qsm-result-card__code">
-                    {checkedEntry.cardCode || checkedEntry.card}
-                  </span>
-                  <span className="qsm-result-card__hint">Hand this card to the visitor</span>
+                  <span className="qsm-result-card__code">{checkedEntry.card}</span>
                 </div>
               )}
               <div className="qsm-result-id">{checkedEntry?.id}</div>
               <div className="qsm-result-actions">
-                <button className="qsm-result-btn qsm-result-btn--done" onClick={onClose}>Done</button>
-                <button className="qsm-result-btn qsm-result-btn--scan" onClick={handleRetry}>Scan Next</button>
+                <button type="button" className="qsm-result-btn qsm-result-btn--done" onClick={onClose}>Done</button>
+                <button type="button" className="qsm-result-btn qsm-result-btn--scan" onClick={handleRetry}>
+                  {isZoneScan ? 'Scan Next' : 'Scan Next'}
+                </button>
               </div>
             </div>
           )}
 
-          {/* ── ERROR ── */}
           {page === 'error' && (
             <div className="qsm-result qsm-result--error">
-              <div className="qsm-result-icon">⚠️</div>
+              <div className="qsm-result-icon"><IconAlertCircle size={44} /></div>
               <div className="qsm-result-title">Error</div>
               <div className="qsm-result-msg">{statusMsg}</div>
-              <button className="qsm-result-btn qsm-result-btn--scan" onClick={handleRetry}>Try Again</button>
+              <button type="button" className="qsm-result-btn qsm-result-btn--scan" onClick={handleRetry}>Try Again</button>
             </div>
           )}
 

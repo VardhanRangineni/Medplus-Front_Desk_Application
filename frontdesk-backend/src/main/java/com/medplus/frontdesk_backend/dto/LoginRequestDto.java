@@ -16,9 +16,9 @@ public class LoginRequestDto {
     @NotBlank(message = "Password is required")
     private String password;
 
-    @NotBlank(message = "IP address is required")
+    /** Optional for PRIMARY_ADMIN (device lock skipped). Required for other roles at validation time. */
     private String ipAddress;
 
-    @NotBlank(message = "MAC address is required")
+    /** Optional for PRIMARY_ADMIN (device lock skipped). Required for other roles at validation time. */
     private String macAddress;
 }

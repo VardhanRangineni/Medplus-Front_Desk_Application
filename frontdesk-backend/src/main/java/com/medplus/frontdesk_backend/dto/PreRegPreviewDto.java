@@ -16,7 +16,8 @@ public class PreRegPreviewDto {
     private String govtIdType;
     private String govtIdNumber;
 
-    // What the visitor typed as person to meet (free text, no ID)
+    // Person to meet — verified at self-registration (HRMS employee id + display fields)
+    private String personToMeetId;
     private String personName;
     private String hostDepartment;
     private String reasonForVisit;

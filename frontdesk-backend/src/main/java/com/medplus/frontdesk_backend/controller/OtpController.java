@@ -6,10 +6,12 @@ import com.medplus.frontdesk_backend.dto.OtpSendResponseDto;
 import com.medplus.frontdesk_backend.dto.OtpVerifyRequestDto;
 import com.medplus.frontdesk_backend.dto.OtpVerifyResponseDto;
 import com.medplus.frontdesk_backend.service.OtpService;
+import com.medplus.frontdesk_backend.security.AuthorizationHelper;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -26,7 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
  * │                                                                          │
  * │  1. Operator enters visitor's mobile → clicks "Send OTP"                 │
  * │       → POST /api/otp/send  { mobile }                                  │
- * │       → OtpService generates OTP, dispatches via SMS gateway (mocked)   │
+ * │       → OtpService dispatches via MedPlus SMS gateway (tpa)             │
  * │                                                                          │
  * │  2. Visitor reads OTP from phone → operator enters it → "Verify OTP"    │
  * │       → POST /api/otp/verify  { mobile, otp }                           │
@@ -42,6 +44,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class OtpController {
 
     private final OtpService otpService;
+    private final AuthorizationHelper authorizationHelper;
 
     // ── POST /api/otp/send ────────────────────────────────────────────────────
 
@@ -65,7 +68,10 @@ public class OtpController {
      */
     @PostMapping("/send")
     public ResponseEntity<ApiResponse<OtpSendResponseDto>> sendOtp(
-            @Valid @RequestBody OtpSendRequestDto request) {
+            @Valid @RequestBody OtpSendRequestDto request,
+            Authentication auth) {
+
+        authorizationHelper.requireCheckInPermission(auth);
 
         log.debug("[OTP] sendOtp requested for mobile ending in ...{}", last4(request.getMobile()));
         OtpSendResponseDto response = otpService.sendOtp(request.getMobile());
@@ -83,7 +89,7 @@ public class OtpController {
      * Authorization: Bearer <jwt>
      * Content-Type: application/json
      *
-     * { "mobile": "9876543210", "otp": "483921" }
+     * { "mobile": "9876543210", "otp": "48392" }
      * </pre>
      *
      * Success response (200):
@@ -94,7 +100,10 @@ public class OtpController {
      */
     @PostMapping("/verify")
     public ResponseEntity<ApiResponse<OtpVerifyResponseDto>> verifyOtp(
-            @Valid @RequestBody OtpVerifyRequestDto request) {
+            @Valid @RequestBody OtpVerifyRequestDto request,
+            Authentication auth) {
+
+        authorizationHelper.requireCheckInPermission(auth);
 
         log.debug("[OTP] verifyOtp requested for mobile ending in ...{}", last4(request.getMobile()));
         OtpVerifyResponseDto response = otpService.verifyOtp(request.getMobile(), request.getOtp());

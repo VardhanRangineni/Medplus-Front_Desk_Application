@@ -5,13 +5,20 @@ import com.medplus.frontdesk_backend.dto.ReportAvgDurationDto;
 import com.medplus.frontdesk_backend.dto.ReportDeptSummaryDto;
 import com.medplus.frontdesk_backend.dto.ReportFrequentVisitorDto;
 import com.medplus.frontdesk_backend.dto.ReportRatioDto;
+import com.medplus.frontdesk_backend.dto.ReportActiveCountDto;
+import com.medplus.frontdesk_backend.dto.PagedResponseDto;
+import com.medplus.frontdesk_backend.dto.ReportReceptionistEntryDto;
+import com.medplus.frontdesk_backend.dto.StaffActivityFilterDto;
+import com.medplus.frontdesk_backend.dto.ReportVisitTrendPointDto;
 import com.medplus.frontdesk_backend.service.ReportService;
+import com.medplus.frontdesk_backend.util.WorkstationMacUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -19,16 +26,6 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDate;
 import java.util.List;
 
-/**
- * REST endpoints for the Reports page.
- *
- * All endpoints require authentication (covered by the global security filter).
- * Location scoping is applied automatically based on the caller's role:
- *  - RECEPTIONIST → their assigned location only
- *  - PRIMARY / REGIONAL ADMIN → all locations
- *
- * Base path: /api/reports
- */
 @Slf4j
 @RestController
 @RequestMapping("/api/reports")
@@ -37,103 +34,120 @@ public class ReportController {
 
     private final ReportService reportService;
 
-    /**
-     * GET /api/reports/department-summary
-     *
-     * Returns visit counts grouped by department for the requested date range.
-     * Used by the bar chart on the Reports page.
-     *
-     * Query params:
-     *   from  – inclusive start date (YYYY-MM-DD)
-     *   to    – inclusive end date   (YYYY-MM-DD)
-     *
-     * Response data: List&lt;{ department, visitCount }&gt; ordered by visitCount desc.
-     */
     @GetMapping("/department-summary")
     public ResponseEntity<ApiResponse<List<ReportDeptSummaryDto>>> getDeptSummary(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String locationId,
+            @RequestParam(required = false) Boolean allLocations,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
             Authentication auth) {
 
-        List<ReportDeptSummaryDto> data =
-                reportService.getDeptSummary(auth.getName(), auth, from, to, locationId);
+        List<ReportDeptSummaryDto> data = reportService.getDeptSummary(
+                auth.getName(), auth, workstationMac, from, to, locationId, allLocations);
         return ResponseEntity.ok(ApiResponse.success("Department summary retrieved.", data));
     }
 
-    /**
-     * GET /api/reports/visitor-ratio
-     *
-     * Returns aggregate counts of visitor vs employee entries for the date range.
-     * Used by the donut chart on the Reports page.
-     *
-     * Query params:
-     *   from  – inclusive start date (YYYY-MM-DD)
-     *   to    – inclusive end date   (YYYY-MM-DD)
-     *
-     * Response data: { visitorCount, employeeCount, totalCount }.
-     */
     @GetMapping("/visitor-ratio")
     public ResponseEntity<ApiResponse<ReportRatioDto>> getVisitorRatio(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String locationId,
+            @RequestParam(required = false) Boolean allLocations,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
             Authentication auth) {
 
-        ReportRatioDto data =
-                reportService.getVisitorRatio(auth.getName(), auth, from, to, locationId);
+        ReportRatioDto data = reportService.getVisitorRatio(
+                auth.getName(), auth, workstationMac, from, to, locationId, allLocations);
         return ResponseEntity.ok(ApiResponse.success("Visitor ratio retrieved.", data));
     }
 
-    /**
-     * GET /api/reports/avg-duration
-     *
-     * Returns the average visit duration (minutes) per department for
-     * check-outs that occurred within the date range.
-     *
-     * Query params:
-     *   from  – inclusive start date (YYYY-MM-DD)
-     *   to    – inclusive end date   (YYYY-MM-DD)
-     *
-     * Response data: List&lt;{ department, avgDurationMinutes, visitCount }&gt;
-     *               ordered by avgDurationMinutes desc.
-     */
     @GetMapping("/avg-duration")
     public ResponseEntity<ApiResponse<List<ReportAvgDurationDto>>> getAvgDuration(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String locationId,
+            @RequestParam(required = false) Boolean allLocations,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
             Authentication auth) {
 
-        List<ReportAvgDurationDto> data =
-                reportService.getAvgDuration(auth.getName(), auth, from, to, locationId);
+        List<ReportAvgDurationDto> data = reportService.getAvgDuration(
+                auth.getName(), auth, workstationMac, from, to, locationId, allLocations);
         return ResponseEntity.ok(ApiResponse.success("Average duration retrieved.", data));
     }
 
-    /**
-     * GET /api/reports/frequent-visitors
-     *
-     * Returns external visitors (entryType = VISITOR) who have checked in
-     * at least {@code minVisits} times within the date range.
-     *
-     * Query params:
-     *   from      – inclusive start date (YYYY-MM-DD)
-     *   to        – inclusive end date   (YYYY-MM-DD)
-     *   minVisits – minimum check-in count to qualify (default: 2)
-     *
-     * Response data: List&lt;{ name, mobile, visitCount, lastVisit, departments }&gt;
-     *               ordered by visitCount desc.
-     */
     @GetMapping("/frequent-visitors")
     public ResponseEntity<ApiResponse<List<ReportFrequentVisitorDto>>> getFrequentVisitors(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(defaultValue = "2") int minVisits,
             @RequestParam(required = false) String locationId,
+            @RequestParam(required = false) Boolean allLocations,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
             Authentication auth) {
 
-        List<ReportFrequentVisitorDto> data =
-                reportService.getFrequentVisitors(auth.getName(), auth, from, to, minVisits, locationId);
+        List<ReportFrequentVisitorDto> data = reportService.getFrequentVisitors(
+                auth.getName(), auth, workstationMac, from, to, minVisits, locationId, allLocations);
         return ResponseEntity.ok(ApiResponse.success("Frequent visitors retrieved.", data));
+    }
+
+    @GetMapping("/visit-trend")
+    public ResponseEntity<ApiResponse<List<ReportVisitTrendPointDto>>> getVisitTrend(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String locationId,
+            @RequestParam(required = false) Boolean allLocations,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
+            Authentication auth) {
+
+        List<ReportVisitTrendPointDto> data = reportService.getVisitTrend(
+                auth.getName(), auth, workstationMac, from, to, locationId, allLocations);
+        return ResponseEntity.ok(ApiResponse.success("Visit trend retrieved.", data));
+    }
+
+    @GetMapping("/active-now")
+    public ResponseEntity<ApiResponse<ReportActiveCountDto>> getActiveNow(
+            @RequestParam(required = false) String locationId,
+            @RequestParam(required = false) Boolean allLocations,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
+            Authentication auth) {
+
+        ReportActiveCountDto data = reportService.getActiveVisitorsNow(
+                auth.getName(), auth, workstationMac, locationId, allLocations);
+        return ResponseEntity.ok(ApiResponse.success("Active visitors retrieved.", data));
+    }
+
+    @GetMapping("/receptionist-activity")
+    public ResponseEntity<ApiResponse<PagedResponseDto<ReportReceptionistEntryDto>>> getStaffActivity(
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) String visitorName,
+            @RequestParam(required = false) String entryType,
+            @RequestParam(required = false) String department,
+            @RequestParam(required = false) String personToMeet,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String workstationMac,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String locationId,
+            @RequestParam(required = false) Boolean allLocations,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String callerWorkstationMac,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            Authentication auth) {
+
+        StaffActivityFilterDto filters = StaffActivityFilterDto.builder()
+                .staffQuery(q)
+                .visitorName(visitorName)
+                .entryType(entryType)
+                .department(department)
+                .personToMeet(personToMeet)
+                .status(status)
+                .workstationMac(workstationMac)
+                .build();
+
+        PagedResponseDto<ReportReceptionistEntryDto> data = reportService.getStaffActivity(
+                auth.getName(), auth, callerWorkstationMac, filters, from, to,
+                locationId, allLocations, page, size);
+        return ResponseEntity.ok(ApiResponse.success("Staff activity retrieved.", data));
     }
 }

@@ -1,23 +1,8 @@
 -- =============================================================================
---  Medplus Front Desk Application — Database Schema
---  Database : frontdesk
---  Engine   : MySQL 8.0+
---  Charset  : utf8mb4 / utf8mb4_0900_ai_ci
--- =============================================================================
+--  MVMS — full database reset (DROP + CREATE). Use when you want a clean slate.
 --
---  HOW TO RUN
---  ----------
---  Option A — MySQL command line:
---      mysql -u root -p < schema.sql
---
---  Option B — MySQL Workbench:
---      Open this file → Run (Ctrl+Shift+Enter)
---
---  Option C — From project root (after cloning):
---      mysql -u root -p < frontdesk-backend/src/main/resources/db/schema.sql
---
---  NOTE: Running this script will DROP and re-create the `frontdesk` database.
---        All existing data will be lost.
+--  Day-to-day / app startup: Spring runs schema-init.sql (tables only).
+--  Admin user: application.properties (app.bootstrap.admin.*).
 -- =============================================================================
 
 -- ── 0. Database setup ─────────────────────────────────────────────────────────
@@ -71,7 +56,7 @@ CREATE TABLE `usermaster` (
     `workemail`    VARCHAR(120) NOT NULL  COMMENT 'Official work email address',
     `phone`        VARCHAR(120) NOT NULL  COMMENT 'Contact phone number',
     `designation`  VARCHAR(120) NOT NULL  COMMENT 'Job title / designation',
-    `role`         VARCHAR(100) DEFAULT NULL COMMENT 'HR display role (e.g. Front Desk Officer)',
+    `role`         VARCHAR(100) DEFAULT NULL COMMENT 'HR display role (e.g. Reception / MVMS)',
     `worklocation` VARCHAR(120) NOT NULL  COMMENT 'Name of the work location (descriptive)',
     `department`   VARCHAR(120) NOT NULL  COMMENT 'Department name',
     `createdBy`    VARCHAR(100) NOT NULL,
@@ -130,6 +115,34 @@ CREATE TABLE `usermanagement` (
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_0900_ai_ci
   COMMENT='User credentials, roles, location assignments and device-lock info';
+
+
+-- ── user_temp_device_grants ───────────────────────────────────────────────────
+--
+--  Temporary MAC grants for cover receptionists (side table; permanent MAC stays
+--  on usermanagement.macaddress). Only RECEPTIONIST accounts may receive grants.
+--
+--  status: ACTIVE | REVOKED | EXPIRED
+
+CREATE TABLE `user_temp_device_grants` (
+    `id`         BIGINT       NOT NULL AUTO_INCREMENT,
+    `employeeId` VARCHAR(100) NOT NULL,
+    `macAddress` VARCHAR(200) NOT NULL,
+    `expiresAt`  TIMESTAMP    NOT NULL,
+    `grantedBy`  VARCHAR(100) NOT NULL,
+    `reason`     VARCHAR(255) NOT NULL,
+    `status`     ENUM('ACTIVE','REVOKED','EXPIRED') NOT NULL DEFAULT 'ACTIVE',
+    `revokedBy`  VARCHAR(100) DEFAULT NULL,
+    `revokedAt`  TIMESTAMP    DEFAULT NULL,
+    `createdAt`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_temp_grant_employee_status` (`employeeId`, `status`, `expiresAt`),
+    CONSTRAINT `fk_temp_grant_employee`
+        FOREIGN KEY (`employeeId`) REFERENCES `usermanagement` (`employeeid`)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='Temporary workstation MAC grants for cover receptionists';
 
 
 -- =============================================================================

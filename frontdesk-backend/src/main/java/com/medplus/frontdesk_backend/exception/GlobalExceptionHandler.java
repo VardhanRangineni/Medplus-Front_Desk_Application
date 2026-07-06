@@ -70,23 +70,11 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(ExternalApiException.class)
     public ResponseEntity<ApiResponse<Void>> handleExternalApi(ExternalApiException ex) {
-        log.error("External API error during sync: {}", ex.getMessage());
+        log.error("External service error: {}", ex.getMessage());
+        // Never leak internal service names (Iris/OAuth/HRMS) to the operator UI.
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                .body(ApiResponse.error("External HR API is unreachable. " + ex.getMessage()));
-    }
-
-    @ExceptionHandler(ZimbraException.class)
-    public ResponseEntity<ApiResponse<Void>> handleZimbra(ZimbraException ex) {
-        log.warn("Zimbra error: {}", ex.getMessage());
-        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                .body(ApiResponse.error(ex.getMessage()));
-    }
-
-    @ExceptionHandler(ZimbraSessionNotFoundException.class)
-    public ResponseEntity<ApiResponse<Void>> handleZimbraSession(ZimbraSessionNotFoundException ex) {
-        log.warn("Zimbra session error: {}", ex.getMessage());
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .body(ApiResponse.error("Session expired. Please login again."));
+                .body(ApiResponse.error(
+                        "A required MedPlus service is temporarily unavailable. Please try again in a moment."));
     }
 
     @ExceptionHandler(ResponseStatusException.class)

@@ -1,0 +1,70 @@
+/* ── Shared table / card skeleton shimmer ────────────────────────────────── */
+
+@keyframes fd-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+.ci-skeleton,
+.umg-skeleton,
+.fd-skeleton {
+  display: block;
+  height: 12px;
+  width: 88%;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    #eef1f5 0%,
+    #e2e8f0 42%,
+    #eef1f5 84%
+  );
+  background-size: 200% 100%;
+  animation: fd-shimmer 1.15s ease-in-out infinite;
+}
+
+.ci-row--skeleton td,
+.umg-row--skeleton td {
+  padding-top: 13px;
+  padding-bottom: 13px;
+  vertical-align: middle;
+}
+
+.ci-row--skeleton td { opacity: 0.72; }
+.umg-row--skeleton td { opacity: 0.72; }
+
+/* Natural width variation — Check In/Out (10 cols) */
+.ci-row--skeleton td:nth-child(1) .ci-skeleton { width: 52px; max-width: 100%; }
+.ci-row--skeleton td:nth-child(2) .ci-skeleton { width: 78%; }
+.ci-row--skeleton td:nth-child(3) .ci-skeleton { width: 64%; }
+.ci-row--skeleton td:nth-child(4) .ci-skeleton { width: 58%; }
+.ci-row--skeleton td:nth-child(5) .ci-skeleton { width: 72px; }
+.ci-row--skeleton td:nth-child(6) .ci-skeleton { width: 70%; }
+.ci-row--skeleton td:nth-child(7) .ci-skeleton { width: 48px; }
+.ci-row--skeleton td:nth-child(8) .ci-skeleton { width: 82%; }
+.ci-row--skeleton td:nth-child(9) .ci-skeleton { width: 82%; }
+.ci-row--skeleton td:nth-child(10) .ci-skeleton { width: 96px; }
+
+.ci-row--skeleton:nth-child(even) td:nth-child(2) .ci-skeleton { width: 62%; }
+.ci-row--skeleton:nth-child(even) td:nth-child(4) .ci-skeleton { width: 48%; }
+
+/* User Management (8 cols) */
+.umg-row--skeleton td:nth-child(1) .umg-skeleton { width: 72px; }
+.umg-row--skeleton td:nth-child(2) .umg-skeleton { width: 76%; }
+.umg-row--skeleton td:nth-child(3) .umg-skeleton { width: 88px; }
+.umg-row--skeleton td:nth-child(4) .umg-skeleton { width: 64%; }
+.umg-row--skeleton td:nth-child(5) .umg-skeleton { width: 108px; }
+.umg-row--skeleton td:nth-child(6) .umg-skeleton { width: 120px; }
+.umg-row--skeleton td:nth-child(7) .umg-skeleton { width: 72px; }
+.umg-row--skeleton td:nth-child(8) .umg-skeleton { width: 88px; }
+
+.umg-row--skeleton:nth-child(even) td:nth-child(2) .umg-skeleton { width: 58%; }
+.umg-row--skeleton:nth-child(even) td:nth-child(4) .umg-skeleton { width: 52%; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ci-skeleton,
+  .umg-skeleton,
+  .fd-skeleton {
+    animation: none;
+    background: #e8ecf1;
+  }
+}

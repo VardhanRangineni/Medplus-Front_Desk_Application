@@ -1,42 +1,29 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  PieChart, Pie, Cell,
-  BarChart as RBarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, LabelList,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import './Reports.css';
-import { IconCalendar, IconChevronDown, IconBarChart } from '../../components/Icons/Icons';
-import LocationSelector from '../../components/LocationSelector/LocationSelector';
+import {
+  IconCalendar,
+  IconDownload,
+  IconMapPin,
+  IconUsers,
+  IconBarChart,
+  IconTrendingUp,
+  IconClock,
+} from '../../components/Icons/Icons';
+import SearchSelect from '../../components/SearchSelect/SearchSelect';
+import AppPageLoader from '../../components/AppPageLoader/AppPageLoader';
+import DateRangePicker, { defaultRangeToday, formatRangeLabel } from '../../components/DateRangePicker/DateRangePicker';
 import {
   getDeptSummary,
-  getVisitorRatio,
   getAvgDuration,
-  getFrequentVisitors,
+  getVisitorRatio,
+  getVisitTrend,
+  getActiveNow,
 } from './reportsService';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const MONTH_NAMES = [
-  'January','February','March','April','May','June',
-  'July','August','September','October','November','December',
-];
-const DOW_LABELS = ['Su','Mo','Tu','We','Th','Fr','Sa'];
-
-const QUICK_PRESETS = [
-  { label: 'Today',   days: 0  },
-  { label: '7 days',  days: 6  },
-  { label: '30 days', days: 29 },
-  { label: '90 days', days: 89 },
-];
-
-const DURATION_COLORS = ['#C2181D','#d4302f','#e05a2b','#e07a2b','#e09a2b','#cfa83c','#4da96f'];
-
-const AVATAR_COLORS = [
-  '#C2181D','#1976D2','#388E3C','#7B1FA2',
-  '#E64A19','#00838F','#AD1457','#283593',
-];
-
-// ─── Date helpers ─────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function toISODate(d) {
   const y = d.getFullYear();
@@ -45,658 +32,689 @@ function toISODate(d) {
   return `${y}-${m}-${day}`;
 }
 
-function todayISO() {
-  return toISODate(new Date());
-}
-
-function defaultRange() {
-  const to   = new Date();
-  const from = new Date();
-  from.setDate(from.getDate() - 29);
-  return { from: toISODate(from), to: toISODate(to) };
-}
-
-function formatPillDate(iso) {
-  // iso = "YYYY-MM-DD" — parse as local noon to avoid any TZ shift
+function parseLocalISO(iso) {
   const [y, m, d] = iso.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'short', year: 'numeric',
-  });
+  return new Date(y, m - 1, d);
+}
+
+function rangeDayCount(from, to) {
+  const f = parseLocalISO(from);
+  const t = parseLocalISO(to);
+  return Math.max(1, Math.round((t - f) / 86400000) + 1);
+}
+
+function comparisonLabel(from, to) {
+  const days = rangeDayCount(from, to);
+  if (days === 1) {
+    return from === toISODate(new Date()) ? 'vs yesterday' : 'vs prior day';
+  }
+  return `vs prior ${days} days`;
+}
+
+function prevPeriodRange(from, to) {
+  const days = rangeDayCount(from, to);
+  const prevEnd = parseLocalISO(from);
+  prevEnd.setDate(prevEnd.getDate() - 1);
+  const prevStart = new Date(prevEnd);
+  prevStart.setDate(prevStart.getDate() - days + 1);
+  return { from: toISODate(prevStart), to: toISODate(prevEnd) };
 }
 
 function formatDuration(minutes) {
   if (!minutes || minutes <= 0) return '< 1 min';
-  const h = Math.floor(minutes / 60);
-  const m = Math.round(minutes % 60);
+  const total = Math.round(Number(minutes));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
   if (h === 0) return `${m}m`;
-  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
 }
 
-function formatLastVisit(iso) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-IN', {
-    day: 'numeric', month: 'short', year: 'numeric',
-    hour: 'numeric', minute: '2-digit', hour12: true,
+function formatDurationLong(minutes) {
+  if (!minutes || minutes <= 0) return '0m';
+  const total = Math.round(Number(minutes));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+const TABLE_PREVIEW_ROWS = 5;
+
+function pctChange(current, previous) {
+  if (!previous) return current > 0 ? null : 0;
+  return Math.round(((current - previous) / previous) * 1000) / 10;
+}
+
+function formatTrendValue(trend) {
+  if (trend == null) return 'New';
+  return formatPct(trend);
+}
+
+function formatPct(n) {
+  const sign = n > 0 ? '+' : '';
+  return `${sign}${n}%`;
+}
+
+function weightedAvgDuration(rows) {
+  if (!rows.length) return 0;
+  let totalMin = 0;
+  let totalVisits = 0;
+  rows.forEach((r) => {
+    totalMin += r.avgDurationMinutes * r.visitCount;
+    totalVisits += r.visitCount;
   });
+  return totalVisits ? totalMin / totalVisits : 0;
 }
 
-function getInitials(name = '') {
-  return name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+function durationVisitTotal(rows) {
+  return rows.reduce((sum, r) => sum + (r.visitCount || 0), 0);
 }
 
-// ─── Single-month calendar ────────────────────────────────────────────────────
+/** Contiguous busy-hour window from hourly trend (e.g. "11 AM - 2 PM"). */
+function computePeakTimeRange(trendData) {
+  if (!trendData?.length) return null;
 
-function MonthGrid({ year, month, from, to, pendingFrom, hoverDate,
-                     onDayClick, onDayHover,
-                     showPrev, showNext, onPrev, onNext }) {
-
-  const today     = todayISO();
-  const firstDow  = new Date(year, month, 1).getDay();
-  const daysInMon = new Date(year, month + 1, 0).getDate();
-
-  // Build cells: null = padding
-  const cells = Array(firstDow).fill(null);
-  for (let d = 1; d <= daysInMon; d++) {
-    cells.push(
-      `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-    );
-  }
-
-  // Effective range for highlighting (during selection, use pendingFrom + hover)
-  const selFrom  = pendingFrom ?? from;
-  const selTo    = pendingFrom ? hoverDate : to;
-  const rangeL   = selFrom && selTo ? (selFrom <= selTo ? selFrom : selTo) : null;
-  const rangeR   = selFrom && selTo ? (selFrom <= selTo ? selTo : selFrom) : null;
-
-  return (
-    <div className="drp-month">
-      <div className="drp-month-head">
-        {showPrev
-          ? <button className="drp-nav-btn" onClick={onPrev}>&#8249;</button>
-          : <span className="drp-nav-placeholder" />}
-
-        <span className="drp-month-label">
-          {MONTH_NAMES[month]} {year}
-        </span>
-
-        {showNext
-          ? <button className="drp-nav-btn" onClick={onNext}>&#8250;</button>
-          : <span className="drp-nav-placeholder" />}
-      </div>
-
-      <div className="drp-grid">
-        {DOW_LABELS.map((d) => (
-          <span key={d} className="drp-dow">{d}</span>
-        ))}
-
-        {cells.map((iso, i) => {
-          if (!iso) return <span key={`pad-${i}`} className="drp-pad" />;
-
-          const isFuture  = iso > today;
-          const isStart   = iso === (pendingFrom ?? from);
-          const isEnd     = pendingFrom ? iso === hoverDate : iso === to;
-          const inRange   = rangeL && rangeR && iso > rangeL && iso < rangeR;
-          const isToday   = iso === today;
-          const dayNum    = parseInt(iso.split('-')[2], 10);
-
-          let cls = 'drp-day';
-          if (isFuture)      cls += ' drp-day--disabled';
-          if (isStart)       cls += ' drp-day--sel drp-day--start';
-          if (isEnd && !isFuture) cls += ' drp-day--sel drp-day--end';
-          if (inRange)       cls += ' drp-day--in-range';
-          if (isToday && !isStart && !isEnd) cls += ' drp-day--today';
-
-          return (
-            <button
-              key={iso}
-              className={cls}
-              disabled={isFuture}
-              onClick={() => onDayClick(iso)}
-              onMouseEnter={() => onDayHover(iso)}
-              onMouseLeave={() => onDayHover(null)}
-            >
-              {dayNum}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ─── Date Range Picker ────────────────────────────────────────────────────────
-
-function DateRangePicker({ from, to, onChange }) {
-  const [open,        setOpen]        = useState(false);
-  const [pendingFrom, setPendingFrom] = useState(null); // first click waiting for second
-  const [hoverDate,   setHoverDate]   = useState(null);
-  const [leftYear,    setLeftYear]    = useState(() => {
-    const d = new Date(from);
-    return d.getFullYear();
-  });
-  const [leftMonth, setLeftMonth] = useState(() => {
-    const d = new Date(from);
-    return d.getMonth();
-  });
-
-  const wrapRef = useRef(null);
-
-  // Derive right-side month
-  const rightMonth = (leftMonth + 1) % 12;
-  const rightYear  = leftMonth === 11 ? leftYear + 1 : leftYear;
-
-  // Close on outside click
-  useEffect(() => {
-    if (!open) return;
-    function onMouseDown(e) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
-        setOpen(false);
-        setPendingFrom(null);
-        setHoverDate(null);
-      }
+  let maxIdx = 0;
+  let maxCount = 0;
+  trendData.forEach((p, i) => {
+    if (p.count > maxCount) {
+      maxCount = p.count;
+      maxIdx = i;
     }
-    document.addEventListener('mousedown', onMouseDown);
-    return () => document.removeEventListener('mousedown', onMouseDown);
-  }, [open]);
+  });
+  if (maxCount === 0) return null;
 
-  function openPicker() {
-    // Reset view to show the current 'from' month
-    const d = new Date(from);
-    setLeftYear(d.getFullYear());
-    setLeftMonth(d.getMonth());
-    setPendingFrom(null);
-    setHoverDate(null);
-    setOpen(true);
-  }
+  const threshold = maxCount * 0.55;
+  let start = maxIdx;
+  let end = maxIdx;
+  while (start > 0 && trendData[start - 1].count >= threshold) start -= 1;
+  while (end < trendData.length - 1 && trendData[end + 1].count >= threshold) end += 1;
 
-  function prevMonth() {
-    if (leftMonth === 0) { setLeftMonth(11); setLeftYear((y) => y - 1); }
-    else setLeftMonth((m) => m - 1);
-  }
+  const startLabel = trendData[start].label;
+  const endLabel = trendData[end].label;
+  return start === end ? startLabel : `${startLabel} - ${endLabel}`;
+}
 
-  function nextMonth() {
-    if (leftMonth === 11) { setLeftMonth(0); setLeftYear((y) => y + 1); }
-    else setLeftMonth((m) => m + 1);
-  }
+function formatDurationTrendSubtitle(trend, compareLabel, hasVisits) {
+  if (!hasVisits) return 'No completed visits in this period.';
+  if (trend == null) return 'Not enough prior data for comparison.';
+  const dir = trend >= 0 ? 'longer' : 'shorter';
+  const period = (compareLabel ?? 'the previous period').replace(/^vs\s+/i, '');
+  return `${Math.abs(trend)}% ${dir} than ${period}`;
+}
 
-  function handleDayClick(iso) {
-    if (pendingFrom === null) {
-      // First click — start selection
-      setPendingFrom(iso);
-    } else {
-      // Second click — finalise
-      const f = pendingFrom <= iso ? pendingFrom : iso;
-      const t = pendingFrom <= iso ? iso : pendingFrom;
-      onChange({ from: f, to: t });
-      setPendingFrom(null);
-      setHoverDate(null);
-      setOpen(false);
-    }
-  }
+function exportDeptCsv(rows, from, to) {
+  const header = 'Department,Total Visits,Avg Duration (min)\n';
+  const body = rows.map((r) =>
+    `"${r.department.replace(/"/g, '""')}",${r.visitCount},${Math.round(r.avgDurationMinutes)}`,
+  ).join('\n');
+  const blob = new Blob([header + body], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `department-summary_${from}_${to}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
-  function applyPreset(preset) {
-    const toD   = new Date();
-    const fromD = new Date();
-    fromD.setDate(fromD.getDate() - preset.days);
-    onChange({ from: toISODate(fromD), to: toISODate(toD) });
-    setPendingFrom(null);
-    setOpen(false);
-  }
+// ─── UI pieces ────────────────────────────────────────────────────────────────
 
-  const pillLabel = `${formatPillDate(from)} – ${formatPillDate(to)}`;
-  const isSelecting = pendingFrom !== null;
-
+function KpiSparkline({ up }) {
+  const stroke = up ? '#16a34a' : '#dc2626';
+  const points = up
+    ? '2,14 7,11 12,8 17,6 22,9 28,3'
+    : '2,4 7,7 12,10 17,12 22,9 28,15';
   return (
-    <div className="drp-wrap" ref={wrapRef}>
-      {/* Trigger */}
-      <button
-        className={`drp-trigger${open ? ' drp-trigger--open' : ''}`}
-        onClick={() => (open ? setOpen(false) : openPicker())}
-      >
-        <IconCalendar size={13} />
-        <span className="drp-trigger-label">{pillLabel}</span>
-        <IconChevronDown size={12} className={`drp-chevron${open ? ' drp-chevron--up' : ''}`} />
-      </button>
+    <svg className="rpt-kpi-spark" viewBox="0 0 30 16" aria-hidden>
+      <polyline fill="none" stroke={stroke} strokeWidth="2" points={points} />
+    </svg>
+  );
+}
 
-      {/* Popup */}
-      {open && (
-        <div className="drp-popup">
-
-          {/* Instruction hint */}
-          <div className="drp-hint">
-            {isSelecting
-              ? 'Now click an end date'
-              : 'Click a start date'}
+function KpiCard({ icon, iconClass, label, value, sub, trend, trendUp, compareLabel }) {
+  const showTrend = compareLabel && trend !== undefined;
+  return (
+    <div className="rpt-kpi">
+      <div className={`rpt-kpi__icon rpt-kpi__icon--${iconClass}`}>{icon}</div>
+      <div className="rpt-kpi__body">
+        <span className="rpt-kpi__label">{label}</span>
+        <span className="rpt-kpi__value">{value}</span>
+        {sub && <span className="rpt-kpi__sub">{sub}</span>}
+        {showTrend && (
+          <div className="rpt-kpi__trend">
+            {typeof trend === 'number' && <KpiSparkline up={trendUp} />}
+            <span className={
+              trend == null
+                ? 'rpt-trend-new'
+                : trendUp ? 'rpt-kpi__pct rpt-kpi__pct--up' : 'rpt-kpi__pct rpt-kpi__pct--down'
+            }>
+              {formatTrendValue(trend)} {compareLabel}
+            </span>
           </div>
-
-          {/* Two-month calendars */}
-          <div className="drp-calendars">
-            <MonthGrid
-              year={leftYear} month={leftMonth}
-              from={from} to={to}
-              pendingFrom={pendingFrom} hoverDate={hoverDate}
-              onDayClick={handleDayClick} onDayHover={setHoverDate}
-              showPrev onPrev={prevMonth}
-              showNext={false} onNext={nextMonth}
-            />
-            <div className="drp-divider" />
-            <MonthGrid
-              year={rightYear} month={rightMonth}
-              from={from} to={to}
-              pendingFrom={pendingFrom} hoverDate={hoverDate}
-              onDayClick={handleDayClick} onDayHover={setHoverDate}
-              showPrev={false} onPrev={prevMonth}
-              showNext onNext={nextMonth}
-            />
-          </div>
-
-          {/* Quick presets footer */}
-          <div className="drp-footer">
-            <span className="drp-footer-label">Quick select:</span>
-            {QUICK_PRESETS.map((p) => (
-              <button key={p.label} className="drp-preset-btn" onClick={() => applyPreset(p)}>
-                {p.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Department Bar Chart (Recharts horizontal) ───────────────────────────────
-
-const DEPT_COLORS = ['#C2181D','#d4302f','#e05a2b','#e07a2b','#e09a2b','#cfa83c','#4da96f'];
-
-function DeptBarChart({ data }) {
-  if (!data.length) return <div className="rpt-empty">No department data for this period.</div>;
-
-  const total = data.reduce((s, d) => s + d.visitCount, 0) || 1;
-  const chartData = data.map((d, i) => ({
-    dept: d.department.length > 18 ? d.department.slice(0, 17) + '…' : d.department,
-    fullDept: d.department,
-    visits: d.visitCount,
-    pct: Math.round((d.visitCount / total) * 100),
-    fill: DEPT_COLORS[i % DEPT_COLORS.length],
-  }));
-
-  const rowHeight = 44;
-  const height = Math.max(chartData.length * rowHeight + 20, 140);
-
-  return (
-    <ResponsiveContainer width="100%" height={height}>
-      <RBarChart data={chartData} layout="vertical" margin={{ top: 4, right: 52, bottom: 4, left: 4 }}>
-        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f0f1f3" />
-        <XAxis type="number" hide />
-        <YAxis
-          type="category" dataKey="dept" width={110}
-          tick={{ fontSize: 12, fill: '#555' }} axisLine={false} tickLine={false}
-        />
-        <Tooltip
-          cursor={{ fill: 'rgba(0,0,0,0.04)' }}
-          formatter={(v, _, props) => [`${v} visits (${props.payload.pct}%)`, props.payload.fullDept]}
-          contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #eee' }}
-        />
-        <Bar dataKey="visits" radius={[0, 6, 6, 0]} isAnimationActive animationDuration={700}>
-          {chartData.map((d, i) => <Cell key={i} fill={d.fill} />)}
-          <LabelList
-            dataKey="visits"
-            position="right"
-            style={{ fontSize: 12, fontWeight: 700, fill: '#555' }}
-          />
-        </Bar>
-      </RBarChart>
-    </ResponsiveContainer>
-  );
-}
-
-// ─── Donut Chart ──────────────────────────────────────────────────────────────
-
-const DONUT_COLORS = { visitor: '#C2181D', employee: '#32A94C', empty: '#f0f1f3' };
-
-function DonutChart({ data }) {
-  const total       = data.totalCount   || 0;
-  const visitorPct  = total ? Math.round((data.visitorCount  / total) * 100) : 0;
-  const employeePct = total ? Math.round((data.employeeCount / total) * 100) : 0;
-
-  const chartData = total > 0
-    ? [
-        { name: 'Visitors',  value: data.visitorCount  },
-        { name: 'Employees', value: data.employeeCount },
-      ]
-    : [{ name: 'No data', value: 1 }];
-
-  const colors = total > 0
-    ? [DONUT_COLORS.visitor, DONUT_COLORS.employee]
-    : [DONUT_COLORS.empty];
-
-  return (
-    <div className="rpt-donut-wrap">
-      <div className="rpt-donut-chart" style={{ position: 'relative', width: 180, height: 180 }}>
-        <ResponsiveContainer width={180} height={180}>
-          <PieChart>
-            <Pie
-              data={chartData}
-              cx="50%" cy="50%"
-              innerRadius={64} outerRadius={90}
-              startAngle={90} endAngle={-270}
-              dataKey="value"
-              strokeWidth={0}
-              isAnimationActive={true}
-              animationBegin={0}
-              animationDuration={800}
-            >
-              {chartData.map((_, i) => (
-                <Cell key={i} fill={colors[i]} />
-              ))}
-            </Pie>
-            {total > 0 && (
-              <Tooltip
-                formatter={(value, name) => [`${value}`, name]}
-                contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #eee' }}
-              />
-            )}
-          </PieChart>
-        </ResponsiveContainer>
-        {/* Centre label */}
-        <div style={{
-          position: 'absolute', inset: 0,
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          pointerEvents: 'none',
-        }}>
-          <span style={{ fontSize: 26, fontWeight: 800, color: '#111', lineHeight: 1 }}>{total}</span>
-          <span style={{ fontSize: 10, color: '#aaa', letterSpacing: '0.6px', marginTop: 2 }}>TOTAL</span>
-        </div>
-      </div>
-
-      <div className="rpt-donut-legend">
-        {[
-          { label: 'Visitors',  count: data.visitorCount,  pct: visitorPct,  cls: 'red'   },
-          { label: 'Employees', count: data.employeeCount, pct: employeePct, cls: 'green' },
-        ].map(({ label, count, pct, cls }) => (
-          <div key={label} className="rpt-donut-stat">
-            <div className="rpt-donut-stat__top">
-              <span className={`rpt-donut-stat__dot rpt-donut-stat__dot--${cls}`} />
-              <span className="rpt-donut-stat__label">{label}</span>
-            </div>
-            <div className="rpt-donut-stat__count">{count}</div>
-            <div className="rpt-donut-stat__pct">{pct}% of total</div>
-            <div className="rpt-donut-stat__bar">
-              <div className={`rpt-donut-stat__bar-fill rpt-donut-stat__bar-fill--${cls}`}
-                style={{ width: `${pct}%` }} />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─── Average Duration Chart (Recharts horizontal) ─────────────────────────────
-
-function AvgDurationList({ data }) {
-  if (!data.length) return <div className="rpt-empty">No completed visits for this period.</div>;
-
-  const chartData = data.map((d, i) => ({
-    dept: d.department.length > 18 ? d.department.slice(0, 17) + '…' : d.department,
-    fullDept: d.department,
-    minutes: d.avgDurationMinutes,
-    label: formatDuration(d.avgDurationMinutes),
-    visits: d.visitCount,
-    fill: DURATION_COLORS[Math.min(i, DURATION_COLORS.length - 1)],
-  }));
-
-  const rowHeight = 44;
-  const height = Math.max(chartData.length * rowHeight + 20, 140);
-
-  return (
-    <ResponsiveContainer width="100%" height={height}>
-      <RBarChart data={chartData} layout="vertical" margin={{ top: 4, right: 72, bottom: 4, left: 4 }}>
-        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f0f1f3" />
-        <XAxis type="number" hide />
-        <YAxis
-          type="category" dataKey="dept" width={110}
-          tick={{ fontSize: 12, fill: '#555' }} axisLine={false} tickLine={false}
-        />
-        <Tooltip
-          cursor={{ fill: 'rgba(0,0,0,0.04)' }}
-          formatter={(_, __, props) => [
-            `${props.payload.label} avg · ${props.payload.visits} visit${props.payload.visits !== 1 ? 's' : ''}`,
-            props.payload.fullDept,
-          ]}
-          contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #eee' }}
-        />
-        <Bar dataKey="minutes" radius={[0, 6, 6, 0]} isAnimationActive animationDuration={700}>
-          {chartData.map((d, i) => <Cell key={i} fill={d.fill} />)}
-          <LabelList
-            dataKey="label"
-            position="right"
-            style={{ fontSize: 12, fontWeight: 700, fill: '#555' }}
-          />
-        </Bar>
-      </RBarChart>
-    </ResponsiveContainer>
-  );
-}
-
-// ─── Frequent Visitor Table ───────────────────────────────────────────────────
-
-function FrequentVisitorTable({ data }) {
-  if (!data.length) {
-    return <div className="rpt-empty">No visitors with multiple check-ins for this period.</div>;
-  }
-
-  return (
-    <div className="rpt-fv-wrap">
-      <table className="rpt-fv-table">
-        <thead>
-          <tr>
-            <th>Visitor</th>
-            <th>Mobile</th>
-            <th>Visits</th>
-            <th>Departments</th>
-            <th>Last Visit</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((v, i) => {
-            const avatarColor = AVATAR_COLORS[i % AVATAR_COLORS.length];
-            const crown       = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : null;
-
-            return (
-              <tr key={i} className={i < 3 ? 'rpt-fv-row--top' : ''}>
-                <td>
-                  <div className="rpt-fv-visitor">
-                    <span className="rpt-fv-avatar" style={{ background: avatarColor }}>
-                      {getInitials(v.name)}
-                      {crown && <span className="rpt-fv-crown">{crown}</span>}
-                    </span>
-                    <span className="rpt-fv-name">{v.name}</span>
-                  </div>
-                </td>
-                <td className="rpt-fv-mobile">{v.mobile ?? '—'}</td>
-                <td>
-                  <span className="rpt-visit-badge" style={{ '--badge-color': avatarColor }}>
-                    {v.visitCount}×
-                  </span>
-                </td>
-                <td className="rpt-fv-depts" title={v.departments}>{v.departments ?? '—'}</td>
-                <td className="rpt-fv-date">{formatLastVisit(v.lastVisit)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// ─── Skeleton ─────────────────────────────────────────────────────────────────
-
-function CardSkeleton() {
-  return (
-    <div className="rpt-skeleton">
-      {[80, 55, 70, 45, 60].map((w, i) => (
-        <div key={i} className="rpt-skeleton-row">
-          <div className="rpt-skeleton-circle" />
-          <div className="rpt-skeleton-lines">
-            <div className="rpt-skeleton-line" style={{ width: `${w}%` }} />
-            <div className="rpt-skeleton-track" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── Report Card ──────────────────────────────────────────────────────────────
-
-function ReportCard({ title, subtitle, badge, loading, error, children }) {
-  return (
-    <div className="rpt-card">
-      <div className="rpt-card__header">
-        <div className="rpt-card__header-text">
-          <h3 className="rpt-card__title">{title}</h3>
-          {subtitle && <p className="rpt-card__sub">{subtitle}</p>}
-        </div>
-        {badge != null && !loading && !error && (
-          <span className="rpt-card__badge">{badge}</span>
         )}
       </div>
-      <div className="rpt-card__body">
-        {loading ? <CardSkeleton />
-          : error ? (
-            <div className="rpt-error">
-              <span className="rpt-error__icon">⚠</span>{error}
-            </div>
-          ) : children}
-      </div>
     </div>
   );
 }
 
-// ─── Main Reports Page ────────────────────────────────────────────────────────
+function HorizontalBarList({ items, barClass = 'red' }) {
+  if (!items.length) {
+    return <div className="rpt-empty">No data for this period.</div>;
+  }
+  const max = Math.max(...items.map((i) => i.value), 1);
+  return (
+    <ul className="rpt-hbars">
+      {items.map((item) => (
+        <li key={item.label} className="rpt-hbars__row">
+          <span className="rpt-hbars__label" title={item.label}>{item.label}</span>
+          <div className="rpt-hbars__track">
+            <div
+              className={`rpt-hbars__fill rpt-hbars__fill--${barClass}`}
+              style={{ width: `${(item.value / max) * 100}%` }}
+            />
+          </div>
+          <span className="rpt-hbars__val">{item.display}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
-export default function Reports({ session }) {
-  const [range,      setRange]      = useState(defaultRange);
-  const [locationId, setLocationId] = useState(null);
+function MiniSparkline({ up }) {
+  const stroke = up ? '#22c55e' : '#ef4444';
+  const d = up ? 'M2 12 L6 9 L10 7 L14 5 L18 6 L22 4' : 'M2 6 L6 8 L10 10 L14 11 L18 9 L22 12';
+  return (
+    <svg className="rpt-table-spark" viewBox="0 0 24 14" aria-hidden>
+      <path d={d} fill="none" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
 
-  const [deptData,     setDeptData]     = useState([]);
-  const [ratioData,    setRatioData]    = useState({ visitorCount: 0, employeeCount: 0, totalCount: 0 });
+function VisitTrendChart({ data }) {
+  if (!data.length) {
+    return <div className="rpt-empty">No visit data for this period.</div>;
+  }
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <AreaChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: -20 }}>
+        <defs>
+          <linearGradient id="rptTrendFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#C2181D" stopOpacity={0.2} />
+            <stop offset="100%" stopColor="#C2181D" stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="#f0f1f3" vertical={false} />
+        <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false} interval={2} />
+        <YAxis allowDecimals={false} tick={{ fontSize: 9, fill: '#cbd5e1' }} axisLine={false} tickLine={false} width={32} />
+        <Tooltip
+          formatter={(v) => [v, 'Visits']}
+          contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
+        />
+        <Area
+          type="monotone"
+          dataKey="count"
+          stroke="#C2181D"
+          strokeWidth={2}
+          fill="url(#rptTrendFill)"
+          dot={false}
+          activeDot={{ r: 4, fill: '#C2181D' }}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+function PanelCard({ title, filter, children }) {
+  return (
+    <div className="rpt-panel">
+      <div className="rpt-panel__head">
+        <h3 className="rpt-panel__title">{title}</h3>
+        {filter && <div className="rpt-panel__filter">{filter}</div>}
+      </div>
+      <div className="rpt-panel__body">{children}</div>
+    </div>
+  );
+}
+
+function InsightsPanel({ subtitle, items }) {
+  return (
+    <div className="rpt-panel rpt-panel--insights">
+      <div className="rpt-panel__head rpt-panel__head--stack">
+        <div>
+          <h3 className="rpt-panel__title">Insights</h3>
+          <p className="rpt-panel__subtitle">{subtitle}</p>
+        </div>
+      </div>
+      <ul className="rpt-insights">
+        {items.map((item) => (
+          <li key={item.id} className={`rpt-insight rpt-insight--${item.color}`}>
+            <div className={`rpt-insight__icon rpt-insight__icon--${item.color}`} aria-hidden="true">
+              {item.icon}
+            </div>
+            <div className="rpt-insight__text">
+              <p className="rpt-insight__title">{item.title}</p>
+              <p className="rpt-insight__desc">{item.description}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
+export default function Reports({ session, locationScope }) {
+  const [range, setRange] = useState(defaultRangeToday);
+  const locationId = locationScope?.locationId ?? null;
+  const allLocations = locationScope?.allLocations ?? false;
+  const [deptFilter, setDeptFilter] = useState('');
+  const [showAllDepts, setShowAllDepts] = useState(false);
+
+  const [deptData, setDeptData] = useState([]);
+  const [prevDeptData, setPrevDeptData] = useState([]);
   const [durationData, setDurationData] = useState([]);
-  const [frequentData, setFrequentData] = useState([]);
+  const [prevDurationData, setPrevDurationData] = useState([]);
+  const [ratioData, setRatioData] = useState({ totalCount: 0 });
+  const [prevRatio, setPrevRatio] = useState({ totalCount: 0 });
+  const [trendData, setTrendData] = useState([]);
+  const [activeNow, setActiveNow] = useState(0);
+  const [loading, setLoading] = useState(true);
 
-  const [loading, setLoading] = useState({ dept: true, ratio: true, duration: true, frequent: true });
-  const [errors,  setErrors]  = useState({ dept: null, ratio: null, duration: null, frequent: null });
+  const fetchAll = useCallback(async (from, to) => {
+    setLoading(true);
+    const prev = prevPeriodRange(from, to);
+    try {
+      const [
+        dept, prevDept, duration, prevDur, ratio, prevRat, trend, active,
+      ] = await Promise.all([
+        getDeptSummary(from, to, locationId, allLocations),
+        getDeptSummary(prev.from, prev.to, locationId, allLocations),
+        getAvgDuration(from, to, locationId, allLocations),
+        getAvgDuration(prev.from, prev.to, locationId, allLocations),
+        getVisitorRatio(from, to, locationId, allLocations),
+        getVisitorRatio(prev.from, prev.to, locationId, allLocations),
+        getVisitTrend(from, to, locationId, allLocations),
+        getActiveNow(locationId, allLocations),
+      ]);
+      setDeptData(dept);
+      setPrevDeptData(prevDept);
+      setDurationData(duration);
+      setPrevDurationData(prevDur);
+      setRatioData(ratio);
+      setPrevRatio(prevRat);
+      setTrendData(trend);
+      setActiveNow(active);
+    } catch (err) {
+      console.error('Reports load error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [locationId, allLocations]);
 
-  const fetchAll = useCallback(async (from, to, locId) => {
-    setLoading({ dept: true, ratio: true, duration: true, frequent: true });
-    setErrors({ dept: null, ratio: null, duration: null, frequent: null });
+  useEffect(() => {
+    fetchAll(range.from, range.to);
+  }, [range, locationId, allLocations, fetchAll]);
 
-    const safe = async (key, fn) => {
-      try   { return { key, data: await fn() }; }
-      catch (e) { return { key, error: e.message }; }
-    };
+  const filteredDept = useMemo(() => {
+    if (!deptFilter) return deptData;
+    return deptData.filter((d) => d.department === deptFilter);
+  }, [deptData, deptFilter]);
 
-    const results = await Promise.all([
-      safe('dept',     () => getDeptSummary(from, to, locId)),
-      safe('ratio',    () => getVisitorRatio(from, to, locId)),
-      safe('duration', () => getAvgDuration(from, to, locId)),
-      safe('frequent', () => getFrequentVisitors(from, to, 2, locId)),
-    ]);
+  const durationByDept = useMemo(() => {
+    const map = new Map(durationData.map((d) => [d.department, d]));
+    return filteredDept.map((d) => ({
+      department: d.department,
+      avgDurationMinutes: map.get(d.department)?.avgDurationMinutes ?? 0,
+      visitCount: d.visitCount,
+    }));
+  }, [filteredDept, durationData]);
 
-    const newLoad = { dept: false, ratio: false, duration: false, frequent: false };
-    const newErr  = { dept: null,  ratio: null,  duration: null,  frequent: null  };
+  const peakDept = deptData[0];
+  const leastDept = deptData.length ? deptData[deptData.length - 1] : null;
+  const avgMin = weightedAvgDuration(durationData);
+  const prevAvgMin = weightedAvgDuration(prevDurationData);
+  const durationVisitCount = durationVisitTotal(durationData);
+  const totalVisits = ratioData.totalCount ?? 0;
+  const visitsTrend = pctChange(totalVisits, prevRatio.totalCount);
+  const durationTrend = durationVisitCount === 0
+    ? undefined
+    : pctChange(avgMin, prevAvgMin);
 
-    results.forEach(({ key, data, error }) => {
-      if (error) {
-        newErr[key] = error;
-      } else {
-        if (key === 'dept')     setDeptData(data);
-        if (key === 'ratio')    setRatioData(data);
-        if (key === 'duration') setDurationData(data);
-        if (key === 'frequent') setFrequentData(data);
+  const deptBarItems = useMemo(() =>
+    [...filteredDept]
+      .sort((a, b) => b.visitCount - a.visitCount)
+      .slice(0, 10)
+      .map((d) => ({
+        label: d.department,
+        value: d.visitCount,
+        display: String(d.visitCount),
+      })),
+  [filteredDept]);
+
+  const durationBarItems = useMemo(() =>
+    [...durationByDept]
+      .sort((a, b) => b.avgDurationMinutes - a.avgDurationMinutes)
+      .slice(0, 10)
+      .map((d) => ({
+        label: d.department,
+        value: d.avgDurationMinutes,
+        display: formatDurationLong(d.avgDurationMinutes),
+      })),
+  [durationByDept]);
+
+  const tableRows = useMemo(() => {
+    const prevMap = new Map(prevDeptData.map((d) => [d.department, d.visitCount]));
+    const durMap = new Map(durationData.map((d) => [d.department, d.avgDurationMinutes]));
+    return filteredDept.map((d) => {
+      const prevVisits = prevMap.get(d.department) ?? 0;
+      const trend = pctChange(d.visitCount, prevVisits);
+      return {
+        department: d.department,
+        visits: d.visitCount,
+        avgMin: durMap.get(d.department) ?? 0,
+        trend,
+        trendUp: trend == null ? true : trend >= 0,
+        isNew: trend == null,
+      };
+    });
+  }, [filteredDept, prevDeptData, durationData]);
+
+  const rangeLabel = formatRangeLabel(range.from, range.to);
+  const compareLabel = comparisonLabel(range.from, range.to);
+  const rangeDays = rangeDayCount(range.from, range.to);
+
+  const insightsSubtitle = rangeDays === 1 && range.from === toISODate(new Date())
+    ? "Key insights from today's data"
+    : `Key insights for ${rangeLabel}`;
+
+  const insights = useMemo(() => {
+    const sortedDepts = [...deptData].sort((a, b) => b.visitCount - a.visitCount);
+    const top = sortedDepts[0];
+    const second = sortedDepts[1];
+    const peakRange = computePeakTimeRange(trendData);
+    const hasDuration = durationVisitCount > 0;
+
+    const items = [];
+
+    if (top && top.visitCount > 0) {
+      let leadDesc = 'Leading department for this period.';
+      if (second && second.visitCount > 0 && top.visitCount > second.visitCount) {
+        const leadPct = Math.round(((top.visitCount - second.visitCount) / second.visitCount) * 1000) / 10;
+        leadDesc = `${leadPct}% more than the second highest department`;
       }
+      items.push({
+        id: 'traffic',
+        color: 'green',
+        icon: <IconTrendingUp size={18} />,
+        title: `${top.department} has the highest traffic with ${top.visitCount.toLocaleString('en-IN')} visit${top.visitCount !== 1 ? 's' : ''}`,
+        description: leadDesc,
+      });
+    }
+
+    items.push({
+      id: 'duration',
+      color: 'blue',
+      icon: <IconClock size={18} />,
+      title: hasDuration
+        ? `Average visit duration is ${formatDurationLong(avgMin)}`
+        : 'Average visit duration unavailable',
+      description: formatDurationTrendSubtitle(durationTrend, compareLabel, hasDuration),
     });
 
-    setLoading(newLoad);
-    setErrors(newErr);
-  }, []);
+    if (peakRange) {
+      items.push({
+        id: 'peak',
+        color: 'purple',
+        icon: <IconUsers size={18} />,
+        title: `Peak time is between ${peakRange}`,
+        description: 'Plan your resources accordingly',
+      });
+    } else if (leastDept && leastDept.department !== top?.department) {
+      items.push({
+        id: 'quiet',
+        color: 'purple',
+        icon: <IconUsers size={18} />,
+        title: `${leastDept.department} is the least busy department`,
+        description: `${leastDept.visitCount.toLocaleString('en-IN')} visit${leastDept.visitCount !== 1 ? 's' : ''} in this period`,
+      });
+    } else {
+      items.push({
+        id: 'peak',
+        color: 'purple',
+        icon: <IconUsers size={18} />,
+        title: 'No clear peak time yet',
+        description: 'Check-ins will show peak hours once activity is recorded',
+      });
+    }
 
-  useEffect(() => { fetchAll(range.from, range.to, locationId); }, [range, locationId, fetchAll]);
+    if (!items.length) {
+      return [{
+        id: 'empty',
+        color: 'blue',
+        icon: <IconBarChart size={18} />,
+        title: 'No visitor activity recorded',
+        description: 'Try a different date range or location filter',
+      }];
+    }
 
-  const totalDepts  = deptData.length;
-  const totalVisits = deptData.reduce((s, d) => s + d.visitCount, 0);
+    return items;
+  }, [
+    deptData,
+    trendData,
+    avgMin,
+    durationVisitCount,
+    durationTrend,
+    compareLabel,
+    leastDept,
+  ]);
+
+  const deptOptions = useMemo(() => {
+    const names = [...new Set(deptData.map((d) => d.department))].sort();
+    return names;
+  }, [deptData]);
+
+  const deptFilterOptions = useMemo(() => [
+    { value: '', label: 'All Departments' },
+    ...deptOptions.map((d) => ({ value: d, label: d })),
+  ], [deptOptions]);
+
+  const visitTrendTitle = rangeDays === 1 && range.from === toISODate(new Date())
+    ? 'Visit Trend (Today)'
+    : `Visit Trend (${rangeLabel})`;
+  const displayedTableRows = showAllDepts
+    ? tableRows
+    : tableRows.slice(0, TABLE_PREVIEW_ROWS);
+  const hasMoreDepts = tableRows.length > TABLE_PREVIEW_ROWS;
+
+  useEffect(() => {
+    setShowAllDepts(false);
+  }, [range.from, range.to, locationId, deptFilter]);
 
   return (
     <main className="rpt-content">
 
-      {/* ── Page header ──────────────────────────────────────────────────── */}
-      <div className="rpt-header">
-        <div className="rpt-header__left">
-          <div className="rpt-header__icon">
-            <IconBarChart size={17} />
-          </div>
-          <div>
-            <h1 className="rpt-header__title">Analytics &amp; Reports</h1>
-            <p className="rpt-header__sub">
-              {locationId ? 'Filtered by selected location' : 'All locations · change with the selector'}
-            </p>
-          </div>
-        </div>
+      <header className="rpt-page-head">
+        <h1 className="rpt-page-head__title">Dashboard Overview</h1>
+        <p className="rpt-page-head__sub">
+          Real-time overview of visitor activity across departments.
+        </p>
+      </header>
 
-        <div className="rpt-header__filters">
-          <LocationSelector
-            session={session}
-            value={locationId}
-            onChange={setLocationId}
-          />
+      <section className="rpt-filters-bar" aria-label="Report filters">
+        <div className="rpt-filter-field">
+          <span className="rpt-filter-field__label">Period</span>
           <DateRangePicker from={range.from} to={range.to} onChange={setRange} />
         </div>
-      </div>
-
-      {/* ── Row 1 ────────────────────────────────────────────────────────── */}
-      <div className="rpt-row">
-        <ReportCard
-          title="Department-wise Visit Summary"
-          subtitle="Total check-ins by department"
-          badge={`${totalDepts} dept${totalDepts !== 1 ? 's' : ''} · ${totalVisits} total`}
-          loading={loading.dept} error={errors.dept}
+        <div className="rpt-filter-field rpt-filter-field--dept">
+          <span className="rpt-filter-field__label">Department</span>
+          <SearchSelect
+            value={deptFilter}
+            onChange={setDeptFilter}
+            options={deptFilterOptions}
+            placeholder="All Departments"
+            searchable
+            searchPlaceholder="Search department…"
+            emptyMessage="No departments found"
+            ariaLabel="Filter by department"
+          />
+        </div>
+        <button
+          type="button"
+          className="rpt-export-btn"
+          onClick={() => exportDeptCsv(tableRows.map((r) => ({
+            department: r.department,
+            visitCount: r.visits,
+            avgDurationMinutes: r.avgMin,
+          })), range.from, range.to)}
+          disabled={loading || !tableRows.length}
         >
-          <DeptBarChart data={deptData} />
-        </ReportCard>
+          <IconDownload size={14} />
+          Export
+        </button>
+      </section>
 
-        <ReportCard
-          title="Visitor vs. Employee Ratio"
-          subtitle="Breakdown of all entries by entry type"
-          loading={loading.ratio} error={errors.ratio}
-        >
-          <DonutChart data={ratioData} />
-        </ReportCard>
-      </div>
+      {loading ? (
+        <AppPageLoader label="Loading analytics…" />
+      ) : (
+        <>
+          <section className="rpt-kpi-row">
+            <KpiCard
+              icon={<IconUsers size={18} />}
+              iconClass="red"
+              label="Total Visitors"
+              value={totalVisits.toLocaleString('en-IN')}
+              trend={visitsTrend}
+              trendUp={visitsTrend == null ? true : visitsTrend >= 0}
+              compareLabel={compareLabel}
+            />
+            <KpiCard
+              icon={<IconCalendar size={18} />}
+              iconClass="blue"
+              label="Avg. Visit Duration"
+              value={durationVisitCount === 0 ? '—' : formatDuration(avgMin)}
+              trend={durationTrend}
+              trendUp={durationTrend == null ? true : durationTrend <= 0}
+              compareLabel={compareLabel}
+            />
+            <KpiCard
+              icon={<IconBarChart size={18} />}
+              iconClass="green"
+              label="Peak Department"
+              value={peakDept?.department ?? '—'}
+              sub={peakDept ? `${peakDept.visitCount} visits` : undefined}
+            />
+            <KpiCard
+              icon={<IconMapPin size={18} />}
+              iconClass="orange"
+              label="Least Busy Department"
+              value={leastDept?.department ?? '—'}
+              sub={leastDept ? `${leastDept.visitCount} visit${leastDept.visitCount !== 1 ? 's' : ''}` : undefined}
+            />
+            <KpiCard
+              icon={<IconUsers size={18} />}
+              iconClass="purple"
+              label="Active Visitors Now"
+              value={String(activeNow)}
+              sub="Across all departments"
+            />
+          </section>
 
-      {/* ── Row 2 ────────────────────────────────────────────────────────── */}
-      <div className="rpt-row">
-        <ReportCard
-          title="Average Visit Duration"
-          subtitle="Mean dwell time per department (checked-out visits only)"
-          badge={durationData.length ? `${durationData.length} dept${durationData.length !== 1 ? 's' : ''}` : null}
-          loading={loading.duration} error={errors.duration}
-        >
-          <AvgDurationList data={durationData} />
-        </ReportCard>
+          <section className="rpt-charts-row">
+            <PanelCard
+              title="Top Departments by Visits"
+              filter={<span className="rpt-chip">Top 10</span>}
+            >
+              <HorizontalBarList items={deptBarItems} barClass="red" />
+            </PanelCard>
 
-        <ReportCard
-          title="Frequent Visitor Report"
-          subtitle="External visitors with 2 or more check-ins"
-          badge={frequentData.length ? `${frequentData.length} visitor${frequentData.length !== 1 ? 's' : ''}` : null}
-          loading={loading.frequent} error={errors.frequent}
-        >
-          <FrequentVisitorTable data={frequentData} />
-        </ReportCard>
-      </div>
+            <PanelCard
+              title="Average Visit Duration"
+              filter={<span className="rpt-chip">Top 10</span>}
+            >
+              <HorizontalBarList items={durationBarItems} barClass="green" />
+            </PanelCard>
 
+            <PanelCard
+              title={visitTrendTitle}
+              filter={<span className="rpt-chip">By Hour</span>}
+            >
+              <VisitTrendChart data={trendData} />
+            </PanelCard>
+          </section>
+
+          <section className="rpt-bottom-row">
+            <div className="rpt-panel rpt-panel--table">
+              <div className="rpt-panel__head rpt-panel__head--stack">
+                <div>
+                  <h3 className="rpt-panel__title">Department Summary</h3>
+                  <p className="rpt-panel__period">
+                    <IconCalendar size={12} />
+                    {rangeLabel}
+                  </p>
+                </div>
+                {tableRows.length > 0 && (
+                  <span className="rpt-panel__count">
+                    {tableRows.length} department{tableRows.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+              <div className={`rpt-table-wrap${showAllDepts ? ' rpt-table-wrap--expanded' : ''}`}>
+                <table className="rpt-table">
+                  <thead>
+                    <tr>
+                      <th>Department</th>
+                      <th>Total Visits</th>
+                      <th>Avg. Visit Duration</th>
+                      <th>Trend ({compareLabel})</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayedTableRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="rpt-table__empty">No departments to show.</td>
+                      </tr>
+                    ) : displayedTableRows.map((row) => (
+                      <tr key={row.department}>
+                        <td className="rpt-table__dept">{row.department}</td>
+                        <td>{row.visits}</td>
+                        <td>{formatDuration(row.avgMin)}</td>
+                        <td>
+                          <div className="rpt-table__trend">
+                            {!row.isNew && <MiniSparkline up={row.trendUp} />}
+                            <span className={
+                              row.isNew
+                                ? 'rpt-trend-new'
+                                : row.trendUp ? 'rpt-trend-up' : 'rpt-trend-down'
+                            }>
+                              {formatTrendValue(row.trend)}
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {hasMoreDepts && (
+                <button
+                  type="button"
+                  className="rpt-view-all"
+                  onClick={() => setShowAllDepts((v) => !v)}
+                >
+                  {showAllDepts
+                    ? 'Show fewer departments ↑'
+                    : `View All Departments (${tableRows.length}) →`}
+                </button>
+              )}
+            </div>
+
+            <InsightsPanel subtitle={insightsSubtitle} items={insights} />
+          </section>
+        </>
+      )}
     </main>
   );
 }

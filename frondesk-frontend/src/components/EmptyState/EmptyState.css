@@ -1,0 +1,116 @@
+.fd-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  padding: 40px 24px;
+  max-width: 360px;
+  margin: 0 auto;
+}
+
+.fd-empty--compact {
+  padding: 28px 16px;
+  max-width: 420px;
+}
+
+.fd-empty__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: #f1f5f9;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.fd-empty--compact .fd-empty__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+}
+
+.fd-empty__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #334155;
+  letter-spacing: -0.02em;
+}
+
+.fd-empty__desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #94a3b8;
+}
+
+.fd-empty__illustration {
+  margin-bottom: 8px;
+}
+
+.fd-empty__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.fd-empty__action {
+  margin-top: 8px;
+}
+
+.fd-empty__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 10px;
+  background: #c2181d;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(194, 24, 29, 0.22);
+  transition: background var(--transition-fast), transform var(--transition-fast);
+}
+
+.fd-empty__btn:hover {
+  background: #a81217;
+  transform: translateY(-1px);
+}
+
+.fd-empty__btn:active {
+  transform: translateY(0);
+}
+
+.fd-empty__btn--scan {
+  background: #fff;
+  color: #28883d;
+  border: 1.5px solid rgba(40, 136, 61, 0.45);
+  box-shadow: none;
+}
+
+.fd-empty__btn--scan:hover {
+  background: rgba(40, 136, 61, 0.06);
+  color: #1a6b2d;
+}
+
+/* Table cell wrapper */
+.fd-empty-cell {
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+}
+
+.st-empty-panel {
+  padding: 8px 0 16px;
+}

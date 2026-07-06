@@ -1,10 +1,10 @@
 /**
- * PreRegModal — Front desk generates a group pre-registration link.
+ * PreRegModal — MVMS generates a group pre-registration link.
  *
  * Staff clicks "Group Pre-Reg", selects location, clicks Generate.
  * The modal shows a shareable URL + QR code visitors can scan on their phones
  * to self-register. After submitting the form, each visitor gets their own QR
- * code which is scanned at the front desk for instant check-in.
+ * code which is scanned at reception for instant check-in.
  */
 
 import { useState, useEffect, useRef } from 'react';
@@ -12,9 +12,13 @@ import { createPortal } from 'react-dom';
 import './PreRegModal.css';
 import { IconX } from '../../../components/Icons/Icons';
 import { createGroupLink } from '../checkInOutService';
+import { getActiveLocations } from '../../../services/locationService';
 
 export default function PreRegModal({ session, onClose }) {
+  const isAdmin      = session?.role === 'PRIMARY_ADMIN' || session?.role === 'REGIONAL_ADMIN';
   const [locationId,  setLocationId]  = useState(session?.locationId || '');
+  const [locations,   setLocations]   = useState([]);
+  const [locsLoading, setLocsLoading] = useState(false);
   const [generating,  setGenerating]  = useState(false);
   const [error,       setError]       = useState('');
   const [linkData,    setLinkData]    = useState(null);
@@ -22,6 +26,22 @@ export default function PreRegModal({ session, onClose }) {
   const qrRef  = useRef(null);
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; });
+
+  // Fetch locations list for admin so they can pick one
+  useEffect(() => {
+    if (!isAdmin) return;
+    setLocsLoading(true);
+    getActiveLocations()
+      .then((list) => {
+        const locs = Array.isArray(list) ? list : [];
+        setLocations(locs);
+        // Auto-select the first location if none selected yet
+        if (!locationId && locs.length > 0) setLocationId(locs[0].code);
+      })
+      .catch(() => {})
+      .finally(() => setLocsLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
 
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
@@ -50,32 +70,18 @@ export default function PreRegModal({ session, onClose }) {
     setGenerating(true);
     setError('');
     try {
-      // Prefer the machine's LAN IPv4 so links work on phones on the same Wi-Fi.
-      // Fall back to the configured API base (which may still be localhost in dev).
-      const lanIp = await resolveLanIp();
-      const apiBase = await window.electronAPI.getApiBaseUrl?.().catch?.(() => null) ?? 'http://localhost:8080';
-      const baseForLink = lanIp ? `http://${lanIp}:8080` : apiBase;
+      // Use the configured API base URL directly — auto-detecting the LAN IP is
+      // unreliable on machines with multiple network interfaces.
+      const apiBase = (await window.electronAPI.getApiBaseUrl?.().catch?.(() => null) ?? 'http://10.123.5.133:8080')
+        .replace(/\/$/, '');
 
       const data = await createGroupLink(locationId);
-      const url = `${baseForLink}/register.html?t=${data.groupToken}`;
+      const url = `${apiBase}/register.html?t=${data.groupToken}`;
       setLinkData({ ...data, url });
     } catch (e) {
       setError(e?.message || 'Failed to generate link. Please try again.');
     } finally {
       setGenerating(false);
-    }
-  }
-
-  async function resolveLanIp() {
-    try {
-      const interfaces = await window.electronAPI.getNetworkInfo();
-      // Prefer a 192.168.x.x or 10.x.x.x IPv4 address (LAN)
-      const lan = interfaces.find(
-        (i) => i.family === 'IPv4' && (i.ip.startsWith('192.168.') || i.ip.startsWith('10.') || i.ip.startsWith('172.'))
-      );
-      return lan?.ip ?? null;
-    } catch {
-      return null;
     }
   }
 
@@ -148,16 +154,43 @@ export default function PreRegModal({ session, onClose }) {
                 </div>
                 <div className="prm-step-item">
                   <span className="prm-step-num">4</span>
-                  <span>At front desk: click <strong>Scan QR</strong> to check them in instantly</span>
+                  <span>At reception: click <strong>Scan QR</strong> to check them in instantly</span>
                 </div>
               </div>
+
+              {/* Location selector — shown for admin; read-only badge for receptionist */}
+              {isAdmin ? (
+                <div className="prm-loc-row">
+                  <label className="prm-loc-label" htmlFor="prm-loc-select">Location</label>
+                  {locsLoading ? (
+                    <span className="prm-loc-loading">Loading locations…</span>
+                  ) : (
+                    <select
+                      id="prm-loc-select"
+                      className="prm-loc-select"
+                      value={locationId}
+                      onChange={(e) => setLocationId(e.target.value)}
+                    >
+                      <option value="">— Select a location —</option>
+                      {locations.map((loc) => (
+                        <option key={loc.code} value={loc.code}>{loc.name}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              ) : (
+                <div className="prm-loc-row">
+                  <span className="prm-loc-label">Location</span>
+                  <span className="prm-loc-badge">{session?.locationName ?? locationId}</span>
+                </div>
+              )}
 
               {error && <p className="prm-error">{error}</p>}
 
               <button
                 className="prm-generate-btn"
                 onClick={handleGenerate}
-                disabled={generating}
+                disabled={generating || !locationId}
               >
                 {generating ? 'Generating…' : '✦ Generate Link'}
               </button>

@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import './DateRangePicker.css';
 import { IconCalendar, IconChevronDown } from '../Icons/Icons';
 
@@ -50,11 +51,22 @@ export function defaultRangeToday() {
   return { from: today, to: today };
 }
 
-function formatPillDate(iso) {
+export function formatPillDate(iso) {
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('en-IN', {
     day: 'numeric', month: 'short', year: 'numeric',
   });
+}
+
+/** Human-readable range for report headers, e.g. "Today, 26 May 2026". */
+export function formatRangeLabel(from, to) {
+  const fromLabel = formatPillDate(from);
+  const today = toISODate(new Date());
+  if (from === to) {
+    if (from === today) return `Today, ${fromLabel}`;
+    return fromLabel;
+  }
+  return `${fromLabel} – ${formatPillDate(to)}`;
 }
 
 // ─── Single-month calendar ────────────────────────────────────────────────────
@@ -148,14 +160,53 @@ export default function DateRangePicker({ from, to, onChange, allowFuture = fals
   const [leftMonth,   setLeftMonth]   = useState(() => new Date(from).getMonth());
 
   const wrapRef = useRef(null);
+  const triggerRef = useRef(null);
+  const popupRef = useRef(null);
+  const [popupPos, setPopupPos] = useState({ top: 0, left: 0 });
+  const [popupReady, setPopupReady] = useState(false);
 
   const rightMonth = (leftMonth + 1) % 12;
   const rightYear  = leftMonth === 11 ? leftYear + 1 : leftYear;
 
+  useLayoutEffect(() => {
+    if (!open) {
+      setPopupReady(false);
+      return undefined;
+    }
+    if (!triggerRef.current) return undefined;
+
+    function updatePosition() {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const popupW = popupRef.current?.offsetWidth || 560;
+      const gap = 8;
+      const margin = 12;
+      const top = rect.bottom + gap;
+      // Align to trigger's left so the calendar opens to the right.
+      let left = rect.left;
+      if (left + popupW > window.innerWidth - margin) {
+        left = Math.max(margin, window.innerWidth - popupW - margin);
+      }
+      setPopupPos({ top, left });
+      setPopupReady(true);
+    }
+
+    updatePosition();
+    const raf = requestAnimationFrame(updatePosition);
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [open, leftYear, leftMonth]);
+
   useEffect(() => {
     if (!open) return;
     function onMouseDown(e) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+      const inTrigger = wrapRef.current?.contains(e.target);
+      const inPopup = popupRef.current?.contains(e.target);
+      if (!inTrigger && !inPopup) {
         setOpen(false);
         setPendingFrom(null);
         setHoverDate(null);
@@ -220,6 +271,8 @@ export default function DateRangePicker({ from, to, onChange, allowFuture = fals
   return (
     <div className="drp-wrap" ref={wrapRef}>
       <button
+        ref={triggerRef}
+        type="button"
         className={`drp-trigger${open ? ' drp-trigger--open' : ''}`}
         onClick={() => (open ? setOpen(false) : openPicker())}
       >
@@ -228,8 +281,12 @@ export default function DateRangePicker({ from, to, onChange, allowFuture = fals
         <IconChevronDown size={12} className={`drp-chevron${open ? ' drp-chevron--up' : ''}`} />
       </button>
 
-      {open && (
-        <div className="drp-popup">
+      {open && createPortal(
+        <div
+          ref={popupRef}
+          className={`drp-popup drp-popup--fixed${popupReady ? '' : ' drp-popup--measuring'}`}
+          style={{ top: popupPos.top, left: popupPos.left }}
+        >
           <div className="drp-hint">
             {isSelecting ? 'Now click an end date' : 'Click a start date'}
           </div>
@@ -264,7 +321,8 @@ export default function DateRangePicker({ from, to, onChange, allowFuture = fals
               </button>
             ))}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

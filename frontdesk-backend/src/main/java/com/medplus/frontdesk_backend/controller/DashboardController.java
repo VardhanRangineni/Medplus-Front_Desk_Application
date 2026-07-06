@@ -3,12 +3,15 @@ package com.medplus.frontdesk_backend.controller;
 import com.medplus.frontdesk_backend.dto.ApiResponse;
 import com.medplus.frontdesk_backend.dto.DashboardStatsDto;
 import com.medplus.frontdesk_backend.service.DashboardService;
+import com.medplus.frontdesk_backend.util.WorkstationMacUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @Slf4j
@@ -23,9 +26,9 @@ public class DashboardController {
      * GET /api/dashboard/stats
      *
      * Returns today's aggregated statistics for the dashboard home screen.
-     * Scope is automatically determined from the caller's role:
-     *  - RECEPTIONIST         → their assigned location only
-     *  - PRIMARY/REGIONAL ADMIN → all locations
+     * Scope:
+     *  - Receptionist / supervisor → operational location (current kiosk when MAC matches).
+     *  - Admin → operational location by default; pass allLocations=true or locationId to override.
      *
      * Response body (data field):
      * {
@@ -47,8 +50,13 @@ public class DashboardController {
      * }
      */
     @GetMapping("/stats")
-    public ResponseEntity<ApiResponse<DashboardStatsDto>> getStats(Authentication auth) {
-        DashboardStatsDto stats = dashboardService.getStats(auth.getName(), auth);
+    public ResponseEntity<ApiResponse<DashboardStatsDto>> getStats(
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
+            @RequestParam(required = false) String locationId,
+            @RequestParam(required = false) Boolean allLocations,
+            Authentication auth) {
+        DashboardStatsDto stats = dashboardService.getStats(
+                auth.getName(), auth, workstationMac, locationId, allLocations);
         return ResponseEntity.ok(ApiResponse.success("Dashboard stats retrieved.", stats));
     }
 }

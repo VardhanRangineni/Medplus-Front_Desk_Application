@@ -1,180 +1,109 @@
 package com.medplus.frontdesk_backend.repository;
 
-import com.medplus.frontdesk_backend.model.Location;
+import com.medplus.frontdesk_backend.dto.LocationDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
+/**
+ * Location dropdown options from {@code location_master}, with legacy fallback
+ * to distinct values on {@code usermanagement}.
+ */
 @Repository
 @RequiredArgsConstructor
 public class LocationRepository {
 
     private final NamedParameterJdbcTemplate jdbc;
+    private final LocationMasterRepository locationMasterRepository;
 
-    public List<Location> findAll() {
+    public List<LocationDto> searchByQuery(String query) {
+        if (hasLocationMasterRows()) {
+            return locationMasterRepository.searchActiveLocations(query).stream()
+                    .map(lm -> LocationDto.builder()
+                            .code(lm.getLocationId())
+                            .name(lm.getDescriptiveName())
+                            .address(lm.getAddress())
+                            .city(lm.getCityName())
+                            .state(lm.getStateName())
+                            .status(true)
+                            .build())
+                    .toList();
+        }
+        return searchFromUserManagement(query);
+    }
+
+    public List<LocationDto> findAllActive() {
+        if (hasLocationMasterRows()) {
+            return locationMasterRepository.findActiveLocationsForDropdown().stream()
+                    .map(lm -> LocationDto.builder()
+                            .code(lm.getLocationId())
+                            .name(lm.getDescriptiveName())
+                            .address(lm.getAddress())
+                            .city(lm.getCityName())
+                            .state(lm.getStateName())
+                            .status(true)
+                            .build())
+                    .toList();
+        }
+        return findActiveFromUserManagement();
+    }
+
+    public Optional<String> findLocationNameByCode(String code) {
+        Optional<String> fromMaster = locationMasterRepository.findLocationNameByCode(code);
+        if (fromMaster.isPresent()) {
+            return fromMaster;
+        }
         String sql = """
-                SELECT LocationId, descriptiveName, type, coordinates, address, city, state, pincode, status
-                FROM locationmaster
-                ORDER BY descriptiveName
+                SELECT COALESCE(NULLIF(locationName, ''), location) AS name
+                FROM usermanagement
+                WHERE location = :code
+                LIMIT 1
                 """;
-        return jdbc.query(sql, new MapSqlParameterSource(), (rs, rowNum) -> Location.builder()
-                .locationId(rs.getString("LocationId"))
-                .descriptiveName(rs.getString("descriptiveName"))
-                .type(rs.getString("type"))
-                .coordinates(rs.getString("coordinates"))
-                .address(rs.getString("address"))
-                .city(rs.getString("city"))
-                .state(rs.getString("state"))
-                .pincode(rs.getString("pincode"))
-                .status(rs.getString("status"))
-                .build()
-        );
+        List<String> rows = jdbc.query(sql, new MapSqlParameterSource("code", code),
+                (rs, rowNum) -> rs.getString("name"));
+        return rows.isEmpty() ? Optional.empty() : Optional.ofNullable(rows.get(0));
     }
 
-    /**
-     * Returns one page of locations, optionally filtered by a search term and/or a
-     * specific {@code locationId} (used to scope REGIONAL_ADMIN to their own location).
-     *
-     * @param search     case-insensitive substring; null / blank = no filter
-     * @param locationId restrict to a single location; null = all locations
-     * @param offset     SQL OFFSET (page * size)
-     * @param limit      SQL LIMIT  (page size)
-     */
-    public List<Location> findAllPaged(String search, String locationId, int offset, int limit) {
-        boolean hasSearch   = search     != null && !search.isBlank();
-        boolean hasLocation = locationId != null && !locationId.isBlank();
-        String like = hasSearch ? "%" + search.trim().toLowerCase() + "%" : null;
-
-        StringBuilder sql = new StringBuilder("""
-                SELECT LocationId, descriptiveName, type, coordinates, address, city, state, pincode, status
-                FROM locationmaster
-                WHERE 1=1
-                """);
-
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        if (hasLocation) {
-            sql.append(" AND LocationId = :locationId");
-            params.addValue("locationId", locationId);
-        }
-        if (hasSearch) {
-            sql.append("""
-                     AND (
-                        LOWER(LocationId)       LIKE :q
-                     OR LOWER(descriptiveName)  LIKE :q
-                     OR LOWER(city)             LIKE :q
-                    )
-                    """);
-            params.addValue("q", like);
-        }
-
-        sql.append("ORDER BY descriptiveName\nLIMIT :limit OFFSET :offset");
-        params.addValue("limit", limit).addValue("offset", offset);
-
-        return jdbc.query(sql.toString(), params, (rs, rowNum) -> Location.builder()
-                .locationId(rs.getString("LocationId"))
-                .descriptiveName(rs.getString("descriptiveName"))
-                .type(rs.getString("type"))
-                .coordinates(rs.getString("coordinates"))
-                .address(rs.getString("address"))
-                .city(rs.getString("city"))
-                .state(rs.getString("state"))
-                .pincode(rs.getString("pincode"))
-                .status(rs.getString("status"))
-                .build()
-        );
+    private boolean hasLocationMasterRows() {
+        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM location_master", new MapSqlParameterSource(), Long.class);
+        return count != null && count > 0;
     }
 
-    /** Total count of locations matching the same optional search and location filter. */
-    public long countAll(String search, String locationId) {
-        boolean hasSearch   = search     != null && !search.isBlank();
-        boolean hasLocation = locationId != null && !locationId.isBlank();
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM locationmaster WHERE 1=1 ");
-        if (hasLocation) {
-            sql.append(" AND LocationId = :locationId");
-            params.addValue("locationId", locationId);
-        }
-        if (hasSearch) {
-            sql.append("""
-                     AND (
-                        LOWER(LocationId)       LIKE :q
-                     OR LOWER(descriptiveName)  LIKE :q
-                     OR LOWER(city)             LIKE :q
-                    )
-                    """);
-            params.addValue("q", "%" + search.trim().toLowerCase() + "%");
-        }
-        Long count = jdbc.queryForObject(sql.toString(), params, Long.class);
-        return count == null ? 0L : count;
-    }
-
-    /**
-     * Searches locationmaster by descriptiveName OR LocationId using a
-     * case-insensitive LIKE.  Returns up to 20 matches ordered by descriptiveName.
-     *
-     * Used by: GET /api/locations/search?q=
-     */
-    public List<Location> searchByQuery(String query) {
+    private List<LocationDto> searchFromUserManagement(String query) {
         String like = "%" + query.trim().toLowerCase() + "%";
         String sql = """
-                SELECT LocationId, descriptiveName, type, coordinates, address, city, state, pincode, status
-                FROM locationmaster
-                WHERE LOWER(descriptiveName) LIKE :like
-                   OR LOWER(LocationId)      LIKE :like
-                ORDER BY descriptiveName
+                SELECT DISTINCT location AS code,
+                       COALESCE(NULLIF(locationName, ''), location) AS name
+                FROM usermanagement
+                WHERE TRIM(location) != ''
+                  AND (LOWER(location) LIKE :like OR LOWER(locationName) LIKE :like)
+                ORDER BY name
                 LIMIT 20
                 """;
-        return jdbc.query(sql, new MapSqlParameterSource("like", like), (rs, rowNum) -> Location.builder()
-                .locationId(rs.getString("LocationId"))
-                .descriptiveName(rs.getString("descriptiveName"))
-                .type(rs.getString("type"))
-                .coordinates(rs.getString("coordinates"))
-                .address(rs.getString("address"))
-                .city(rs.getString("city"))
-                .state(rs.getString("state"))
-                .pincode(rs.getString("pincode"))
-                .status(rs.getString("status"))
-                .build()
-        );
+        return jdbc.query(sql, new MapSqlParameterSource("like", like), this::mapUserMgmtRow);
     }
 
-    /**
-     * Returns all active (CONFIGURED) locations ordered by name.
-     * Lightweight — used to populate filter dropdowns across the application.
-     */
-    public List<Location> findAllActive() {
+    private List<LocationDto> findActiveFromUserManagement() {
         String sql = """
-                SELECT LocationId, descriptiveName, type, coordinates,
-                       address, city, state, pincode, status
-                FROM   locationmaster
-                WHERE  status IN ('CONFIGURED', 'ACTIVE')
-                ORDER BY descriptiveName
+                SELECT DISTINCT location AS code,
+                       COALESCE(NULLIF(locationName, ''), location) AS name
+                FROM usermanagement
+                WHERE TRIM(location) != ''
+                  AND status = 'ACTIVE'
+                ORDER BY name
                 """;
-        return jdbc.query(sql, new MapSqlParameterSource(), (rs, rowNum) -> Location.builder()
-                .locationId(rs.getString("LocationId"))
-                .descriptiveName(rs.getString("descriptiveName"))
-                .type(rs.getString("type"))
-                .coordinates(rs.getString("coordinates"))
-                .address(rs.getString("address"))
-                .city(rs.getString("city"))
-                .state(rs.getString("state"))
-                .pincode(rs.getString("pincode"))
-                .status(rs.getString("status"))
-                .build());
+        return jdbc.query(sql, new MapSqlParameterSource(), this::mapUserMgmtRow);
     }
 
-    public int updateStatus(String locationId, String status) {
-        String sql = """
-                UPDATE locationmaster
-                SET status = :status, modifiedBy = 'APP'
-                WHERE LocationId = :locationId
-                """;
-        return jdbc.update(sql, new MapSqlParameterSource()
-                .addValue("locationId", locationId)
-                .addValue("status", status)
-        );
+    private LocationDto mapUserMgmtRow(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
+        return LocationDto.builder()
+                .code(rs.getString("code"))
+                .name(rs.getString("name"))
+                .status(true)
+                .build();
     }
 }

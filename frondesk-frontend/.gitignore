@@ -60,6 +60,11 @@ typings/
 # dotenv environment variables file
 .env
 .env.test
+.env.production
+.env.local
+
+# NSIS / electron-builder output (forge still uses out/)
+dist-installer/
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache

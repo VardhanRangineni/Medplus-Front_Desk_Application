@@ -1,31 +1,28 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import './CheckInOut.css';
 import {
-  IconSearch,
-  IconFilter,
   IconDownload,
   IconPlus,
   IconEye,
   IconEdit,
   IconDoorOut,
-  IconChevronRight,
-  IconChevronDown,
   IconX,
   IconUser,
   IconBuilding,
   IconQrCode,
-  IconLink,
+  IconRefreshCw,
 } from '../../components/Icons/Icons';
 import Pagination       from '../../components/Pagination/Pagination';
+import PageSizeSelect   from '../../components/Pagination/PageSizeSelect';
 import DateRangePicker, { defaultRangeToday } from '../../components/DateRangePicker/DateRangePicker';
-import LocationSelector from '../../components/LocationSelector/LocationSelector';
+import { getPrimaryWorkstationMac, macsMatch } from '../../services/workstationMac';
 import {
   getEntries,
   getStatusCounts,
   getDepartments,
   checkOutEntry,
-  checkOutMember,
   exportToExcel,
+  fetchAllEntriesForExport,
 } from './checkInOutService';
 import AddVisitorModal   from './AddVisitorModal/AddVisitorModal';
 import AddEmployeeModal  from './AddEmployeeModal/AddEmployeeModal';
@@ -34,14 +31,31 @@ import EditVisitorModal  from './EditVisitorModal/EditVisitorModal';
 import EditEmployeeModal from './EditEmployeeModal/EditEmployeeModal';
 import PreRegModal       from './PreRegModal/PreRegModal';
 import QrScanModal       from './QrScanModal/QrScanModal';
+import EmptyState        from '../../components/EmptyState/EmptyState';
+import LottieLoader      from '../../components/LottieLoader/LottieLoader';
+import SearchSelect      from '../../components/SearchSelect/SearchSelect';
+import { ToastProvider, useToast } from '../../components/AppToast/AppToast';
+import CardReturnModal   from './CardReturnModal';
+import { notifyCheckInSuccess } from './checkInNotifications';
+import { canCheckIn, hasRole } from '../../services/locationScope';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TAB_ALL         = 'all';
 const TAB_CHECKED_IN  = 'checked-in';
 const TAB_CHECKED_OUT = 'checked-out';
-const PAGE_SIZE       = 20;
-const SEARCH_DEBOUNCE = 350; // ms
-const COL_COUNT       = 11;  // expand + type + name + contact + dept + status + person + card + in + out + actions
+const DEFAULT_PAGE_SIZE = 10;
+const PAGE_SIZE_OPTIONS = [10, 20, 50];
+const FILTER_DEBOUNCE   = 350; // ms
+const COL_COUNT         = 11;  // type + name + contact + dept + person + card + in + out + lastScan + status + actions
+
+const EMPTY_COLUMN_FILTERS = {
+  type: '',
+  name: '',
+  contact: '',
+  department: '',
+  personToMeet: '',
+  card: '',
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatDateTime(date) {
@@ -53,14 +67,15 @@ function formatDateTime(date) {
   );
 }
 
+function formatLastScan(entry) {
+  if (!entry.lastScanDeviceName && !entry.lastScan) return '—';
+  return {
+    place: entry.lastScanDeviceName ?? '—',
+    time: entry.lastScan ? formatDateTime(entry.lastScan) : null,
+  };
+}
+
 function resolveStatus(entry) {
-  if (entry.members.length > 0) {
-    const total     = 1 + entry.members.length;
-    const checkedIn = (entry.status === 'checked-in' ? 1 : 0)
-                    + entry.members.filter((m) => m.status === 'checked-in').length;
-    if (checkedIn === 0) return { label: 'Checked-out', variant: 'out' };
-    return { label: `Checked-in (${checkedIn}/${total})`, variant: 'in' };
-  }
   return entry.status === 'checked-in'
     ? { label: 'Checked-in',  variant: 'in'  }
     : { label: 'Checked-out', variant: 'out' };
@@ -73,67 +88,88 @@ function tabToStatus(tab) {
   return null;
 }
 
-// ─── Sub-component: member sub-row ────────────────────────────────────────────
-function MemberRow({ member, entryId, onCheckOut }) {
-  const isIn = member.status === 'checked-in';
+/** Maps column filters to API params (department + full-text search). */
+function columnFiltersToServer({ name, contact, personToMeet, department }) {
+  const search =
+    name.trim() ||
+    contact.trim() ||
+    personToMeet.trim() ||
+    '';
+  return {
+    search,
+    department: department.trim() || null,
+  };
+}
+
+/** Client-side filters for columns not covered by the search API (type, card, extra text). */
+function matchesColumnFilters(entry, filters) {
+  if (filters.type && entry.type !== filters.type) return false;
+
+  if (filters.name.trim()) {
+    const q = filters.name.trim().toLowerCase();
+    if (!entry.name?.toLowerCase().includes(q)) return false;
+  }
+
+  if (filters.contact.trim()) {
+    const q = filters.contact.trim().toLowerCase();
+    const value = (entry.type === 'EMPLOYEE' ? entry.empId : entry.mobile) || '';
+    if (!value.toLowerCase().includes(q)) return false;
+  }
+
+  if (filters.department.trim() && entry.department !== filters.department.trim()) {
+    return false;
+  }
+
+  if (filters.personToMeet.trim()) {
+    const q = filters.personToMeet.trim().toLowerCase();
+    if (!entry.personToMeet?.toLowerCase().includes(q)) return false;
+  }
+
+  if (filters.card.trim()) {
+    const q = filters.card.trim().toLowerCase();
+    const cardVal = String(entry.card ?? '').toLowerCase();
+    if (!cardVal.includes(q)) return false;
+  }
+
+  return true;
+}
+
+function hasClientOnlyColumnFilters(filters) {
+  const textCount = [filters.name, filters.contact, filters.personToMeet]
+    .filter((s) => s.trim()).length;
+  return Boolean(filters.type || filters.card.trim() || textCount > 1);
+}
+
+// ─── Empty-state illustration (badge + plant) ─────────────────────────────────
+function CheckInOutEmptyIllustration() {
   return (
-    <tr className="ci-row ci-row--member">
-      <td className="ci-col--expand" />
-      <td><span className="ci-type-badge ci-type-badge--member">Member</span></td>
-      <td className="ci-col--name ci-col--name-sub">{member.name}</td>
-      <td className="ci-col--contact">—</td>
-      <td>—</td>
-      <td>
-        <span className={`ci-status-badge ci-status-badge--${isIn ? 'in' : 'out'}`}>
-          {isIn ? 'Checked-in' : 'Checked-out'}
-        </span>
-      </td>
-      <td>—</td>
-      <td>{member.cardCode ?? (member.card != null ? member.card : '—')}</td>
-      <td>—</td>
-      <td>—</td>
-      <td>
-        <div className="ci-actions">
-          {isIn && (
-            <button
-              className="ci-action-btn ci-action-btn--checkout"
-              onClick={() => onCheckOut(entryId, member.id)}
-              aria-label={`Check out ${member.name}`}
-              title="Check Out"
-            >
-              <IconDoorOut size={14} />
-            </button>
-          )}
+    <div className="ci-empty-art">
+      <div className="ci-empty-art__badge">
+        <div className="ci-empty-art__badge-photo" />
+        <div className="ci-empty-art__badge-lines">
+          <span /><span /><span />
         </div>
-      </td>
-    </tr>
+      </div>
+      <div className="ci-empty-art__plant">
+        <div className="ci-empty-art__pot" />
+        <div className="ci-empty-art__leaf ci-empty-art__leaf--l" />
+        <div className="ci-empty-art__leaf ci-empty-art__leaf--r" />
+      </div>
+    </div>
   );
 }
 
 // ─── Sub-component: main entry row ────────────────────────────────────────────
-function EntryRow({ entry, expanded, onToggleExpand, onCheckOut, onMemberCheckOut, onView, onEdit }) {
-  const hasMembers = entry.members.length > 0;
-  const isIn       = entry.status === 'checked-in';
-  const status     = resolveStatus(entry);
-  const contact    = entry.type === 'EMPLOYEE' ? entry.empId : entry.mobile;
-  const isEmp      = entry.type === 'EMPLOYEE';
+function EntryRow({ entry, onCheckOut, onView, onEdit, canMutate }) {
+  const isIn    = entry.status === 'checked-in';
+  const status  = resolveStatus(entry);
+  const contact = entry.type === 'EMPLOYEE' ? entry.empId : entry.mobile;
+  const isEmp   = entry.type === 'EMPLOYEE';
+  const lastScan = formatLastScan(entry);
 
   return (
     <>
       <tr className={`ci-row ci-row--main${isIn ? '' : ' ci-row--out'}`}>
-
-        <td className="ci-col--expand">
-          {hasMembers && (
-            <button
-              className="ci-expand-btn"
-              onClick={() => onToggleExpand(entry.id)}
-              aria-label={expanded ? 'Collapse members' : 'Expand members'}
-              aria-expanded={expanded}
-            >
-              {expanded ? <IconChevronDown size={13} /> : <IconChevronRight size={13} />}
-            </button>
-          )}
-        </td>
 
         <td>
           <span className={`ci-type-badge ci-type-badge--${entry.type.toLowerCase()}`}>
@@ -142,8 +178,14 @@ function EntryRow({ entry, expanded, onToggleExpand, onCheckOut, onMemberCheckOu
         </td>
 
         <td className="ci-col--name">
-          {entry.name}
-          {hasMembers && <span className="ci-member-count">+{entry.members.length}</span>}
+          <div className="ci-name-cell">
+            <span className="ci-name-text">{entry.name}</span>
+            {entry.type === 'VISITOR' && entry.companyName && (
+              <span className="ci-company-tag">
+                🏢 {entry.companyName}
+              </span>
+            )}
+          </div>
         </td>
 
         <td className={`ci-col--contact${isEmp ? ' ci-col--empid' : ''}`}>
@@ -157,22 +199,39 @@ function EntryRow({ entry, expanded, onToggleExpand, onCheckOut, onMemberCheckOu
           }
         </td>
 
+        <td className="ci-col--person">{entry.personToMeet || '—'}</td>
+
+        <td className="ci-col--card">
+          {entry.card != null ? entry.card : '—'}
+        </td>
+
+        <td className="ci-col--time">
+          <span className="ci-time-text">{formatDateTime(entry.checkIn)}</span>
+        </td>
+        <td className="ci-col--time">
+          <span className="ci-time-text">{entry.checkOut ? formatDateTime(entry.checkOut) : '—'}</span>
+        </td>
+
+        <td className="ci-col--last-scan">
+          {lastScan === '—' ? (
+            <span className="ci-col--muted">—</span>
+          ) : (
+            <div className="ci-last-scan-cell">
+              <span className="ci-last-scan-place">{lastScan.place}</span>
+              {lastScan.time && (
+                <span className="ci-last-scan-time">{lastScan.time}</span>
+              )}
+            </div>
+          )}
+        </td>
+
         <td>
           <span className={`ci-status-badge ci-status-badge--${status.variant}`}>
             {status.label}
           </span>
         </td>
 
-        <td className="ci-col--person">{entry.personToMeet || '—'}</td>
-
-        <td className="ci-col--card">
-          {isEmp ? 'N/A' : (entry.cardCode ?? (entry.card != null ? entry.card : '—'))}
-        </td>
-
-        <td className="ci-col--time">{formatDateTime(entry.checkIn)}</td>
-        <td className="ci-col--time">{entry.checkOut ? formatDateTime(entry.checkOut) : '—'}</td>
-
-        <td>
+        <td className="ci-col--actions">
           <div className="ci-actions">
             <button
               className="ci-action-btn ci-action-btn--view"
@@ -182,7 +241,7 @@ function EntryRow({ entry, expanded, onToggleExpand, onCheckOut, onMemberCheckOu
             >
               <IconEye size={14} />
             </button>
-            {isIn && (
+            {isIn && canMutate && (
               <button
                 className="ci-action-btn ci-action-btn--edit"
                 onClick={() => onEdit(entry)}
@@ -192,7 +251,7 @@ function EntryRow({ entry, expanded, onToggleExpand, onCheckOut, onMemberCheckOu
                 <IconEdit size={14} />
               </button>
             )}
-            {isIn && (
+            {isIn && canMutate && (
               <button
                 className="ci-action-btn ci-action-btn--checkout"
                 onClick={() => onCheckOut(entry.id)}
@@ -206,15 +265,110 @@ function EntryRow({ entry, expanded, onToggleExpand, onCheckOut, onMemberCheckOu
         </td>
       </tr>
 
-      {expanded && entry.members.map((m) => (
-        <MemberRow
-          key={m.id}
-          member={m}
-          entryId={entry.id}
-          onCheckOut={onMemberCheckOut}
-        />
-      ))}
     </>
+  );
+}
+
+const TYPE_FILTER_OPTIONS = [
+  { value: '', label: 'All' },
+  { value: 'VISITOR', label: 'Visitor' },
+  { value: 'EMPLOYEE', label: 'Employee' },
+];
+
+function buildDepartmentFilterOptions(departments) {
+  const seen = new Set();
+  const items = [];
+  for (const raw of departments) {
+    const name = typeof raw === 'string' ? raw.trim() : '';
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push({ value: name, label: name });
+  }
+  items.sort((a, b) => a.label.localeCompare(b.label));
+  return [{ value: '', label: 'All' }, ...items];
+}
+
+// ─── Table column filters (second header row) ─────────────────────────────────
+function ColumnFilterRow({ filters, departments, onChange }) {
+  const set = (key, value) => onChange({ ...filters, [key]: value });
+  const deptOptions = buildDepartmentFilterOptions(departments);
+
+  return (
+    <tr className="ci-col-filters">
+      <th className="ci-col-w--type">
+        <SearchSelect
+          compact
+          value={filters.type}
+          options={TYPE_FILTER_OPTIONS}
+          placeholder="All"
+          onChange={(v) => set('type', v)}
+          ariaLabel="Filter by type"
+          minMenuWidth={140}
+        />
+      </th>
+      <th className="ci-col-w--name">
+        <input
+          className="ci-col-filter"
+          type="text"
+          placeholder="Filter name…"
+          value={filters.name}
+          onChange={(e) => set('name', e.target.value)}
+          aria-label="Filter by name"
+        />
+      </th>
+      <th className="ci-col-w--contact">
+        <input
+          className="ci-col-filter"
+          type="text"
+          placeholder="Filter mobile / ID…"
+          value={filters.contact}
+          onChange={(e) => set('contact', e.target.value)}
+          aria-label="Filter by mobile or employee ID"
+        />
+      </th>
+      <th className="ci-col-w--dept">
+        <SearchSelect
+          compact
+          searchable
+          searchInField
+          value={filters.department}
+          options={deptOptions}
+          placeholder="All"
+          searchPlaceholder="Filter department…"
+          emptyMessage="No departments found"
+          onChange={(v) => set('department', v)}
+          ariaLabel="Filter by department"
+          minMenuWidth={200}
+        />
+      </th>
+      <th className="ci-col-w--person">
+        <input
+          className="ci-col-filter"
+          type="text"
+          placeholder="Filter person…"
+          value={filters.personToMeet}
+          onChange={(e) => set('personToMeet', e.target.value)}
+          aria-label="Filter by person to meet"
+        />
+      </th>
+      <th className="ci-col-w--card">
+        <input
+          className="ci-col-filter"
+          type="text"
+          placeholder="Filter card…"
+          value={filters.card}
+          onChange={(e) => set('card', e.target.value)}
+          aria-label="Filter by assigned card"
+        />
+      </th>
+      <th className="ci-col-w--time ci-col-filter-cell--empty" aria-hidden="true" />
+      <th className="ci-col-w--time ci-col-filter-cell--empty" aria-hidden="true" />
+      <th className="ci-col-w--last-scan ci-col-filter-cell--empty" aria-hidden="true" />
+      <th className="ci-col-w--status ci-col-filter-cell--empty" aria-hidden="true" />
+      <th className="ci-col-w--actions ci-col--actions ci-col-filter-cell--empty" aria-hidden="true" />
+    </tr>
   );
 }
 
@@ -266,77 +420,46 @@ function EntryTypeModal({ onClose, onSelect }) {
   );
 }
 
-// ─── Card Return Confirmation Modal ───────────────────────────────────────────
-function CardReturnModal({ visitorName, cardCode, card, onConfirm, onClose }) {
-  const displayCard = cardCode || (card != null ? card : null);
-
-  useEffect(() => {
-    const handler = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
-
+// ─── Main component ───────────────────────────────────────────────────────────
+export default function CheckInOut(props) {
   return (
-    <div className="crm-overlay" role="dialog" aria-modal="true" aria-labelledby="crm-title"
-         onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="crm-dialog">
-        <div className="crm-header">
-          <div>
-            <h2 className="crm-title" id="crm-title">Card Return</h2>
-            <p className="crm-sub">Checking out: <strong>{visitorName}</strong></p>
-          </div>
-          <button className="crm-close" onClick={onClose} aria-label="Close">
-            <IconX size={15} />
-          </button>
-        </div>
-
-        <div className="crm-body">
-          {displayCard ? (
-            <>
-              <p className="crm-question">
-                Did the visitor return card <span className="crm-card-badge">{displayCard}</span>?
-              </p>
-              <div className="crm-actions">
-                <button
-                  className="crm-btn crm-btn--yes"
-                  onClick={() => onConfirm(true)}
-                  autoFocus
-                >
-                  Yes, returned
-                </button>
-                <button
-                  className="crm-btn crm-btn--no"
-                  onClick={() => onConfirm(false)}
-                >
-                  No, not returned
-                </button>
-              </div>
-              <p className="crm-hint">
-                If not returned, the card will be marked <strong>Missing</strong> and removed from inventory.
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="crm-question">Confirm check-out for <strong>{visitorName}</strong>?</p>
-              <div className="crm-actions">
-                <button className="crm-btn crm-btn--yes" onClick={() => onConfirm(true)} autoFocus>
-                  Confirm Check-Out
-                </button>
-                <button className="crm-btn crm-btn--ghost" onClick={onClose}>Cancel</button>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+    <ToastProvider>
+      <CheckInOutPage {...props} />
+    </ToastProvider>
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
-export default function CheckInOut({ session }) {
+function CheckInOutPage({ session, locationScope }) {
+  const { showToast } = useToast();
+
+  const isAdmin = hasRole(session, 'PRIMARY_ADMIN');
+  const isRegionalAdmin = hasRole(session, 'REGIONAL_ADMIN');
+  const canDoCheckIn = canCheckIn(session);
+  const scopeParams = useMemo(() => ({
+    locationId: locationScope?.locationId ?? null,
+    allLocations: locationScope?.allLocations ?? false,
+  }), [locationScope?.locationId, locationScope?.allLocations]);
+  const currentEmployeeId = (session?.employeeId ?? '').toLowerCase();
+  const [workstationMac, setWorkstationMac] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    getPrimaryWorkstationMac().then((mac) => {
+      if (!cancelled) setWorkstationMac(mac);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   // ── Server-side data ────────────────────────────────────────────────────────
   const [entries,       setEntries]       = useState([]);
+  const canMutateEntry = useCallback((entry) => {
+    if (!entry || entry.status !== 'checked-in') return false;
+    if (isAdmin || isRegionalAdmin) return true;
+    const createdBy = (entry.createdBy ?? '').toLowerCase();
+    if (createdBy && createdBy === currentEmployeeId) return true;
+    return macsMatch(entry.workstationMac, workstationMac);
+  }, [isAdmin, isRegionalAdmin, currentEmployeeId, workstationMac]);
+
   const [totalElements, setTotalElements] = useState(0);
   const [totalPages,    setTotalPages]    = useState(1);
   const [statusCounts,  setStatusCounts]  = useState({ total: 0, checkedIn: 0, checkedOut: 0 });
@@ -345,16 +468,16 @@ export default function CheckInOut({ session }) {
   // ── Loading states ──────────────────────────────────────────────────────────
   const [initLoading, setInitLoading] = useState(true);
   const [pageLoading, setPageLoading] = useState(false);
+  const [refreshing,  setRefreshing]  = useState(false);
+  const [exporting,   setExporting]   = useState(false);
 
   // ── Filter / UI state ───────────────────────────────────────────────────────
   const [activeTab,    setActiveTab]    = useState(TAB_ALL);
-  const [search,       setSearch]       = useState('');
-  const [selectedDept, setSelectedDept] = useState(null);
-  const [filterOpen,   setFilterOpen]   = useState(false);
+  const [myEntriesOnly, setMyEntriesOnly] = useState(false);
+  const [columnFilters, setColumnFilters] = useState(EMPTY_COLUMN_FILTERS);
   const [currentPage,  setCurrentPage]  = useState(1);
-  const [expandedRows, setExpandedRows] = useState(new Set());
+  const [pageSize,     setPageSize]     = useState(DEFAULT_PAGE_SIZE);
   const [range,        setRange]        = useState(defaultRangeToday);
-  const [locationId,   setLocationId]   = useState(null);
 
   // ── Modal state ─────────────────────────────────────────────────────────────
   const [entryTypeModalOpen, setEntryTypeModalOpen] = useState(false);
@@ -364,30 +487,33 @@ export default function CheckInOut({ session }) {
   const [editEntry,          setEditEntry]           = useState(null);
   const [preRegOpen,         setPreRegOpen]          = useState(false);
   const [qrScanOpen,         setQrScanOpen]          = useState(false);
-  // Card return dialog: { id, name, card, cardCode } | null
-  const [cardReturnPending,  setCardReturnPending]   = useState(null);
-  // Member card return: { entryId, memberId, name, card, cardCode } | null
-  const [memberCardReturnPending, setMemberCardReturnPending] = useState(null);
+  const [zoneScanOpen,       setZoneScanOpen]        = useState(false);
+  const [cardReturnTarget,   setCardReturnTarget]    = useState(null);
+  const columnFilterTimerRef = useRef(null);
 
-  const filterRef     = useRef(null);
-  const searchTimerRef = useRef(null);
+  const createdByFilter = myEntriesOnly && session?.employeeId
+    ? session.employeeId
+    : null;
 
   // ── Core fetch function ─────────────────────────────────────────────────────
   // Accepts explicit params to avoid stale-closure issues in callbacks.
-  const fetchPage = useCallback(async (page, tab, q, dept, from, to, locId, isInitial = false) => {
+  const fetchPage = useCallback(async (page, tab, filters, from, to, createdBy, size, isInitial = false) => {
     if (isInitial) setInitLoading(true);
     else           setPageLoading(true);
 
+    const { search, department } = columnFiltersToServer(filters);
+
     try {
       const result = await getEntries({
-        page:       page - 1,   // service expects 0-based; UI uses 1-based
-        size:       PAGE_SIZE,
-        search:     q,
+        page:       page - 1,
+        size:       size ?? pageSize,
+        search,
         status:     tabToStatus(tab),
-        department: dept,
+        department,
         from,
         to,
-        locationId: locId,
+        createdBy,
+        ...scopeParams,
       });
       setEntries(result.entries);
       setTotalElements(result.totalElements);
@@ -399,13 +525,13 @@ export default function CheckInOut({ session }) {
       if (isInitial) setInitLoading(false);
       else           setPageLoading(false);
     }
-  }, []);
+  }, [pageSize, scopeParams]);
 
-  const refreshCounts = useCallback((from, to, locId) => {
-    getStatusCounts({ from, to, locationId: locId })
+  const refreshCounts = useCallback((from, to, createdBy) => {
+    getStatusCounts({ from, to, createdBy, ...scopeParams })
       .then(setStatusCounts)
       .catch(() => {});
-  }, []);
+  }, [scopeParams]);
 
   const refreshDepartments = useCallback(() => {
     getDepartments()
@@ -419,9 +545,11 @@ export default function CheckInOut({ session }) {
     setInitLoading(true);
 
     const { from, to } = range;
+    const createdBy = myEntriesOnly && session?.employeeId ? session.employeeId : null;
+    const { search, department } = columnFiltersToServer(columnFilters);
     Promise.all([
-      getEntries({ page: 0, size: PAGE_SIZE, from, to, locationId }),
-      getStatusCounts({ from, to, locationId }),
+      getEntries({ page: 0, size: pageSize, search, department, from, to, createdBy, ...scopeParams }),
+      getStatusCounts({ from, to, createdBy, ...scopeParams }),
       getDepartments(),
     ])
       .then(([pageData, counts, depts]) => {
@@ -437,89 +565,74 @@ export default function CheckInOut({ session }) {
 
     return () => { active = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [range, locationId]);
+  }, [range, scopeParams, myEntriesOnly, pageSize, columnFilters]);
 
-  // ── Close filter dropdown on outside click ──────────────────────────────────
-  useEffect(() => {
-    if (!filterOpen) return;
-    const handler = (e) => {
-      if (filterRef.current && !filterRef.current.contains(e.target)) {
-        setFilterOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [filterOpen]);
+  const handleColumnFiltersChange = useCallback((next) => {
+    setColumnFilters(next);
+    clearTimeout(columnFilterTimerRef.current);
+    columnFilterTimerRef.current = setTimeout(() => {
+      fetchPage(1, activeTab, next, range.from, range.to, createdByFilter, pageSize);
+    }, FILTER_DEBOUNCE);
+  }, [activeTab, range, createdByFilter, pageSize, fetchPage]);
 
   // ── Tab change ──────────────────────────────────────────────────────────────
   const handleTabChange = useCallback((tab) => {
     setActiveTab(tab);
-    fetchPage(1, tab, search, selectedDept, range.from, range.to, locationId);
-  }, [search, selectedDept, range, locationId, fetchPage]);
+    fetchPage(1, tab, columnFilters, range.from, range.to, createdByFilter, pageSize);
+  }, [columnFilters, range, createdByFilter, pageSize, fetchPage]);
 
-  // ── Search (debounced) ──────────────────────────────────────────────────────
-  const handleSearchChange = useCallback((value) => {
-    setSearch(value);
-    clearTimeout(searchTimerRef.current);
-    searchTimerRef.current = setTimeout(() => {
-      fetchPage(1, activeTab, value, selectedDept, range.from, range.to, locationId);
-    }, SEARCH_DEBOUNCE);
-  }, [activeTab, selectedDept, range, locationId, fetchPage]);
+  const handleMyEntriesToggle = useCallback(() => {
+    const next = !myEntriesOnly;
+    setMyEntriesOnly(next);
+    const createdBy = next && session?.employeeId ? session.employeeId : null;
+    fetchPage(1, activeTab, columnFilters, range.from, range.to, createdBy, pageSize);
+    refreshCounts(range.from, range.to, createdBy);
+  }, [myEntriesOnly, session, activeTab, columnFilters, range, scopeParams, pageSize, fetchPage, refreshCounts]);
 
-  // ── Department filter ───────────────────────────────────────────────────────
-  const handleSelectDept = useCallback((dept) => {
-    setSelectedDept(dept);
-    setFilterOpen(false);
-    fetchPage(1, activeTab, search, dept, range.from, range.to, locationId);
-  }, [activeTab, search, range, locationId, fetchPage]);
-
-  const handleClearDept = useCallback((e) => {
-    e.stopPropagation();
-    setSelectedDept(null);
-    fetchPage(1, activeTab, search, null, range.from, range.to, locationId);
-  }, [activeTab, search, range, locationId, fetchPage]);
+  const handlePageSizeChange = useCallback((next) => {
+    setPageSize(next);
+    setCurrentPage(1);
+    fetchPage(1, activeTab, columnFilters, range.from, range.to, createdByFilter, next);
+  }, [activeTab, columnFilters, range, createdByFilter, fetchPage]);
 
   // ── Page change ─────────────────────────────────────────────────────────────
   const handlePageChange = useCallback((page) => {
-    fetchPage(page, activeTab, search, selectedDept, range.from, range.to, locationId);
-    setExpandedRows(new Set());
-  }, [activeTab, search, selectedDept, range, locationId, fetchPage]);
+    fetchPage(page, activeTab, columnFilters, range.from, range.to, createdByFilter, pageSize);
+  }, [activeTab, columnFilters, range, createdByFilter, pageSize, fetchPage]);
 
-  // ── Card return dialog flow ──────────────────────────────────────────────────
-  // Called by the checkout button — shows confirmation if visitor has a card
+  // ── Checkout ────────────────────────────────────────────────────────────────
   const handleCheckOut = useCallback((id) => {
     const entry = entries.find((e) => e.id === id);
-    if (!entry) return;
-    // Show card return dialog for VISITORs that have a card assigned
-    if (entry.type === 'VISITOR' && (entry.cardCode || entry.card != null)) {
-      setCardReturnPending({
-        id, name: entry.name, card: entry.card, cardCode: entry.cardCode,
-      });
-    } else {
-      // Employee or no card — check out directly
-      doCheckOut(id, true);
+    if (entry?.card != null) {
+      setCardReturnTarget(entry);
+      return;
     }
+    doCheckOut(id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries]);
 
-  const handleMemberCheckOut = useCallback((entryId, memberId) => {
-    const entry = entries.find((e) => e.id === entryId);
-    if (!entry) return;
-    const member = entry.members.find((m) => m.id === memberId);
-    if (!member) return;
-    if (member.cardCode || member.card != null) {
-      setMemberCardReturnPending({
-        entryId, memberId, name: member.name, card: member.card, cardCode: member.cardCode,
+  const handleCardReturnAnswer = useCallback((returned) => {
+    if (!cardReturnTarget) return;
+    const id = cardReturnTarget.id;
+    if (!returned) {
+      showToast({
+        variant: 'warning',
+        title: 'Card not returned',
+        message: 'Please collect the visitor card before completing checkout.',
       });
-    } else {
-      doMemberCheckOut(entryId, memberId, true);
+      setCardReturnTarget(null);
+      return;
     }
+    setCardReturnTarget(null);
+    doCheckOut(id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entries]);
+  }, [cardReturnTarget, showToast]);
 
-  // ── Actual checkout execution ────────────────────────────────────────────────
-  const doCheckOut = useCallback(async (id, cardReturned) => {
-    setCardReturnPending(null);
+  const handleCardReturnCancel = useCallback(() => {
+    setCardReturnTarget(null);
+  }, []);
+
+  const doCheckOut = useCallback(async (id) => {
     const original = entries.find((e) => e.id === id);
     if (!original) return;
 
@@ -534,36 +647,17 @@ export default function CheckInOut({ session }) {
     }
 
     try {
-      await checkOutEntry(id, cardReturned);
-      refreshCounts(range.from, range.to, locationId);
+      await checkOutEntry(id);
+      refreshCounts(range.from, range.to, createdByFilter);
     } catch {
-      fetchPage(currentPage, activeTab, search, selectedDept, range.from, range.to, locationId);
+      showToast({
+        variant: 'error',
+        title: 'Check-out failed',
+        message: 'Could not check out this entry. Please try again.',
+      });
+      fetchPage(currentPage, activeTab, columnFilters, range.from, range.to, createdByFilter, pageSize);
     }
-  }, [entries, activeTab, currentPage, search, selectedDept, range, locationId, fetchPage, refreshCounts]);
-
-  const doMemberCheckOut = useCallback(async (entryId, memberId, cardReturned) => {
-    setMemberCardReturnPending(null);
-    const entryOrig = entries.find((e) => e.id === entryId);
-    if (!entryOrig) return;
-
-    setEntries((prev) =>
-      prev.map((e) =>
-        e.id !== entryId ? e : {
-          ...e,
-          members: e.members.map((m) =>
-            m.id === memberId ? { ...m, status: 'checked-out' } : m
-          ),
-        }
-      )
-    );
-
-    try {
-      await checkOutMember(entryId, memberId, cardReturned);
-      refreshCounts(range.from, range.to, locationId);
-    } catch {
-      fetchPage(currentPage, activeTab, search, selectedDept, range.from, range.to, locationId);
-    }
-  }, [entries, currentPage, activeTab, search, selectedDept, range, locationId, fetchPage, refreshCounts]);
+  }, [entries, activeTab, currentPage, columnFilters, range, scopeParams, createdByFilter, pageSize, fetchPage, refreshCounts, showToast]);
 
   // ── Entry type modal ────────────────────────────────────────────────────────
   const handleEntryTypeSelect = useCallback((type) => {
@@ -574,17 +668,30 @@ export default function CheckInOut({ session }) {
 
   // After a successful add/edit: go to page 1, refresh counts & departments
   const afterMutation = useCallback(() => {
-    fetchPage(1, activeTab, search, selectedDept, range.from, range.to, locationId);
-    refreshCounts(range.from, range.to, locationId);
+    fetchPage(1, activeTab, columnFilters, range.from, range.to, createdByFilter, pageSize);
+    refreshCounts(range.from, range.to, createdByFilter);
     refreshDepartments();
-  }, [activeTab, search, selectedDept, range, locationId, fetchPage, refreshCounts, refreshDepartments]);
+  }, [activeTab, columnFilters, range, scopeParams, createdByFilter, pageSize, fetchPage, refreshCounts, refreshDepartments]);
 
   const handleCloseAddVisitor  = useCallback(() => setAddVisitorOpen(false), []);
-  const handleVisitorSuccess   = useCallback(() => { setAddVisitorOpen(false);  afterMutation(); }, [afterMutation]);
+  const handleVisitorSuccess   = useCallback((result) => {
+    setAddVisitorOpen(false);
+    notifyCheckInSuccess(showToast, result);
+    afterMutation();
+  }, [afterMutation, showToast]);
 
   const handleCloseAddEmployee = useCallback(() => setAddEmployeeOpen(false), []);
   const handleEmployeeBack     = useCallback(() => { setAddEmployeeOpen(false); setEntryTypeModalOpen(true); }, []);
-  const handleEmployeeSuccess  = useCallback(() => { setAddEmployeeOpen(false); afterMutation(); }, [afterMutation]);
+  const handleEmployeeSuccess  = useCallback((result) => {
+    setAddEmployeeOpen(false);
+    notifyCheckInSuccess(showToast, result);
+    afterMutation();
+  }, [afterMutation, showToast]);
+
+  const handleQrCheckInSuccess = useCallback((entry) => {
+    notifyCheckInSuccess(showToast, entry);
+    afterMutation();
+  }, [afterMutation, showToast]);
 
   // ── View / Edit ─────────────────────────────────────────────────────────────
   const handleView      = useCallback((entry) => setViewEntry(entry), []);
@@ -593,259 +700,242 @@ export default function CheckInOut({ session }) {
   const handleCloseEdit = useCallback(() => setEditEntry(null), []);
   const handleEditSuccess = useCallback(() => { setEditEntry(null); afterMutation(); }, [afterMutation]);
 
-  // ── Expand / collapse row ───────────────────────────────────────────────────
-  const toggleExpand = useCallback((id) => {
-    setExpandedRows((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }, []);
+  // ── Export: all rows matching current date range, tab, search, dept, location ─
+  const handleExport = useCallback(async () => {
+    if (totalElements === 0 || exporting) return;
+    setExporting(true);
+    try {
+      const { search, department } = columnFiltersToServer(columnFilters);
+      const rows = await fetchAllEntriesForExport({
+        search,
+        status:     tabToStatus(activeTab),
+        department,
+        from:       range.from,
+        to:         range.to,
+        createdBy:  createdByFilter,
+        ...scopeParams,
+      }).then((all) => all.filter((e) => matchesColumnFilters(e, columnFilters)));
+      if (rows.length === 0) return;
+      const from = range.from;
+      const to   = range.to;
+      const name = from && to && from !== to
+        ? `visitors_${from}_to_${to}.xlsx`
+        : `visitors_${from || to}.xlsx`;
+      await exportToExcel(rows, name);
+    } catch (err) {
+      window.alert(err?.message || 'Export failed. Please try again.');
+    } finally {
+      setExporting(false);
+    }
+  }, [
+    totalElements, exporting, columnFilters, activeTab,
+    range.from, range.to, createdByFilter, scopeParams,
+  ]);
 
-  // ── Export current page ─────────────────────────────────────────────────────
-  const handleExport = useCallback(() => {
-    if (entries.length === 0) return;
-    const today = new Date().toISOString().split('T')[0];
-    exportToExcel(entries, `visitors_${today}.xlsx`);
-  }, [entries]);
+  // ── Manual refresh ───────────────────────────────────────────────────────────
+  const handleRefresh = useCallback(async () => {
+    if (refreshing || pageLoading) return;
+    setRefreshing(true);
+    try {
+      await fetchPage(currentPage, activeTab, columnFilters, range.from, range.to, createdByFilter, pageSize);
+      refreshCounts(range.from, range.to, createdByFilter);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshing, pageLoading, currentPage, activeTab, columnFilters, range, createdByFilter, pageSize, fetchPage, refreshCounts]);
 
   // ── Pagination helpers ──────────────────────────────────────────────────────
-  const pageStart = (currentPage - 1) * PAGE_SIZE;
-  const pageEnd   = Math.min(pageStart + entries.length, pageStart + PAGE_SIZE);
+  const displayEntries = entries.filter((e) => matchesColumnFilters(e, columnFilters));
+  const clientFilterActive = hasClientOnlyColumnFilters(columnFilters);
+  const pageStart = (currentPage - 1) * pageSize;
+  const pageEnd   = Math.min(pageStart + displayEntries.length, pageStart + pageSize);
+  const visibleCount = clientFilterActive ? displayEntries.length : totalElements;
+
+  const emptyTitle = 'No visitors yet for this selection';
+  const emptyDescription = 'Try adjusting your column filters or add a new entry to get started.';
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="ci-page">
+      <div className={`ci-card${pageLoading ? ' ci-card--loading' : ''}`}>
 
-      {/* ── Page header ─────────────────────────────────────────────────── */}
-      <header className="ci-page__header">
-        <h1 className="ci-page__title">Check-In / Check-Out</h1>
-        <p className="ci-page__sub">Manage visitor, member, and employee entries.</p>
-      </header>
-
-      {/* ── Toolbar ─────────────────────────────────────────────────────── */}
-      <div className="ci-toolbar">
-
-        {/* Row 1: tabs (left) + location & date (right) */}
-        <div className="ci-toolbar__row1">
+        {/* ── Top bar: status tabs + primary actions ─────────────────────── */}
+        <div className="ci-topbar">
           <div className="ci-tabs" role="tablist">
             <button
               className={`ci-tab${activeTab === TAB_ALL ? ' ci-tab--active' : ''}`}
               onClick={() => handleTabChange(TAB_ALL)}
               role="tab" aria-selected={activeTab === TAB_ALL}
             >
-              All <span className="ci-tab__count">{statusCounts.total}</span>
+              All ({statusCounts.total})
             </button>
             <button
               className={`ci-tab${activeTab === TAB_CHECKED_IN ? ' ci-tab--active' : ''}`}
               onClick={() => handleTabChange(TAB_CHECKED_IN)}
               role="tab" aria-selected={activeTab === TAB_CHECKED_IN}
             >
-              Checked-in <span className="ci-tab__count">{statusCounts.checkedIn}</span>
+              Checked-in ({statusCounts.checkedIn})
             </button>
             <button
               className={`ci-tab${activeTab === TAB_CHECKED_OUT ? ' ci-tab--active' : ''}`}
               onClick={() => handleTabChange(TAB_CHECKED_OUT)}
               role="tab" aria-selected={activeTab === TAB_CHECKED_OUT}
             >
-              Checked-out <span className="ci-tab__count">{statusCounts.checkedOut}</span>
+              Checked-out ({statusCounts.checkedOut})
             </button>
-          </div>
-
-          <div className="ci-toolbar__loc-date">
-            <LocationSelector
-              session={session}
-              value={locationId}
-              onChange={(locId) => {
-                setLocationId(locId);
-                setCurrentPage(1);
-                setExpandedRows(new Set());
-              }}
-            />
-            <DateRangePicker
-              from={range.from}
-              to={range.to}
-              onChange={(r) => {
-                setRange(r);
-                setCurrentPage(1);
-                setExpandedRows(new Set());
-              }}
-            />
-          </div>
-        </div>
-
-        {/* Row 2: all other filters + actions (right-aligned) */}
-        <div className="ci-toolbar__row2">
-
-          {/* Search */}
-          <label className="ci-search" aria-label="Search entries">
-            <IconSearch size={14} />
-            <input
-              className="ci-search__input"
-              type="search"
-              placeholder="Search name, mobile, dept…"
-              value={search}
-              onChange={(e) => handleSearchChange(e.target.value)}
-            />
-          </label>
-
-          {/* Filter Dept dropdown */}
-          <div className="ci-filter-wrap" ref={filterRef}>
             <button
-              className={`ci-icon-btn${filterOpen || selectedDept ? ' ci-icon-btn--active' : ''}`}
-              onClick={() => setFilterOpen((v) => !v)}
-              aria-haspopup="true" aria-expanded={filterOpen}
-              aria-label="Filter by department"
+              type="button"
+              className={`ci-tab ci-tab--mine${myEntriesOnly ? ' ci-tab--active' : ''}`}
+              onClick={handleMyEntriesToggle}
+              aria-pressed={myEntriesOnly}
+              title="Show only entries you checked in"
             >
-              <IconFilter size={14} />
-              <span>Filter Dept</span>
-              {selectedDept && (
-                <span
-                  className="ci-filter-clear"
-                  onClick={handleClearDept}
-                  role="button" tabIndex={0}
-                  aria-label="Clear department filter"
-                  onKeyDown={(e) => e.key === 'Enter' && handleClearDept(e)}
-                >
-                  <IconX size={10} />
-                </span>
-              )}
+              <IconUser size={14} />
+              My Entries
             </button>
-            {filterOpen && (
-              <div className="ci-filter-dropdown" role="menu" aria-label="Department filter options">
-                <button
-                  className={`ci-filter-option${!selectedDept ? ' ci-filter-option--active' : ''}`}
-                  role="menuitemradio" aria-checked={!selectedDept}
-                  onClick={() => handleSelectDept(null)}
-                >
-                  <span>All Departments</span>
-                  {!selectedDept && <span className="ci-filter-check">✓</span>}
-                </button>
-                {departments.length > 0 && <div className="ci-filter-divider" role="separator" />}
-                {departments.length === 0 && !initLoading && (
-                  <div className="ci-filter-empty">No departments found</div>
-                )}
-                {departments.map((dept) => (
-                  <button
-                    key={dept}
-                    className={`ci-filter-option${selectedDept === dept ? ' ci-filter-option--active' : ''}`}
-                    role="menuitemradio" aria-checked={selectedDept === dept}
-                    onClick={() => handleSelectDept(dept)}
-                  >
-                    <span>{dept}</span>
-                    {selectedDept === dept && <span className="ci-filter-check">✓</span>}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
 
-          {/* Export */}
-          <button
-            className="ci-icon-btn"
-            onClick={handleExport}
-            disabled={entries.length === 0}
-            title="Export to Excel (.xlsx)"
-          >
-            <IconDownload size={14} />
-            <span>Export</span>
-          </button>
-
-          {/* Pre-Reg Link */}
-          <button
-            className="ci-icon-btn ci-icon-btn--prereg"
-            onClick={() => setPreRegOpen(true)}
-            title="Group Pre-Registration — share a self-registration link"
-          >
-            <IconLink size={14} />
-            <span>Pre-Reg Link</span>
-          </button>
-
-          {/* Scan QR */}
-          <button
-            className="ci-icon-btn ci-icon-btn--scan"
-            onClick={() => setQrScanOpen(true)}
-            title="Scan visitor QR code to check in"
-          >
-            <IconQrCode size={14} />
-            <span>Scan QR</span>
-          </button>
-
-          {/* Add Entry */}
-          <button
-            className="ci-add-btn"
-            onClick={() => setEntryTypeModalOpen(true)}
-          >
-            <IconPlus size={14} />
-            <span>Add Entry</span>
-          </button>
+          <div className="ci-topbar__actions">
+            {canDoCheckIn && (
+              <>
+                <button
+                  type="button"
+                  className="ci-add-btn"
+                  onClick={() => setEntryTypeModalOpen(true)}
+                >
+                  <IconPlus size={14} />
+                  <span>Add Entry</span>
+                </button>
+                <button
+                  type="button"
+                  className="ci-icon-btn ci-icon-btn--scan"
+                  onClick={() => setQrScanOpen(true)}
+                  title="Scan visitor QR code to check in"
+                >
+                  <IconQrCode size={14} />
+                  <span>Scan QR</span>
+                </button>
+                <button
+                  type="button"
+                  className="ci-icon-btn"
+                  onClick={() => setZoneScanOpen(true)}
+                  title="Record visitor movement at this kiosk"
+                >
+                  <IconQrCode size={14} />
+                  <span>Zone Scan</span>
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              className="ci-icon-btn"
+              onClick={handleExport}
+              disabled={totalElements === 0 || exporting || initLoading}
+              title={exporting ? 'Preparing export…' : 'Export all matching rows to Excel (.xlsx)'}
+            >
+              <IconDownload size={14} className={exporting ? 'ci-spin' : ''} />
+              <span>{exporting ? 'Exporting…' : 'Export'}</span>
+            </button>
+            <button
+              type="button"
+              className={`ci-icon-btn${refreshing ? ' ci-icon-btn--refreshing' : ''}`}
+              onClick={handleRefresh}
+              disabled={refreshing || pageLoading}
+              title="Refresh data"
+            >
+              <IconRefreshCw size={14} className={refreshing ? 'ci-spin' : ''} />
+              <span>Refresh</span>
+            </button>
+          </div>
         </div>
-      </div>
 
-      {/* ── Active filter pill ───────────────────────────────────────────── */}
-      {selectedDept && (
-        <div className="ci-active-filters">
-          <span className="ci-active-filter-label">Filtered by:</span>
-          <button
-            className="ci-active-filter-pill"
-            onClick={() => handleSelectDept(null)}
-            aria-label={`Remove department filter: ${selectedDept}`}
-          >
-            {selectedDept}
-            <IconX size={10} />
-          </button>
+        {/* ── Location + date (column filters are in the table header) ── */}
+        <div className="ci-filters">
+          <DateRangePicker
+            from={range.from}
+            to={range.to}
+            onChange={(r) => {
+              setRange(r);
+              setCurrentPage(1);
+            }}
+          />
         </div>
-      )}
-
-      {/* ── Table card ──────────────────────────────────────────────────── */}
-      <div className={`ci-card${pageLoading ? ' ci-card--loading' : ''}`}>
         <div className="ci-table-wrap">
           <table className="ci-table" aria-label="Check-in/Check-out entries">
+            <colgroup>
+              <col className="ci-col-w--type" />
+              <col className="ci-col-w--name" />
+              <col className="ci-col-w--contact" />
+              <col className="ci-col-w--dept" />
+              <col className="ci-col-w--person" />
+              <col className="ci-col-w--card" />
+              <col className="ci-col-w--time" />
+              <col className="ci-col-w--time" />
+              <col className="ci-col-w--last-scan" />
+              <col className="ci-col-w--status" />
+              <col className="ci-col-w--actions" />
+            </colgroup>
             <thead>
               <tr>
-                <th className="ci-col--expand" />
-                <th scope="col">Type</th>
-                <th scope="col">Name</th>
-                <th scope="col">Mobile / Emp ID</th>
-                <th scope="col">Department</th>
-                <th scope="col">Status</th>
-                <th scope="col">Person to Meet</th>
-                <th scope="col">Card(s)</th>
-                <th scope="col">Check-in</th>
-                <th scope="col">Check-out</th>
-                <th scope="col">Actions</th>
+                <th scope="col" className="ci-col-w--type">Type</th>
+                <th scope="col" className="ci-col-w--name">Name</th>
+                <th scope="col" className="ci-col-w--contact">Mobile / Emp ID</th>
+                <th scope="col" className="ci-col-w--dept">Department</th>
+                <th scope="col" className="ci-col-w--person">Person to Meet</th>
+                <th scope="col" className="ci-col-w--card">Assigned Card</th>
+                <th scope="col" className="ci-col-w--time">Check-in</th>
+                <th scope="col" className="ci-col-w--time">Check-out</th>
+                <th scope="col" className="ci-col-w--last-scan">Last Scan</th>
+                <th scope="col" className="ci-col-w--status">Status</th>
+                <th scope="col" className="ci-col-w--actions ci-col--actions">Actions</th>
               </tr>
+              <ColumnFilterRow
+                filters={columnFilters}
+                departments={departments}
+                onChange={handleColumnFiltersChange}
+              />
             </thead>
             <tbody>
               {initLoading ? (
-                Array.from({ length: 5 }, (_, i) => (
-                  <tr key={i} className="ci-row--skeleton">
-                    {Array.from({ length: COL_COUNT }, (_, j) => (
-                      <td key={j}><span className="ci-skeleton" /></td>
-                    ))}
-                  </tr>
-                ))
-              ) : entries.length === 0 ? (
                 <tr>
-                  <td colSpan={COL_COUNT} className="ci-empty">
-                    {search
-                      ? `No entries match "${search}".`
-                      : selectedDept
-                        ? `No entries for department "${selectedDept}".`
-                        : 'No entries found for the selected filter.'}
+                  <td colSpan={COL_COUNT} className="ci-table-loading">
+                    <LottieLoader size="md" ariaLabel="Loading entries" />
+                  </td>
+                </tr>
+              ) : displayEntries.length === 0 ? (
+                <tr>
+                  <td colSpan={COL_COUNT} className="fd-empty-cell">
+                    <EmptyState
+                      compact
+                      illustration={<CheckInOutEmptyIllustration />}
+                      title={emptyTitle}
+                      description={emptyDescription}
+                      actions={canDoCheckIn ? [
+                        {
+                          label: 'Add Entry',
+                          onClick: () => setEntryTypeModalOpen(true),
+                          icon: <IconPlus size={14} />,
+                          variant: 'primary',
+                        },
+                        {
+                          label: 'Scan QR',
+                          onClick: () => setQrScanOpen(true),
+                          icon: <IconQrCode size={14} />,
+                          variant: 'scan',
+                        },
+                      ] : []}
+                    />
                   </td>
                 </tr>
               ) : (
-                entries.map((entry) => (
+                displayEntries.map((entry) => (
                   <EntryRow
                     key={entry.id}
                     entry={entry}
-                    expanded={expandedRows.has(entry.id)}
-                    onToggleExpand={toggleExpand}
                     onCheckOut={handleCheckOut}
-                    onMemberCheckOut={handleMemberCheckOut}
                     onView={handleView}
                     onEdit={handleEdit}
+                            canMutate={canMutateEntry(entry)}
                   />
                 ))
               )}
@@ -853,30 +943,38 @@ export default function CheckInOut({ session }) {
           </table>
         </div>
 
-        {/* Pagination */}
-        {!initLoading && totalElements > 0 && (
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            onPageChange={handlePageChange}
-          />
-        )}
-
-        {/* Footer */}
+        {/* Footer: entry count + pagination */}
         {!initLoading && (
-          <div className="ci-footer">
-            {totalElements > 0 ? (
-              <>
-                Showing&nbsp;
-                <strong>{pageStart + 1}–{pageEnd}</strong>
-                &nbsp;of&nbsp;<strong>{totalElements}</strong>&nbsp;
-                {totalElements === 1 ? 'entry' : 'entries'}
-                {(activeTab !== TAB_ALL || selectedDept || search) &&
-                  ` (filtered from ${statusCounts.total} total)`}
-              </>
-            ) : (
-              'No entries to display'
-            )}
+          <div className="ci-card-footer">
+            <p className="ci-card-footer__info">
+              {visibleCount === 0 ? (
+                <>Showing <strong>0</strong> of <strong>0</strong> entries</>
+              ) : clientFilterActive ? (
+                <>
+                  Showing&nbsp;<strong>{displayEntries.length}</strong>
+                  &nbsp;on this page (column filters applied)
+                </>
+              ) : (
+                <>
+                  Showing&nbsp;
+                  <strong>{pageStart + 1}–{pageEnd}</strong>
+                  &nbsp;of&nbsp;<strong>{totalElements}</strong>&nbsp;entries
+                </>
+              )}
+            </p>
+            <div className="ci-card-footer__controls">
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={handlePageChange}
+                alwaysShow
+              />
+              <PageSizeSelect
+                value={pageSize}
+                options={PAGE_SIZE_OPTIONS}
+                onChange={handlePageSizeChange}
+              />
+            </div>
           </div>
         )}
       </div>
@@ -940,31 +1038,28 @@ export default function CheckInOut({ session }) {
       {qrScanOpen && (
         <QrScanModal
           onClose={() => { setQrScanOpen(false); afterMutation(); }}
-          onSuccess={() => { afterMutation(); }}
+          onSuccess={(entry) => {
+            handleQrCheckInSuccess(entry);
+            setQrScanOpen(false);
+          }}
         />
       )}
 
-      {/* ── Card Return Confirmation (main entry) ────────────────────── */}
-      {cardReturnPending && (
+      {cardReturnTarget && (
         <CardReturnModal
-          visitorName={cardReturnPending.name}
-          cardCode={cardReturnPending.cardCode}
-          card={cardReturnPending.card}
-          onConfirm={(returned) => doCheckOut(cardReturnPending.id, returned)}
-          onClose={() => setCardReturnPending(null)}
+          entry={cardReturnTarget}
+          onAnswer={handleCardReturnAnswer}
+          onCancel={handleCardReturnCancel}
         />
       )}
 
-      {/* ── Card Return Confirmation (group member) ──────────────────── */}
-      {memberCardReturnPending && (
-        <CardReturnModal
-          visitorName={memberCardReturnPending.name}
-          cardCode={memberCardReturnPending.cardCode}
-          card={memberCardReturnPending.card}
-          onConfirm={(returned) =>
-            doMemberCheckOut(memberCardReturnPending.entryId, memberCardReturnPending.memberId, returned)
-          }
-          onClose={() => setMemberCardReturnPending(null)}
+      {zoneScanOpen && (
+        <QrScanModal
+          mode="ZONE_SCAN"
+          onClose={() => setZoneScanOpen(false)}
+          onSuccess={() => {
+            handleRefresh();
+          }}
         />
       )}
 

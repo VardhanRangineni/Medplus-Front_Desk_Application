@@ -13,6 +13,7 @@
   background-size: cover;
   background-position: center top;
   background-repeat: no-repeat;
+  background-color: #1a1a2e;
 }
 
 /* Richer gradient scrim — deepens contrast for glass to pop */
@@ -118,7 +119,7 @@
   z-index: 1;
 }
 
-/* Brand row: logo + "MEDPLUS FRONT DESK" — plain flex row, no capsule */
+/* Brand row: logo + MVMS name — plain flex row, no capsule */
 .login-card__brand {
   display: flex;
   align-items: center;
@@ -135,12 +136,28 @@
   filter: drop-shadow(0 2px 8px rgba(194, 24, 29, 0.35));
 }
 
+.login-card__brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
 .login-card__brand-name {
   font-size: clamp(0.64rem, 0.72vw, 0.80rem);
   font-weight: 700;
   letter-spacing: 0.14em;
   color: var(--text-700);
   text-transform: uppercase;
+  line-height: 1.2;
+}
+
+.login-card__brand-tagline {
+  font-size: clamp(0.58rem, 0.62vw, 0.72rem);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-500);
+  line-height: 1.2;
 }
 
 .login-card__title {
@@ -289,7 +306,7 @@
 /* ── Glass Error banner ───────────────────────────────────────────────────── */
 .login-error {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-2);
   padding: clamp(8px, 1vw, 13px) clamp(10px, 1.2vw, 16px);
 
@@ -385,17 +402,8 @@
 }
 
 /* Spinner inside button */
-.login-spinner {
-  display: inline-block;
-  width:  clamp(18px, 1.6vw, 24px);
-  height: clamp(18px, 1.6vw, 24px);
-  border: 2px solid rgba(255, 255, 255, 0.28);
-  border-top-color: var(--color-white);
-  border-radius: var(--radius-full);
-  animation: loginSpin 0.65s linear infinite;
-}
-@keyframes loginSpin {
-  to { transform: rotate(360deg); }
+.login-submit__spinner {
+  margin: 0 auto;
 }
 
 /* ── Card footer ─────────────────────────────────────────────────────────── */

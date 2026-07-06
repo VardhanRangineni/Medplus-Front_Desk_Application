@@ -68,3 +68,101 @@
   font-size: 13px;
   user-select: none;
 }
+
+/* ─── Rows-per-page picker (footer) ───────────────────────────────────────── */
+.pgn-size {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.pgn-size__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 96px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #dde0e6;
+  border-radius: 6px;
+  background: #fff;
+  color: #374151;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  -webkit-app-region: no-drag;
+}
+
+.pgn-size__trigger:hover,
+.pgn-size__trigger--open {
+  border-color: #c8cad0;
+  background: #f9fafb;
+}
+
+.pgn-size__trigger:focus-visible {
+  outline: none;
+  border-color: rgba(194, 24, 29, 0.4);
+  box-shadow: 0 0 0 3px rgba(194, 24, 29, 0.08);
+}
+
+.pgn-size__label {
+  white-space: nowrap;
+}
+
+.pgn-size__chev {
+  flex-shrink: 0;
+  color: #9ca3af;
+  transition: transform 0.15s;
+}
+
+.pgn-size__trigger--open .pgn-size__chev {
+  transform: rotate(180deg);
+}
+
+.pgn-size__menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 96px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid #dde0e6;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12), 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.pgn-size__menu--measuring {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.pgn-size__option {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #374151;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.pgn-size__option:hover {
+  background: #f3f4f6;
+}
+
+.pgn-size__option--active {
+  background: rgba(194, 24, 29, 0.08);
+  color: #C2181D;
+}

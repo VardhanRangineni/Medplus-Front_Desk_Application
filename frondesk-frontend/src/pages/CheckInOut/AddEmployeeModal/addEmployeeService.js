@@ -11,6 +11,8 @@
  * Search for "TODO: OTP API" when the SMS gateway is ready.
  */
 
+import { formatApiFailure } from '../../../services/userFacingErrors';
+
 // ─── Re-export shared reference-data functions ────────────────────────────────
 export { getPersonsToMeet, getDepartments } from '../AddVisitorModal/addVisitorService';
 
@@ -19,27 +21,18 @@ export { getPersonsToMeet, getDepartments } from '../AddVisitorModal/addVisitorS
 async function api(method, path, body) {
   const result = await window.electronAPI.apiRequest(method, path, body);
   if (!result.ok) {
-    const msg = result.body?.message || `Request failed: ${result.status}`;
-    throw new Error(msg);
+    throw new Error(formatApiFailure(result));
   }
   return result.body?.data ?? result.body;
 }
 
-// ─── Employee lookup ──────────────────────────────────────────────────────────
+// ─── HRMS employee lookup ─────────────────────────────────────────────────────
 
-/**
- * Looks up an employee by their Employee ID.
- * Returns their name, department, and masked phone for the OTP hint.
- *
- * Endpoint: GET /api/visitors/employee-lookup/:empId
- *
- * @param {string} empId
- * @returns {Promise<{ found: boolean, employee?: object, message?: string }>}
- */
-export async function lookupEmployee(empId) {
-  const data = await api('GET', `/api/visitors/employee-lookup/${encodeURIComponent(empId)}`);
-  return data;
-}
+export {
+  lookupHrmsByEmployeeId,
+  lookupHrmsByHrmsId,
+  lookupHrmsEmployee,
+} from '../../../services/hrmsService';
 
 // ─── OTP  (intentionally still mocked — SMS gateway not yet available) ────────
 
@@ -50,7 +43,6 @@ export async function lookupEmployee(empId) {
  */
 export async function sendEmployeeOtp(empId) {
   await new Promise((r) => setTimeout(r, 700));
-  console.log('[OTP] Sent to employee', empId);
   return { success: true, message: 'OTP sent to registered phone number.' };
 }
 
@@ -79,14 +71,12 @@ export async function verifyEmployeeOtp(empId, otp) {
  */
 export async function updateEmployeeEntry(id, data) {
   const payload = {
-    visitType:      'INDIVIDUAL',
-    entryType:      'EMPLOYEE',
-    name:           data.name,
-    empId:          data.empId,
-    personToMeetId: data.personToMeet,
-    cardNumber:     data.cardNumber ? parseInt(data.cardNumber, 10) : null,
-    reasonForVisit: data.reasonForVisit || null,
-    members:        null,
+    entryType:        'EMPLOYEE',
+    name:             data.name,
+    empId:            data.empId,
+    personToMeetId:   data.personToMeet,
+    cardNumber:       data.cardNumber ? parseInt(data.cardNumber, 10) : null,
+    reasonForVisit:   data.reasonForVisit || null,
   };
   const entry = await api('PUT', `/api/visitors/${encodeURIComponent(id)}`, payload);
   return { success: true, entryId: entry.id ?? id };
@@ -103,17 +93,15 @@ export async function updateEmployeeEntry(id, data) {
  */
 export async function createEmployeeEntry(data) {
   const payload = {
-    visitType:      'INDIVIDUAL',
-    entryType:      'EMPLOYEE',
-    name:           data.name,
-    mobile:         null,
-    empId:          data.empId,
-    personToMeetId: data.personToMeet,
-    cardNumber:     data.cardNumber ? parseInt(data.cardNumber, 10) : null,
-    reasonForVisit: data.reasonForVisit || null,
-    members:        null,
+    entryType:        'EMPLOYEE',
+    name:             data.name,
+    mobile:           null,
+    empId:            data.empId,
+    personToMeetId:   data.personToMeet,
+    employeeDepartment: data.employeeDepartment || data.department || null,
+    reasonForVisit:   data.reasonForVisit || null,
   };
 
   const entry = await api('POST', '/api/visitors', payload);
-  return { success: true, entryId: entry.id };
+  return { success: true, type: 'EMPLOYEE', entryId: entry.id, ...entry };
 }

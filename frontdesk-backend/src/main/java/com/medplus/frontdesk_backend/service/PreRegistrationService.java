@@ -2,6 +2,7 @@ package com.medplus.frontdesk_backend.service;
 
 import com.medplus.frontdesk_backend.dto.*;
 import com.medplus.frontdesk_backend.repository.VisitorRepository;
+import com.medplus.frontdesk_backend.security.AuthorizationHelper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -19,17 +20,13 @@ public class PreRegistrationService {
 
     private final NamedParameterJdbcTemplate jdbc;
     private final VisitorRepository visitorRepository;
+    private final AuthorizationHelper authorizationHelper;
+    private final HrmsService hrmsService;
 
     // ── Create group link ─────────────────────────────────────────────────────
 
     public PreRegGroupLinkDto createGroupLink(String locationId, String createdBy) {
-        String locationName = jdbc.queryForObject(
-                "SELECT descriptiveName FROM locationmaster WHERE LocationId = :loc",
-                Map.of("loc", locationId), String.class);
-
-        if (locationName == null) {
-            throw new IllegalArgumentException("Location not found: " + locationId);
-        }
+        String locationName = resolveLocationName(locationId);
 
         String groupToken = UUID.randomUUID().toString().replace("-", "");
         Instant expiresAt = Instant.now().plus(24, ChronoUnit.HOURS);
@@ -48,32 +45,160 @@ public class PreRegistrationService {
         return new PreRegGroupLinkDto(groupToken, locationId, locationName, expiresAt);
     }
 
-    // ── Public: get form data for a group token ───────────────────────────────
+    // ── Public: walk-in form submit (no location, no group token) ────────────
+    // Single public form used by all locations. Location is resolved at
+    // check-in time from the receptionist's session.
 
-    public PreRegFormDataDto getFormData(String groupToken) {
-        Map<String, Object> group = getActiveGroup(groupToken);
-        String locationId = (String) group.get("locationId");
+    public PreRegSubmitResponseDto submitWalkIn(PreRegSubmitDto dto) {
+        String token = UUID.randomUUID().toString().replace("-", "");
 
-        String locationName = jdbc.queryForObject(
-                "SELECT descriptiveName FROM locationmaster WHERE LocationId = :loc",
-                Map.of("loc", locationId), String.class);
+        String empIdToStore = dto.getEmpId();
+        String resolvedName = dto.getName();
+
+        if ("EMPLOYEE".equalsIgnoreCase(dto.getEntryType())) {
+            UserLookupDto emp = lookupHrmsEmployee(dto.getEmpId())
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "Employee not found in HRMS. Please check your Employee ID or HRMS ID."));
+            empIdToStore = (emp.getId() != null && !emp.getId().isBlank())
+                    ? emp.getId() : dto.getEmpId().trim();
+            resolvedName = emp.getName() != null && !emp.getName().isBlank()
+                    ? emp.getName() : empIdToStore;
+        } else {
+            resolvedName = resolveEmployeeDisplayName(dto.getEmpId(), dto.getName(), dto.getEntryType());
+        }
+
+        jdbc.update(
+            "INSERT INTO preregistrations " +
+            "(token, groupToken, entryType, name, mobile, empId, email, " +
+            " govtIdType, govtIdNumber, " +
+            " personToMeetId, personName, hostDepartment, reasonForVisit, companyName, locationId) " +
+            "VALUES (:token, NULL, :et, :name, :mob, :emp, :email, " +
+            "        :idType, :idNum, " +
+            "        :ptm, :ptmName, :dept, :reason, :company, NULL)",
+            new MapSqlParameterSource()
+                .addValue("token",   token)
+                .addValue("et",      dto.getEntryType() != null ? dto.getEntryType().toUpperCase() : "VISITOR")
+                .addValue("name",    resolvedName)
+                .addValue("mob",     dto.getMobile())
+                .addValue("emp",     empIdToStore)
+                .addValue("email",   dto.getEmail())
+                .addValue("idType",  dto.getGovtIdType() != null ? dto.getGovtIdType().toUpperCase() : null)
+                .addValue("idNum",   dto.getGovtIdNumber())
+                .addValue("ptm",     dto.getPersonToMeetId())
+                .addValue("ptmName", dto.getPersonName())
+                .addValue("dept",    dto.getHostDepartment())
+                .addValue("reason",  dto.getReasonForVisit())
+                .addValue("company", dto.getCompanyName() != null && !dto.getCompanyName().isBlank()
+                        ? dto.getCompanyName().trim() : null)
+        );
+
+        log.info("Walk-in pre-registration submitted: token={} name={}", token, resolvedName);
+        return new PreRegSubmitResponseDto(token, resolvedName, "MedPlus");
+    }
+
+    // ── Public: get form data by locationId (permanent, no expiry) ───────────
+
+    public PreRegFormDataDto getFormDataByLocation(String locationId) {
+        String locationName = resolveLocationName(locationId);
 
         List<PreRegFormDataDto.PersonOption> persons = jdbc.query(
-            "SELECT u.employeeid AS id, u.fullName AS name, u.department " +
-            "FROM usermaster u " +
-            "JOIN usermanagement um ON um.employeeid = u.employeeid " +
-            "WHERE um.location = :loc AND um.status = 'ACTIVE' " +
-            "ORDER BY u.fullName",
+            "SELECT employeeid AS id, fullName AS name, department " +
+            "FROM usermanagement WHERE location = :loc ORDER BY fullName",
             Map.of("loc", locationId),
             (rs, i) -> new PreRegFormDataDto.PersonOption(
                 rs.getString("id"), rs.getString("name"), rs.getString("department"))
         );
 
         List<String> departments = jdbc.queryForList(
-            "SELECT DISTINCT u.department FROM usermaster u " +
-            "JOIN usermanagement um ON um.employeeid = u.employeeid " +
-            "WHERE um.location = :loc AND um.status = 'ACTIVE' " +
-            "ORDER BY u.department",
+            "SELECT DISTINCT department FROM usermanagement WHERE location = :loc ORDER BY department",
+            Map.of("loc", locationId), String.class
+        );
+
+        return new PreRegFormDataDto(locationId, locationName, persons, departments);
+    }
+
+    // ── Public: visitor submits for a location (permanent, no expiry) ─────────
+
+    public PreRegSubmitResponseDto submitForLocation(String locationId, PreRegSubmitDto dto) {
+        String locationName = resolveLocationName(locationId);
+
+        String token = UUID.randomUUID().toString().replace("-", "");
+
+        String empIdToStore = dto.getEmpId();
+        String resolvedName = dto.getName();
+
+        if ("EMPLOYEE".equalsIgnoreCase(dto.getEntryType())) {
+            UserLookupDto emp = lookupHrmsEmployee(dto.getEmpId())
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "Employee not found in HRMS. Please check your Employee ID or HRMS ID."));
+            empIdToStore = (emp.getId() != null && !emp.getId().isBlank())
+                    ? emp.getId() : dto.getEmpId().trim();
+            resolvedName = emp.getName() != null && !emp.getName().isBlank()
+                    ? emp.getName() : empIdToStore;
+        } else {
+            resolvedName = resolveEmployeeDisplayName(dto.getEmpId(), dto.getName(), dto.getEntryType());
+        }
+
+        String personName = dto.getPersonName();
+        if ((personName == null || personName.isBlank()) && dto.getPersonToMeetId() != null) {
+            List<String> pNames = jdbc.queryForList(
+                "SELECT fullName FROM usermanagement WHERE employeeid = :id",
+                Map.of("id", dto.getPersonToMeetId()), String.class);
+            personName = pNames.isEmpty() ? null : pNames.get(0);
+        }
+
+        // Use a synthetic groupToken so it fits the schema (not expiry-checked)
+        String syntheticGroup = "LOC-" + locationId;
+
+        jdbc.update(
+            "INSERT INTO preregistrations " +
+            "(token, groupToken, entryType, name, mobile, empId, email, " +
+            " govtIdType, govtIdNumber, " +
+            " personToMeetId, personName, hostDepartment, reasonForVisit, companyName, locationId) " +
+            "VALUES (:token, :grp, :et, :name, :mob, :emp, :email, " +
+            "        :idType, :idNum, " +
+            "        :ptm, :ptmName, :dept, :reason, :company, :loc)",
+            new MapSqlParameterSource()
+                .addValue("token",   token)
+                .addValue("grp",     syntheticGroup)
+                .addValue("et",      dto.getEntryType().toUpperCase())
+                .addValue("name",    resolvedName)
+                .addValue("mob",     dto.getMobile())
+                .addValue("emp",     empIdToStore)
+                .addValue("email",   dto.getEmail())
+                .addValue("idType",  dto.getGovtIdType() != null ? dto.getGovtIdType().toUpperCase() : null)
+                .addValue("idNum",   dto.getGovtIdNumber())
+                .addValue("ptm",     dto.getPersonToMeetId())
+                .addValue("ptmName", personName)
+                .addValue("dept",    dto.getHostDepartment())
+                .addValue("reason",  dto.getReasonForVisit())
+                .addValue("company", dto.getCompanyName() != null && !dto.getCompanyName().isBlank()
+                        ? dto.getCompanyName().trim() : null)
+                .addValue("loc",     locationId)
+        );
+
+        log.info("Location pre-registration submitted: token={} name={} location={}", token, resolvedName, locationId);
+        return new PreRegSubmitResponseDto(token, resolvedName, locationName);
+    }
+
+    // ── Public: get form data for a group token ───────────────────────────────
+
+    public PreRegFormDataDto getFormData(String groupToken) {
+        Map<String, Object> group = getActiveGroup(groupToken);
+        String locationId = (String) group.get("locationId");
+
+        String locationName = resolveLocationName(locationId);
+
+        List<PreRegFormDataDto.PersonOption> persons = jdbc.query(
+            "SELECT employeeid AS id, fullName AS name, department " +
+            "FROM usermanagement WHERE location = :loc ORDER BY fullName",
+            Map.of("loc", locationId),
+            (rs, i) -> new PreRegFormDataDto.PersonOption(
+                rs.getString("id"), rs.getString("name"), rs.getString("department"))
+        );
+
+        List<String> departments = jdbc.queryForList(
+            "SELECT DISTINCT department FROM usermanagement WHERE location = :loc ORDER BY department",
             Map.of("loc", locationId), String.class
         );
 
@@ -86,28 +211,17 @@ public class PreRegistrationService {
         Map<String, Object> group = getActiveGroup(groupToken);
         String locationId = (String) group.get("locationId");
 
-        String locationName = jdbc.queryForObject(
-                "SELECT descriptiveName FROM locationmaster WHERE LocationId = :loc",
-                Map.of("loc", locationId), String.class);
+        String locationName = resolveLocationName(locationId);
 
         String token = UUID.randomUUID().toString().replace("-", "");
 
-        // For employees, auto-resolve full name from usermaster if visitor didn't provide it
-        String resolvedName = dto.getName();
-        if ((resolvedName == null || resolvedName.isBlank())
-                && "EMPLOYEE".equalsIgnoreCase(dto.getEntryType())
-                && dto.getEmpId() != null) {
-            List<String> empNames = jdbc.queryForList(
-                "SELECT fullName FROM usermaster WHERE employeeid = :id",
-                Map.of("id", dto.getEmpId()), String.class);
-            resolvedName = empNames.isEmpty() ? dto.getEmpId() : empNames.get(0);
-        }
+        String resolvedName = resolveEmployeeDisplayName(dto.getEmpId(), dto.getName(), dto.getEntryType());
 
         // Resolve person name if only ID was provided
         String personName = dto.getPersonName();
         if ((personName == null || personName.isBlank()) && dto.getPersonToMeetId() != null) {
             List<String> names = jdbc.queryForList(
-                "SELECT fullName FROM usermaster WHERE employeeid = :id",
+                "SELECT fullName FROM usermanagement WHERE employeeid = :id",
                 Map.of("id", dto.getPersonToMeetId()), String.class);
             personName = names.isEmpty() ? null : names.get(0);
         }
@@ -116,10 +230,10 @@ public class PreRegistrationService {
             "INSERT INTO preregistrations " +
             "(token, groupToken, entryType, name, mobile, empId, email, " +
             " govtIdType, govtIdNumber, " +
-            " personToMeetId, personName, hostDepartment, reasonForVisit, locationId) " +
+            " personToMeetId, personName, hostDepartment, reasonForVisit, companyName, locationId) " +
             "VALUES (:token, :grp, :et, :name, :mob, :emp, :email, " +
             "        :idType, :idNum, " +
-            "        :ptm, :ptmName, :dept, :reason, :loc)",
+            "        :ptm, :ptmName, :dept, :reason, :company, :loc)",
             new MapSqlParameterSource()
                 .addValue("token",   token)
                 .addValue("grp",     groupToken)
@@ -134,6 +248,8 @@ public class PreRegistrationService {
                 .addValue("ptmName", personName)
                 .addValue("dept",    dto.getHostDepartment())
                 .addValue("reason",  dto.getReasonForVisit())
+                .addValue("company", dto.getCompanyName() != null && !dto.getCompanyName().isBlank()
+                        ? dto.getCompanyName().trim() : null)
                 .addValue("loc",     locationId)
         );
 
@@ -145,9 +261,8 @@ public class PreRegistrationService {
 
     public PreRegSubmitResponseDto getSubmission(String token) {
         List<Map<String, Object>> rows = jdbc.queryForList(
-            "SELECT p.name, l.descriptiveName AS locationName " +
+            "SELECT p.name, " + locationNameSubquery("p") + " AS locationName " +
             "FROM preregistrations p " +
-            "JOIN locationmaster l ON l.LocationId = p.locationId " +
             "WHERE p.token = :token",
             Map.of("token", token)
         );
@@ -160,9 +275,8 @@ public class PreRegistrationService {
 
     public PreRegPreviewDto getPreviewForQr(String token) {
         List<Map<String, Object>> rows = jdbc.queryForList(
-            "SELECT p.*, l.descriptiveName AS locationName " +
+            "SELECT p.*, " + locationNameSubquery("p") + " AS locationName " +
             "FROM preregistrations p " +
-            "JOIN locationmaster l ON l.LocationId = p.locationId " +
             "WHERE p.token = :token",
             Map.of("token", token)
         );
@@ -170,10 +284,6 @@ public class PreRegistrationService {
             throw new NoSuchElementException("QR code not found. Please ask the visitor to re-register.");
         }
         Map<String, Object> r = rows.get(0);
-        if ("CHECKED_IN".equals(r.get("status"))) {
-            throw new IllegalStateException("This QR code has already been used for check-in.");
-        }
-
         PreRegPreviewDto dto = new PreRegPreviewDto();
         dto.setToken(token);
         dto.setName((String) r.get("name"));
@@ -182,6 +292,7 @@ public class PreRegistrationService {
         dto.setEmpId((String) r.get("empId"));
         dto.setGovtIdType((String) r.get("govtIdType"));
         dto.setGovtIdNumber((String) r.get("govtIdNumber"));
+        dto.setPersonToMeetId((String) r.get("personToMeetId"));
         dto.setPersonName((String) r.get("personName"));
         dto.setHostDepartment((String) r.get("hostDepartment"));
         dto.setReasonForVisit((String) r.get("reasonForVisit"));
@@ -189,18 +300,41 @@ public class PreRegistrationService {
         dto.setLocationName((String) r.get("locationName"));
         dto.setStatus((String) r.get("status"));
 
-        // Verify the empId against usermaster (HR master — all employees are here,
-        // regardless of whether they have a front-desk login account).
-        if ("EMPLOYEE".equals(dto.getEntryType()) && dto.getEmpId() != null) {
-            List<Map<String, Object>> empRows = jdbc.queryForList(
-                "SELECT fullName, department FROM usermaster WHERE employeeid = :id",
-                Map.of("id", dto.getEmpId())
-            );
-            if (!empRows.isEmpty()) {
-                dto.setEmpFound(true);
-                dto.setEmpFullName((String) empRows.get(0).get("fullName"));
-                dto.setEmpDept((String) empRows.get(0).get("department"));
+        if ("CHECKED_IN".equals(r.get("status"))) {
+            String linkedVisitorId = r.get("visitorId") != null ? r.get("visitorId").toString() : null;
+            if (linkedVisitorId != null && !linkedVisitorId.isBlank()) {
+                dto.setAlreadyCheckedIn(true);
+                dto.setActiveEntryId(linkedVisitorId);
+                return dto;
             }
+            throw new IllegalStateException("This QR code has already been used for check-in.");
+        }
+
+        if (dto.getPersonToMeetId() != null && !dto.getPersonToMeetId().isBlank()) {
+            lookupHrmsEmployee(dto.getPersonToMeetId()).ifPresent(emp -> {
+                if (emp.getName() != null && !emp.getName().isBlank()) {
+                    dto.setPersonName(emp.getName());
+                }
+                if (emp.getDepartment() != null && !emp.getDepartment().isBlank()) {
+                    dto.setHostDepartment(emp.getDepartment());
+                }
+            });
+        }
+
+        // Verify employee via HRMS (same source as User Management / Add Employee modal).
+        if ("EMPLOYEE".equals(dto.getEntryType()) && dto.getEmpId() != null) {
+            lookupHrmsEmployee(dto.getEmpId()).ifPresent(emp -> {
+                dto.setEmpFound(true);
+                dto.setEmpFullName(emp.getName());
+                dto.setEmpDept(emp.getDepartment() != null ? emp.getDepartment() : "");
+                if (emp.getId() != null && !emp.getId().isBlank()) {
+                    dto.setEmpId(emp.getId());
+                }
+                if ((dto.getName() == null || dto.getName().isBlank())
+                        && emp.getName() != null && !emp.getName().isBlank()) {
+                    dto.setName(emp.getName());
+                }
+            });
         }
 
         // Check for an existing active (CHECKED_IN) entry for this person so the
@@ -221,31 +355,47 @@ public class PreRegistrationService {
 
     // ── Authenticated: search staff at the location tied to a pre-reg token ──
 
-    public List<Map<String, Object>> searchStaff(String query, String preRegToken) {
+    public List<Map<String, Object>> searchStaff(String query, String preRegToken, String callerEmpId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT locationId FROM preregistrations WHERE token = :token",
             Map.of("token", preRegToken)
         );
         if (rows.isEmpty()) throw new NoSuchElementException("Pre-registration token not found.");
+
         String locationId = (String) rows.get(0).get("locationId");
+
+        // Walk-in pre-registrations have no locationId — fall back to the operator's own location.
+        // This ensures results are always scoped to where the check-in is happening.
+        if (locationId == null || locationId.isBlank()) {
+            locationId = callerEmpId != null ? authorizationHelper.getUserLocation(callerEmpId) : null;
+        }
+
         String trimmed = query.trim();
-        String like = "%" + trimmed.toLowerCase(Locale.ROOT) + "%";
+        String like    = "%" + trimmed.toLowerCase(Locale.ROOT) + "%";
         String likeRaw = "%" + trimmed + "%";
 
-        // Include usermaster rows at this site by work location, not only usermanagement.location (HR sync).
         MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("loc", locationId)
-                .addValue("q", like)
-                .addValue("qRaw", likeRaw);
+                .addValue("q",      like)
+                .addValue("qRaw",   likeRaw);
 
+        // If we still have no location (e.g. PRIMARY_ADMIN has no fixed location), search all staff.
+        if (locationId == null || locationId.isBlank()) {
+            return jdbc.queryForList(
+                "SELECT u.employeeid AS id, u.fullName AS name, u.department " +
+                "FROM usermanagement u " +
+                "WHERE (LOWER(u.fullName) LIKE :q OR LOWER(u.employeeid) LIKE :q OR u.phone LIKE :qRaw) " +
+                "ORDER BY u.fullName LIMIT 10",
+                params
+            );
+        }
+
+        params.addValue("loc", locationId);
         return jdbc.queryForList(
-            "SELECT u.employeeid AS id, u.fullName AS name, u.department " +
-            "FROM usermaster u " +
-            "LEFT JOIN usermanagement um ON um.employeeid = u.employeeid AND um.status = 'ACTIVE' " +
-            "INNER JOIN locationmaster lm ON lm.LocationId = :loc " +
-            "WHERE (LOWER(u.fullName) LIKE :q OR LOWER(u.employeeid) LIKE :q OR u.phone LIKE :qRaw) " +
-            "AND (um.location = :loc OR LOWER(TRIM(u.worklocation)) = LOWER(TRIM(lm.descriptiveName))) " +
-            "ORDER BY u.fullName LIMIT 10",
+            "SELECT employeeid AS id, fullName AS name, department " +
+            "FROM usermanagement " +
+            "WHERE location = :loc " +
+            "AND (LOWER(fullName) LIKE :q OR LOWER(employeeid) LIKE :q OR phone LIKE :qRaw) " +
+            "ORDER BY fullName LIMIT 10",
             params
         );
     }
@@ -257,7 +407,7 @@ public class PreRegistrationService {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT p.*, pg.expiresAt " +
             "FROM preregistrations p " +
-            "JOIN preregistration_groups pg ON pg.groupToken = p.groupToken " +
+            "LEFT JOIN preregistration_groups pg ON pg.groupToken = p.groupToken " +
             "WHERE p.token = :token",
             Map.of("token", token)
         );
@@ -272,12 +422,86 @@ public class PreRegistrationService {
             throw new IllegalStateException("This QR code has already been used for check-in.");
         }
 
-        Instant expiresAt = ((java.sql.Timestamp) reg.get("expiresAt")).toInstant();
-        if (Instant.now().isAfter(expiresAt)) {
-            throw new IllegalStateException("This QR code has expired. Please ask the visitor to re-register.");
+        // Only check expiry if the registration came from a group link (not walk-in)
+        if (reg.get("expiresAt") != null) {
+            Instant expiresAt = ((java.sql.Timestamp) reg.get("expiresAt")).toInstant();
+            if (Instant.now().isAfter(expiresAt)) {
+                throw new IllegalStateException("This QR code has expired. Please ask the visitor to re-register.");
+            }
         }
 
         return reg;
+    }
+
+    // ── Desk walk-in visit pass (prereg row created after receptionist check-in) ─
+
+    public String createDeskCheckInPass(com.medplus.frontdesk_backend.model.Visitor visitor) {
+        String token = UUID.randomUUID().toString().replace("-", "");
+        jdbc.update(
+            "INSERT INTO preregistrations " +
+            "(token, groupToken, entryType, name, mobile, empId, email, " +
+            " govtIdType, govtIdNumber, " +
+            " personToMeetId, personName, hostDepartment, reasonForVisit, companyName, locationId, " +
+            " status, visitorId, visitCardSmsStatus) " +
+            "VALUES (:token, NULL, :et, :name, :mob, NULL, NULL, " +
+            "        :idType, :idNum, " +
+            "        :ptm, :ptmName, :dept, :reason, :company, :loc, " +
+            "        'CHECKED_IN', :vid, 'PENDING')",
+            new MapSqlParameterSource()
+                .addValue("token", token)
+                .addValue("et", "VISITOR")
+                .addValue("name", visitor.getName())
+                .addValue("mob", visitor.getMobile())
+                .addValue("idType", visitor.getGovtIdType() != null ? visitor.getGovtIdType().name() : null)
+                .addValue("idNum", visitor.getGovtIdNumber())
+                .addValue("ptm", visitor.getPersonToMeet())
+                .addValue("ptmName", visitor.getPersonName())
+                .addValue("dept", visitor.getDepartment())
+                .addValue("reason", visitor.getReasonForVisit())
+                .addValue("company", visitor.getCompanyName())
+                .addValue("loc", visitor.getLocationId())
+                .addValue("vid", visitor.getVisitorId())
+        );
+        log.info("Desk visit pass token created: token={} visitorId={}", token, visitor.getVisitorId());
+        return token;
+    }
+
+    public void updateVisitPassStatus(String token, String smsStatus,
+                                      String imageUrl, String shortUrl, String smsError) {
+        jdbc.update(
+            "UPDATE preregistrations SET " +
+            "visitCardSmsStatus = :status, " +
+            "visitCardImageUrl = COALESCE(:img, visitCardImageUrl), " +
+            "visitCardShortUrl = COALESCE(:short, visitCardShortUrl), " +
+            "visitCardSmsError = :err, " +
+            "visitCardSentAt = CASE WHEN :status = 'SENT' THEN CURRENT_TIMESTAMP ELSE visitCardSentAt END " +
+            "WHERE token = :token",
+            new MapSqlParameterSource()
+                .addValue("token", token)
+                .addValue("status", smsStatus)
+                .addValue("img", imageUrl)
+                .addValue("short", shortUrl)
+                .addValue("err", smsError)
+        );
+
+        if (imageUrl != null && !imageUrl.isBlank()) {
+            jdbc.update(
+                "UPDATE visitorlog vl " +
+                "INNER JOIN preregistrations p ON p.visitorId = vl.visitorId " +
+                "SET vl.imageUrl = :img " +
+                "WHERE p.token = :token",
+                Map.of("img", imageUrl, "token", token)
+            );
+        }
+    }
+
+    public Map<String, Object> findPassByVisitorId(String visitorId) {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+            "SELECT token, name, mobile, visitCardSmsStatus FROM preregistrations " +
+            "WHERE visitorId = :vid ORDER BY createdAt DESC LIMIT 1",
+            Map.of("vid", visitorId)
+        );
+        return rows.isEmpty() ? null : rows.get(0);
     }
 
     // ── Mark pre-registration as checked-in ───────────────────────────────────
@@ -290,7 +514,88 @@ public class PreRegistrationService {
         log.info("QR check-in completed: token={} visitorId={}", token, visitorId);
     }
 
+    /**
+     * Confirms an employee exists in HRMS before QR check-in completes.
+     */
+    public boolean isEmployeeVerifiedInHrms(String employeeIdOrHrmsId) {
+        return lookupHrmsEmployee(employeeIdOrHrmsId).isPresent();
+    }
+
+    /** Public self-check-in form — verify person-to-meet by mobile (no auth). */
+    public PreRegHrmsVerifyDto verifyPersonToMeetByPhone(String phone) {
+        if (phone == null || phone.replaceAll("\\D", "").length() < 10) {
+            return PreRegHrmsVerifyDto.builder()
+                    .found(false)
+                    .message("Please enter a valid 10-digit mobile number.")
+                    .build();
+        }
+        return hrmsService.lookupByPhoneNo(phone)
+                .map(emp -> PreRegHrmsVerifyDto.builder()
+                        .found(true)
+                        .employeeId(emp.getId())
+                        .hrmsId(emp.getHrmsId())
+                        .name(emp.getName())
+                        .department(emp.getDepartment())
+                        .message("Employee verified.")
+                        .build())
+                .orElse(PreRegHrmsVerifyDto.builder()
+                        .found(false)
+                        .message("No employee found in HRMS for this mobile number.")
+                        .build());
+    }
+
+    /** Public self-check-in form — verify Employee ID or HRMS ID (no auth). */
+    public PreRegHrmsVerifyDto verifyEmployeeForPublicForm(String idOrHrmsId) {
+        if (idOrHrmsId == null || idOrHrmsId.isBlank()) {
+            return PreRegHrmsVerifyDto.builder()
+                    .found(false)
+                    .message("Please enter an Employee ID or HRMS ID.")
+                    .build();
+        }
+        return lookupHrmsEmployee(idOrHrmsId)
+                .map(emp -> PreRegHrmsVerifyDto.builder()
+                        .found(true)
+                        .employeeId(emp.getId())
+                        .hrmsId(emp.getHrmsId())
+                        .name(emp.getName())
+                        .department(emp.getDepartment())
+                        .message("Employee verified.")
+                        .build())
+                .orElse(PreRegHrmsVerifyDto.builder()
+                        .found(false)
+                        .message("No employee found in HRMS for this ID.")
+                        .build());
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    /**
+     * HRMS lookup by employee ID, then by HRMS id (e.g. med1098233).
+     */
+    private Optional<UserLookupDto> lookupHrmsEmployee(String employeeIdOrHrmsId) {
+        if (employeeIdOrHrmsId == null || employeeIdOrHrmsId.isBlank()) {
+            return Optional.empty();
+        }
+        String key = employeeIdOrHrmsId.trim();
+        Optional<UserLookupDto> found = hrmsService.lookupByEmployeeId(key);
+        if (found.isEmpty()) {
+            found = hrmsService.lookupByHrmsId(key);
+        }
+        return found;
+    }
+
+    private String resolveEmployeeDisplayName(String empId, String providedName, String entryType) {
+        if (!"EMPLOYEE".equalsIgnoreCase(entryType) || empId == null || empId.isBlank()) {
+            return providedName;
+        }
+        if (providedName != null && !providedName.isBlank()) {
+            return providedName;
+        }
+        return lookupHrmsEmployee(empId)
+                .map(UserLookupDto::getName)
+                .filter(n -> n != null && !n.isBlank())
+                .orElse(empId.trim());
+    }
 
     private Map<String, Object> getActiveGroup(String groupToken) {
         List<Map<String, Object>> rows = jdbc.queryForList(
@@ -306,5 +611,25 @@ public class PreRegistrationService {
             throw new IllegalStateException("This registration link has expired.");
         }
         return group;
+    }
+
+    private String resolveLocationName(String locationId) {
+        List<String> names = jdbc.queryForList(
+                """
+                SELECT COALESCE(NULLIF(MAX(locationName), ''), MAX(location)) AS name
+                FROM usermanagement
+                WHERE location = :loc
+                """,
+                Map.of("loc", locationId),
+                String.class);
+        if (names.isEmpty() || names.get(0) == null || names.get(0).isBlank()) {
+            throw new NoSuchElementException("Location not found: " + locationId);
+        }
+        return names.get(0);
+    }
+
+    private static String locationNameSubquery(String tableAlias) {
+        return "(SELECT COALESCE(NULLIF(MAX(um.locationName), ''), MAX(um.location)) " +
+               "FROM usermanagement um WHERE um.location = " + tableAlias + ".locationId)";
     }
 }

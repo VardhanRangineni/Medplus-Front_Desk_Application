@@ -1,187 +1,338 @@
 -- =============================================================================
---  Medplus Front Desk — Auto-Init Schema
---  Run automatically by Spring Boot on every startup.
---  All statements use IF NOT EXISTS — safe to run repeatedly, no data loss.
+-- MVMS database — tables only (runs on every startup, CREATE IF NOT EXISTS).
+-- Admin user: app.bootstrap.admin.* in application.properties (not SQL).
+-- Full reset: db/schema.sql (DROP DATABASE + recreate).
 -- =============================================================================
 
--- ── 1. locationmaster ────────────────────────────────────────────────────────
+-- ── legacy tables (remove if present from older installs) ────────────────────
 
-CREATE TABLE IF NOT EXISTS `locationmaster` (
-    `LocationId`      VARCHAR(50)  NOT NULL  COMMENT 'Unique location code, e.g. HO-HO-HYD',
-    `descriptiveName` VARCHAR(150) NOT NULL  COMMENT 'Full display name of the location',
-    `type`            VARCHAR(150) NOT NULL  COMMENT 'Location type, e.g. HEAD_OFFICE, BRANCH',
-    `coordinates`     VARCHAR(100) DEFAULT NULL COMMENT 'Optional lat,lng coordinates',
-    `address`         VARCHAR(255) NOT NULL  COMMENT 'Street address',
-    `city`            VARCHAR(100) NOT NULL,
-    `state`           VARCHAR(100) NOT NULL,
-    `pincode`         VARCHAR(20)  NOT NULL,
-    `status`          VARCHAR(20)  NOT NULL DEFAULT 'NOTCONFIGURED' COMMENT 'CONFIGURED = active, NOTCONFIGURED = inactive',
-    `createdBy`       VARCHAR(100) NOT NULL,
-    `modifiedBy`      VARCHAR(100) DEFAULT NULL,
-    `createdAt`       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `modifiedAt`      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`LocationId`)
-) ENGINE=InnoDB
-  DEFAULT CHARSET=utf8mb4
-  COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='Master table of all Medplus locations';
+DROP TABLE IF EXISTS `visitormember`;
+DROP TABLE IF EXISTS `appointmentslog`;
+DROP TABLE IF EXISTS `busy_slots`;
+DROP TABLE IF EXISTS `report_schedule`;
+DROP TABLE IF EXISTS `zimbra_sessions`;
+DROP TABLE IF EXISTS `usermaster`;
+DROP TABLE IF EXISTS `locationmaster`;
+DROP TABLE IF EXISTS `locations`;
 
+-- ── roles ────────────────────────────────────────────────────────────────────
 
--- ── 2. usermaster ────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS `roles` (
+    `id`          TINYINT UNSIGNED NOT NULL,
+    `code`        VARCHAR(50)      NOT NULL,
+    `displayName` VARCHAR(100)     NOT NULL,
+    `description` VARCHAR(255)     DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_role_code` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-CREATE TABLE IF NOT EXISTS `usermaster` (
-    `employeeid`   VARCHAR(100) NOT NULL  COMMENT 'Unique employee identifier (login username)',
-    `fullName`     VARCHAR(150) NOT NULL  COMMENT 'Display name of the employee',
-    `workemail`    VARCHAR(120) NOT NULL  COMMENT 'Official work email address',
-    `phone`        VARCHAR(120) NOT NULL  COMMENT 'Contact phone number',
-    `designation`  VARCHAR(120) NOT NULL  COMMENT 'Job title / designation',
-    `role`         VARCHAR(100) DEFAULT NULL COMMENT 'HR display role (e.g. Front Desk Officer)',
-    `worklocation` VARCHAR(120) NOT NULL  COMMENT 'Name of the work location (descriptive)',
-    `department`   VARCHAR(120) NOT NULL  COMMENT 'Department name',
-    `createdBy`    VARCHAR(100) NOT NULL,
-    `modifiedBy`   VARCHAR(100) DEFAULT NULL,
-    `createdAt`    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `modifiedAt`   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`employeeid`)
-) ENGINE=InnoDB
-  DEFAULT CHARSET=utf8mb4
-  COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='Employee profile / HR master data';
+INSERT IGNORE INTO `roles` (id, code, displayName, description) VALUES
+(1, 'ADMIN',        'Admin',        'Full system access — manage all users and locations'),
+(2, 'SUPERVISOR',   'Supervisor',   'Location-level manager — manage receptionists at their location'),
+(3, 'RECEPTIONIST', 'Receptionist', 'MVMS operator — visitor check-in and check-out');
 
-
--- ── 3. usermanagement ────────────────────────────────────────────────────────
+-- ── usermanagement ─────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS `usermanagement` (
-    `employeeid` VARCHAR(100)                                       NOT NULL  COMMENT 'References usermaster.employeeid',
-    `fullName`   VARCHAR(150)                                       NOT NULL  COMMENT 'Display name of the employee',
-    `ipaddress`  VARCHAR(120)                                       NOT NULL  COMMENT 'Last known IP address of the employee',
-    `password`   VARCHAR(255)                                       NOT NULL  COMMENT 'BCrypt-encoded password (cost 12)',
-    `location`   VARCHAR(50)                                        NOT NULL  COMMENT 'Assigned location — references locationmaster.LocationId',
-    `status`     ENUM('ACTIVE','INACTIVE')                         NOT NULL  COMMENT 'Account status',
-    `role`       ENUM('PRIMARY_ADMIN','REGIONAL_ADMIN','RECEPTIONIST') NOT NULL COMMENT 'Access role',
-    `macaddress` VARCHAR(200)                                       DEFAULT NULL COMMENT 'Registered device MAC address for device-locking',
-    `createdBy`  VARCHAR(100)                                       NOT NULL,
-    `modifiedBy` VARCHAR(100)                                       DEFAULT NULL,
-    `createdAt`  TIMESTAMP                                          NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `modifiedAt` TIMESTAMP                                          NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `employeeid`   VARCHAR(100)              NOT NULL,
+    `fullName`     VARCHAR(150)              NOT NULL,
+    `workemail`    VARCHAR(120)              NOT NULL DEFAULT '',
+    `phone`        VARCHAR(120)              NOT NULL DEFAULT '',
+    `designation`  VARCHAR(120)              NOT NULL DEFAULT 'Employee',
+    `department`   VARCHAR(120)              NOT NULL DEFAULT 'General',
+    `password`     VARCHAR(255)              NOT NULL,
+    `location`     VARCHAR(50)               NOT NULL DEFAULT '' COMMENT 'Supervisor site code only',
+    `locationName` VARCHAR(150)              NOT NULL DEFAULT '' COMMENT 'Supervisor display name',
+    `loginEnabled` TINYINT(1)                NOT NULL DEFAULT 1,
+    `status`       ENUM('ACTIVE','INACTIVE') NOT NULL,
+    `roleId`       TINYINT UNSIGNED          NOT NULL DEFAULT 3,
+    `assignedDeviceId` VARCHAR(40)           DEFAULT NULL,
+    `createdBy`    VARCHAR(100)              NOT NULL,
+    `modifiedBy`   VARCHAR(100)              DEFAULT NULL,
+    `createdAt`    TIMESTAMP                 NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `modifiedAt`   TIMESTAMP                 NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`employeeid`),
-    KEY `fk_usermgmt_location` (`location`),
-    CONSTRAINT `fk_usermgmt_employeeid`
-        FOREIGN KEY (`employeeid`) REFERENCES `usermaster` (`employeeid`),
-    CONSTRAINT `fk_usermgmt_location`
-        FOREIGN KEY (`location`)   REFERENCES `locationmaster` (`LocationId`)
-) ENGINE=InnoDB
-  DEFAULT CHARSET=utf8mb4
-  COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='User credentials, roles, location assignments and device-lock info';
+    KEY `idx_usermgmt_location` (`location`),
+    KEY `idx_usermgmt_role`     (`roleId`),
+    KEY `idx_usermgmt_assigned_device` (`assignedDeviceId`),
+    CONSTRAINT `fk_usermgmt_role`
+        FOREIGN KEY (`roleId`) REFERENCES `roles` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+-- ── user role mapping (multi-role per user) ───────────────────────────────────
 
--- ── 4. visitorlog ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS `user_role_mapping` (
+    `employeeId` VARCHAR(100)      NOT NULL,
+    `roleId`     TINYINT UNSIGNED  NOT NULL,
+    `createdAt`  TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`employeeId`, `roleId`),
+    KEY `idx_urm_role` (`roleId`),
+    CONSTRAINT `fk_urm_employee`
+        FOREIGN KEY (`employeeId`) REFERENCES `usermanagement` (`employeeid`) ON DELETE CASCADE,
+    CONSTRAINT `fk_urm_role`
+        FOREIGN KEY (`roleId`) REFERENCES `roles` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ── user location mapping (multi-location supervisors) ────────────────────────
+
+CREATE TABLE IF NOT EXISTS `user_location_mapping` (
+    `employeeId` VARCHAR(100) NOT NULL,
+    `locationId` VARCHAR(20)  NOT NULL,
+    `createdAt`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`employeeId`, `locationId`),
+    KEY `idx_ulm_location` (`locationId`),
+    CONSTRAINT `fk_ulm_employee`
+        FOREIGN KEY (`employeeId`) REFERENCES `usermanagement` (`employeeid`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ── temporary device access grants (cover / absent receptionist) ─────────────
+
+CREATE TABLE IF NOT EXISTS `user_temp_device_grants` (
+    `id`         BIGINT       NOT NULL AUTO_INCREMENT,
+    `employeeId` VARCHAR(100) NOT NULL,
+    `macAddress` VARCHAR(200) NOT NULL,
+    `expiresAt`  TIMESTAMP    NOT NULL,
+    `grantedBy`  VARCHAR(100) NOT NULL,
+    `reason`     VARCHAR(255) NOT NULL,
+    `status`     ENUM('ACTIVE','REVOKED','EXPIRED') NOT NULL DEFAULT 'ACTIVE',
+    `revokedBy`  VARCHAR(100) DEFAULT NULL,
+    `revokedAt`  TIMESTAMP    DEFAULT NULL,
+    `createdAt`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_temp_grant_employee_status` (`employeeId`, `status`, `expiresAt`),
+    CONSTRAINT `fk_temp_grant_employee`
+        FOREIGN KEY (`employeeId`) REFERENCES `usermanagement` (`employeeid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ── visitorlog ─────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS `visitorlog` (
-    `visitorId`      VARCHAR(20)                        NOT NULL  COMMENT 'Auto-generated: MED-V-0001 (Individual) or MED-GV-0001 (Group)',
-    `visitType`      ENUM('INDIVIDUAL','GROUP')          NOT NULL  COMMENT 'Individual or Group visit',
-    `entryType`      ENUM('VISITOR','EMPLOYEE')          NOT NULL  COMMENT 'External visitor or internal employee',
-    `name`           VARCHAR(150)                       NOT NULL  COMMENT 'Primary visitor / employee name',
-    `mobile`         VARCHAR(20)                        DEFAULT NULL COMMENT 'Mobile number (VISITOR only)',
-    `empId`          VARCHAR(100)                       DEFAULT NULL COMMENT 'Employee ID (EMPLOYEE only)',
-    `status`         ENUM('CHECKED_IN','CHECKED_OUT')   NOT NULL  DEFAULT 'CHECKED_IN',
-    `personToMeet`   VARCHAR(100)                       NOT NULL  COMMENT 'employeeid of the person being visited',
-    `personName`     VARCHAR(150)                       NOT NULL  COMMENT 'Full name of person to meet (denormalised)',
-    `department`     VARCHAR(120)                       NOT NULL  COMMENT 'Department of personToMeet at time of visit',
-    `locationId`     VARCHAR(50)                        NOT NULL  COMMENT 'Location where check-in occurred',
-    `cardNumber`     INT                                DEFAULT NULL COMMENT 'Visitor card / badge number (manual entry)',
-    `cardCode`       VARCHAR(50)                        DEFAULT NULL COMMENT 'Auto-assigned card code from cardmaster, e.g. MSOH-VISITOR-1',
-    `govtIdType`     ENUM('AADHAAR','PAN','PASSPORT','VOTER','DL') DEFAULT NULL COMMENT 'Government-issued ID type',
-    `govtIdNumber`   VARCHAR(60)                        DEFAULT NULL COMMENT 'Government ID number (masked or full)',
-    `imageUrl`       VARCHAR(500)                       DEFAULT NULL COMMENT 'Visitor photo URL — local path now, swap to cloud storage URL when ready',
-    `checkInTime`    TIMESTAMP                          NOT NULL  DEFAULT CURRENT_TIMESTAMP,
+    `visitorId`      VARCHAR(20)                        NOT NULL,
+    `visitType`      ENUM('INDIVIDUAL','GROUP')         NOT NULL,
+    `entryType`      ENUM('VISITOR','EMPLOYEE')         NOT NULL,
+    `name`           VARCHAR(150)                       NOT NULL,
+    `mobile`         VARCHAR(20)                        DEFAULT NULL,
+    `empId`          VARCHAR(100)                       DEFAULT NULL,
+    `status`         ENUM('CHECKED_IN','CHECKED_OUT')   NOT NULL DEFAULT 'CHECKED_IN',
+    `personToMeet`   VARCHAR(100)                       NOT NULL,
+    `personName`     VARCHAR(150)                       NOT NULL,
+    `department`     VARCHAR(120)                       NOT NULL,
+    `locationId`     VARCHAR(50)                        NOT NULL COMMENT 'Site code',
+    `cardNumber`     INT                                DEFAULT NULL,
+    `govtIdType`     ENUM('AADHAAR','PAN','PASSPORT','VOTER','DL') DEFAULT NULL,
+    `govtIdNumber`   VARCHAR(60)                        DEFAULT NULL,
+    `imageUrl`       VARCHAR(500)                       DEFAULT NULL,
+    `checkInTime`    TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `checkOutTime`   TIMESTAMP                          DEFAULT NULL,
     `reasonForVisit` TEXT                               DEFAULT NULL,
+    `companyName`    VARCHAR(200)                       DEFAULT NULL,
     `createdBy`      VARCHAR(100)                       NOT NULL,
+    `workstationMac` VARCHAR(20)                        DEFAULT NULL,
     `modifiedBy`     VARCHAR(100)                       DEFAULT NULL,
-    `modifiedAt`     TIMESTAMP                          NOT NULL  DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `modifiedAt`     TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`visitorId`),
-    KEY `idx_vlog_location_date` (`locationId`, `checkInTime`),
-    CONSTRAINT `fk_vlog_location`
-        FOREIGN KEY (`locationId`) REFERENCES `locationmaster` (`LocationId`)
-) ENGINE=InnoDB
-  DEFAULT CHARSET=utf8mb4
-  COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='Visitor / employee check-in and check-out log';
+    KEY `idx_vlog_location_date` (`locationId`, `checkInTime`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+-- ── pre-registration ───────────────────────────────────────────────────────
 
+CREATE TABLE IF NOT EXISTS `preregistration_groups` (
+    `groupToken` VARCHAR(64)  NOT NULL,
+    `locationId` VARCHAR(50)  NOT NULL,
+    `expiresAt`  TIMESTAMP    NOT NULL,
+    `createdBy`  VARCHAR(100) NOT NULL,
+    `createdAt`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`groupToken`),
+    KEY `idx_preg_group_location` (`locationId`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
--- ── 5. appointmentslog ───────────────────────────────────────────────────────
+-- ── location master (structured site codes: IN + state + city + sequence) ───
 
-CREATE TABLE IF NOT EXISTS `appointmentslog` (
-    `appointmentId`   VARCHAR(30)                NOT NULL  COMMENT 'Human-readable reference, e.g. APT-20260416-0001',
-    `bookingToken`    VARCHAR(36)                DEFAULT NULL COMMENT 'UUID used by the web app for polling confirmation',
-    `entryType`       ENUM('VISITOR','EMPLOYEE') NOT NULL  DEFAULT 'VISITOR',
-    `name`            VARCHAR(150)               NOT NULL  COMMENT 'Patient / visitor full name',
-    `aadhaarNumber`   VARCHAR(12)                DEFAULT NULL,
-    `email`           VARCHAR(120)               DEFAULT NULL,
-    `mobile`          VARCHAR(20)                DEFAULT NULL,
-    `empId`           VARCHAR(100)               DEFAULT NULL COMMENT 'Employee ID (EMPLOYEE flow only)',
-    `personToMeet`    VARCHAR(100)               NOT NULL  COMMENT 'employeeid of doctor / host',
-    `personName`      VARCHAR(150)               DEFAULT NULL COMMENT 'Full name of doctor / host (denormalised)',
-    `department`      VARCHAR(120)               DEFAULT NULL,
-    `locationId`      VARCHAR(50)                DEFAULT NULL,
-    `locationName`    VARCHAR(150)               DEFAULT NULL,
-    `appointmentDate` DATE                       NOT NULL,
-    `appointmentTime` TIME                       NOT NULL  COMMENT '24-hour format, e.g. 16:00:00',
-    `reasonForVisit`  TEXT                       DEFAULT NULL,
-    `status`          VARCHAR(20)                NOT NULL DEFAULT 'PENDING'
-                      COMMENT 'PENDING | DECLINED | RESCHEDULED | CHECKED_IN | CANCELLED',
-    `zimbraInviteId`  VARCHAR(128)               DEFAULT NULL
-                      COMMENT 'Zimbra invId — used for reschedule/decline',
-    `declineReason`   VARCHAR(500)               DEFAULT NULL,
-    `createdAt`       TIMESTAMP                  NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`appointmentId`),
-    KEY `idx_appt_date_time`    (`appointmentDate`, `appointmentTime`),
-    KEY `idx_appt_location`     (`locationId`),
-    KEY `idx_appt_booking_token`(`bookingToken`),
-    KEY `idx_appt_status`       (`status`)
-) ENGINE=InnoDB
-  DEFAULT CHARSET=utf8mb4
-  COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='Scheduled appointments from the public booking web app';
-
-
--- ── 5b. busy_slots ───────────────────────────────────────────────────────────
-
-CREATE TABLE IF NOT EXISTS `busy_slots` (
-    `id`             VARCHAR(36)  NOT NULL,
-    `employeeId`     VARCHAR(100) NOT NULL COMMENT 'FK → usermaster.employeeid',
-    `startTime`      DATETIME     NOT NULL,
-    `endTime`        DATETIME     NOT NULL,
-    `reason`         VARCHAR(255) DEFAULT NULL,
-    `zimbraEventId`  VARCHAR(128) DEFAULT NULL COMMENT 'Zimbra invId if synced to calendar',
-    `createdBy`      VARCHAR(100) DEFAULT NULL,
-    `createdAt`      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+CREATE TABLE IF NOT EXISTS `company_master` (
+    `id`          BIGINT       NOT NULL AUTO_INCREMENT,
+    `companyCode` VARCHAR(20)  NOT NULL,
+    `companyName` VARCHAR(150) NOT NULL,
+    `status`      ENUM('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+    `createdBy`   VARCHAR(100) NOT NULL,
+    `modifiedBy`  VARCHAR(100) DEFAULT NULL,
+    `createdAt`   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `modifiedAt`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    KEY `idx_busy_employee_range` (`employeeId`, `startTime`, `endTime`)
-) ENGINE=InnoDB
-  DEFAULT CHARSET=utf8mb4
-  COMMENT='Manual busy-time blocks owned by employees';
+    UNIQUE KEY `uk_company_code` (`companyCode`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+CREATE TABLE IF NOT EXISTS `location_type_master` (
+    `id`        BIGINT       NOT NULL AUTO_INCREMENT,
+    `typeCode`  VARCHAR(20)  NOT NULL,
+    `typeName`  VARCHAR(100) NOT NULL,
+    `status`    ENUM('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+    `createdBy` VARCHAR(100) NOT NULL,
+    `modifiedBy` VARCHAR(100) DEFAULT NULL,
+    `createdAt` TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `modifiedAt` TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_location_type_code` (`typeCode`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
--- ── 6. visitormember ──────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS `state_master` (
+    `id`        BIGINT       NOT NULL AUTO_INCREMENT,
+    `stateCode` VARCHAR(2)   NOT NULL COMMENT '2-char code, e.g. TG',
+    `stateName` VARCHAR(100) NOT NULL,
+    `status`    ENUM('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+    `createdBy` VARCHAR(100) NOT NULL,
+    `modifiedBy` VARCHAR(100) DEFAULT NULL,
+    `createdAt` TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `modifiedAt` TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_state_code` (`stateCode`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-CREATE TABLE IF NOT EXISTS `visitormember` (
-    `memberId`     VARCHAR(20)                        NOT NULL  COMMENT 'Auto-generated: MED-GM-0001',
-    `visitorId`    VARCHAR(20)                        NOT NULL  COMMENT 'Parent visitorlog entry (group visit)',
-    `name`         VARCHAR(150)                       NOT NULL  COMMENT 'Member name',
-    `cardNumber`   INT                                DEFAULT NULL,
-    `cardCode`     VARCHAR(50)                        DEFAULT NULL COMMENT 'Auto-assigned card code from cardmaster',
-    `status`       ENUM('CHECKED_IN','CHECKED_OUT')   NOT NULL  DEFAULT 'CHECKED_IN',
-    `checkOutTime` TIMESTAMP                          DEFAULT NULL,
-    `createdAt`    TIMESTAMP                          NOT NULL  DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`memberId`),
-    KEY `fk_vmember_visitor` (`visitorId`),
-    CONSTRAINT `fk_vmember_visitor`
-        FOREIGN KEY (`visitorId`) REFERENCES `visitorlog` (`visitorId`)
-) ENGINE=InnoDB
-  DEFAULT CHARSET=utf8mb4
-  COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='Additional members of a group visitor entry';
+CREATE TABLE IF NOT EXISTS `city_master` (
+    `id`        BIGINT       NOT NULL AUTO_INCREMENT,
+    `cityCode`  VARCHAR(3)   NOT NULL COMMENT '3-char code, e.g. HYD',
+    `cityName`  VARCHAR(100) NOT NULL,
+    `stateCode` VARCHAR(2)   NOT NULL,
+    `status`    ENUM('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+    `createdBy` VARCHAR(100) NOT NULL,
+    `modifiedBy` VARCHAR(100) DEFAULT NULL,
+    `createdAt` TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `modifiedAt` TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_city_state_code` (`stateCode`, `cityCode`),
+    CONSTRAINT `fk_city_state`
+        FOREIGN KEY (`stateCode`) REFERENCES `state_master` (`stateCode`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS `location_master` (
+    `locationId`      VARCHAR(20)  NOT NULL COMMENT 'company(3) + office initials + seq(5), e.g. MED-HO-00001',
+    `companyId`       BIGINT       NOT NULL,
+    `locationTypeId`  BIGINT       NOT NULL,
+    `stateCode`       VARCHAR(2)   NOT NULL,
+    `cityCode`        VARCHAR(3)   NOT NULL,
+    `address`         VARCHAR(500) NOT NULL,
+    `descriptiveName` VARCHAR(200) NOT NULL,
+    `sequenceNum`     INT          NOT NULL,
+    `status`          ENUM('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+    `createdBy`       VARCHAR(100) NOT NULL,
+    `modifiedBy`    VARCHAR(100) DEFAULT NULL,
+    `createdAt`       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `modifiedAt`      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`locationId`),
+    KEY `idx_loc_state_city_seq` (`stateCode`, `cityCode`, `sequenceNum`),
+    KEY `idx_loc_company` (`companyId`),
+    CONSTRAINT `fk_loc_company`
+        FOREIGN KEY (`companyId`) REFERENCES `company_master` (`id`),
+    CONSTRAINT `fk_loc_type`
+        FOREIGN KEY (`locationTypeId`) REFERENCES `location_type_master` (`id`),
+    CONSTRAINT `fk_loc_state`
+        FOREIGN KEY (`stateCode`) REFERENCES `state_master` (`stateCode`),
+    CONSTRAINT `fk_loc_city`
+        FOREIGN KEY (`stateCode`, `cityCode`) REFERENCES `city_master` (`stateCode`, `cityCode`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+INSERT IGNORE INTO `state_master` (`stateCode`, `stateName`, `createdBy`) VALUES
+('TG', 'Telangana', 'SYSTEM'),
+('AP', 'Andhra Pradesh', 'SYSTEM'),
+('KA', 'Karnataka', 'SYSTEM'),
+('TN', 'Tamil Nadu', 'SYSTEM'),
+('MH', 'Maharashtra', 'SYSTEM'),
+('DL', 'Delhi', 'SYSTEM');
+
+INSERT IGNORE INTO `city_master` (`cityCode`, `cityName`, `stateCode`, `createdBy`) VALUES
+('HYD', 'Hyderabad', 'TG', 'SYSTEM'),
+('VZG', 'Visakhapatnam', 'AP', 'SYSTEM'),
+('VJA', 'Vijayawada', 'AP', 'SYSTEM'),
+('BLR', 'Bengaluru', 'KA', 'SYSTEM'),
+('MAA', 'Chennai', 'TN', 'SYSTEM'),
+('BOM', 'Mumbai', 'MH', 'SYSTEM'),
+('DEL', 'New Delhi', 'DL', 'SYSTEM');
+
+-- ── pre-registration ───────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS `preregistrations` (
+    `token`          VARCHAR(64)  NOT NULL,
+    `groupToken`     VARCHAR(64)  DEFAULT NULL,
+    `entryType`      ENUM('VISITOR','EMPLOYEE') NOT NULL,
+    `name`           VARCHAR(150) NOT NULL,
+    `mobile`         VARCHAR(20)  DEFAULT NULL,
+    `empId`          VARCHAR(100) DEFAULT NULL,
+    `email`          VARCHAR(120) DEFAULT NULL,
+    `govtIdType`     VARCHAR(20)  DEFAULT NULL,
+    `govtIdNumber`   VARCHAR(60)  DEFAULT NULL,
+    `personToMeetId` VARCHAR(100) DEFAULT NULL,
+    `personName`     VARCHAR(150) DEFAULT NULL,
+    `hostDepartment` VARCHAR(120) DEFAULT NULL,
+    `reasonForVisit` TEXT         DEFAULT NULL,
+    `companyName`    VARCHAR(200) DEFAULT NULL,
+    `locationId`     VARCHAR(50)  DEFAULT NULL,
+    `status`         ENUM('PENDING','CHECKED_IN') NOT NULL DEFAULT 'PENDING',
+    `createdAt`      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `visitorId`          VARCHAR(20)  DEFAULT NULL,
+    `visitCardImageUrl`  VARCHAR(500) DEFAULT NULL,
+    `visitCardShortUrl`  VARCHAR(200) DEFAULT NULL,
+    `visitCardSentAt`    TIMESTAMP    DEFAULT NULL,
+    `visitCardSmsStatus` VARCHAR(20)  DEFAULT NULL,
+    `visitCardSmsError`  VARCHAR(255) DEFAULT NULL,
+    PRIMARY KEY (`token`),
+    KEY `idx_prereg_group` (`groupToken`),
+    KEY `idx_prereg_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ── device master (kiosks / scan points per location) ───────────────────────
+
+CREATE TABLE IF NOT EXISTS `device_master` (
+    `deviceId`      VARCHAR(40)  NOT NULL,
+    `locationId`    VARCHAR(20)  NOT NULL,
+    `displayName`   VARCHAR(150) NOT NULL,
+    `floor`         VARCHAR(20)  DEFAULT NULL,
+    `area`          VARCHAR(100) DEFAULT NULL,
+    `macAddress`    VARCHAR(200) DEFAULT NULL,
+    `ipAddress`     VARCHAR(120) DEFAULT NULL,
+    `lastKnownIp`   VARCHAR(120) DEFAULT NULL,
+    `status`        ENUM('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+    `createdBy`     VARCHAR(100) NOT NULL,
+    `modifiedBy`    VARCHAR(100) DEFAULT NULL,
+    `createdAt`     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `modifiedAt`    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`deviceId`),
+    KEY `idx_device_location` (`locationId`),
+    KEY `idx_device_status` (`status`),
+    CONSTRAINT `fk_device_location`
+        FOREIGN KEY (`locationId`) REFERENCES `location_master` (`locationId`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS `user_device_grants` (
+    `id`          BIGINT       NOT NULL AUTO_INCREMENT,
+    `employeeId`  VARCHAR(100) NOT NULL,
+    `deviceId`    VARCHAR(40)  NOT NULL,
+    `expiresAt`   TIMESTAMP    NOT NULL,
+    `reason`      VARCHAR(255) NOT NULL,
+    `status`      ENUM('ACTIVE','REVOKED','EXPIRED') NOT NULL DEFAULT 'ACTIVE',
+    `grantedBy`   VARCHAR(100) NOT NULL,
+    `revokedBy`   VARCHAR(100) DEFAULT NULL,
+    `revokedAt`   TIMESTAMP    DEFAULT NULL,
+    `createdAt`   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_udg_employee_status` (`employeeId`, `status`, `expiresAt`),
+    KEY `idx_udg_device` (`deviceId`),
+    CONSTRAINT `fk_udg_employee`
+        FOREIGN KEY (`employeeId`) REFERENCES `usermanagement` (`employeeid`),
+    CONSTRAINT `fk_udg_device`
+        FOREIGN KEY (`deviceId`) REFERENCES `device_master` (`deviceId`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS `visitor_scan_events` (
+    `id`          BIGINT       NOT NULL AUTO_INCREMENT,
+    `visitorId`   VARCHAR(20)  NOT NULL,
+    `locationId`  VARCHAR(20)  NOT NULL,
+    `deviceId`    VARCHAR(40)  NOT NULL,
+    `eventType`   ENUM('CHECK_IN','ZONE_SCAN','CHECK_OUT') NOT NULL,
+    `preregToken` VARCHAR(64)  DEFAULT NULL,
+    `scannedBy`   VARCHAR(100) DEFAULT NULL,
+    `deviceMac`   VARCHAR(200) DEFAULT NULL,
+    `scannedAt`   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_vse_visitor` (`visitorId`, `scannedAt`),
+    KEY `idx_vse_location_time` (`locationId`, `scannedAt`),
+    KEY `idx_vse_device_time` (`deviceId`, `scannedAt`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

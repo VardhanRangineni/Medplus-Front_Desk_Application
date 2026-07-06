@@ -7,8 +7,9 @@ import './Pagination.css';
  *   totalPages   – total number of pages
  *   onPageChange – (page: number) => void
  */
-export default function Pagination({ currentPage, totalPages, onPageChange }) {
-  if (totalPages <= 1) return null;
+export default function Pagination({ currentPage, totalPages, onPageChange, alwaysShow = false }) {
+  const safeTotal = Math.max(1, totalPages);
+  if (!alwaysShow && totalPages <= 1) return null;
 
   /**
    * Build the list of page tokens to render.
@@ -16,10 +17,10 @@ export default function Pagination({ currentPage, totalPages, onPageChange }) {
    * Inserts '…' where there are gaps.
    */
   const buildPages = () => {
-    const visible = new Set([1, totalPages]);
+    const visible = new Set([1, safeTotal]);
     for (let d = -1; d <= 1; d++) {
       const p = currentPage + d;
-      if (p >= 1 && p <= totalPages) visible.add(p);
+      if (p >= 1 && p <= safeTotal) visible.add(p);
     }
 
     const sorted = [...visible].sort((a, b) => a - b);
@@ -71,7 +72,7 @@ export default function Pagination({ currentPage, totalPages, onPageChange }) {
       <button
         className="pgn__btn pgn__btn--arrow"
         onClick={() => onPageChange(currentPage + 1)}
-        disabled={currentPage === totalPages}
+        disabled={currentPage >= safeTotal}
         aria-label="Next page"
       >
         ›

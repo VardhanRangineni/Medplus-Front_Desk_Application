@@ -4,8 +4,11 @@ import {
   IconUser, IconLock, IconEye, IconEyeOff,
   IconAlertCircle, IconShield, IconInfo, IconMonitor,
 } from '../../components/Icons/Icons';
-import logo  from '../../assets/images/logo.png';
-import bgImg from '../../assets/images/background 2.png';
+import logo  from '../../Assets/images/logo.png';
+import bgImg from '../../Assets/images/background 2.png';
+import { LOGIN_BRAND_PRIMARY, LOGIN_BRAND_SECONDARY } from '../../constants/branding';
+import { getLoginErrorMessage } from '../../services/userFacingErrors';
+import LottieLoader from '../../components/LottieLoader/LottieLoader';
 
 
 export default function LoginPage({ onLoginSuccess }) {
@@ -19,30 +22,35 @@ export default function LoginPage({ onLoginSuccess }) {
 
   const infoPanelRef = useRef(null);
 
-  /* Fetch network info and keep it current via events — no polling */
+  const isIPv4 = (n) => n.family === 'IPv4' || n.family === 4;
+
+  /* Fetch network info and keep it current via events */
   useEffect(() => {
-    const refresh = () =>
-      window.electronAPI?.getNetworkInfo()
-        .then(setNetworkInfo)
-        .catch(() => setNetworkInfo([]));
+    const refresh = async () => {
+      if (!window.electronAPI?.getNetworkInfo) {
+        setNetworkInfo([]);
+        return;
+      }
+      try {
+        const list = await window.electronAPI.getNetworkInfo();
+        setNetworkInfo(Array.isArray(list) ? list : []);
+      } catch {
+        setNetworkInfo([]);
+      }
+    };
 
     refresh();
-
-    /* Re-fetch when the network comes back online or goes offline */
-    window.addEventListener('online',  refresh);
+    window.addEventListener('online', refresh);
     window.addEventListener('offline', refresh);
-    /* Re-fetch when the user switches back to this window
-       (covers VPN connect/disconnect, Wi-Fi switch, etc.) */
     window.addEventListener('focus', refresh);
 
     return () => {
-      window.removeEventListener('online',  refresh);
+      window.removeEventListener('online', refresh);
       window.removeEventListener('offline', refresh);
-      window.removeEventListener('focus',   refresh);
+      window.removeEventListener('focus', refresh);
     };
   }, []);
 
-  /* Close info panel when clicking outside */
   useEffect(() => {
     if (!showInfo) return;
     const handleOutsideClick = (e) => {
@@ -54,33 +62,43 @@ export default function LoginPage({ onLoginSuccess }) {
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [showInfo]);
 
-  const ipv4Networks   = networkInfo.filter((n) => n.family === 'IPv4');
-  const primaryNetwork = ipv4Networks[0] ?? null;
+  const ipv4Networks = networkInfo.filter(isIPv4);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!employeeId.trim()) { setError('Employee ID is required.');  return; }
-    if (!password.trim())   { setError('Password is required.');     return; }
+    if (!employeeId.trim()) {
+      setError(getLoginErrorMessage('validation', 'Please enter your Employee ID.'));
+      return;
+    }
+    if (!password.trim()) {
+      setError(getLoginErrorMessage('validation', 'Please enter your password.'));
+      return;
+    }
+
+    if (!window.electronAPI?.apiPost) {
+      setError(getLoginErrorMessage('desktop'));
+      return;
+    }
 
     setError('');
     setLoading(true);
 
     try {
-      /* Always fetch fresh network info at submit time — never use cached state */
-      const freshNetwork = await window.electronAPI?.getNetworkInfo()
-        .then((list) => list.filter((n) => n.family === 'IPv4')[0] ?? null)
-        .catch(() => null);
-
-      /* Also update the info panel to reflect the current network */
-      window.electronAPI?.getNetworkInfo()
-        .then(setNetworkInfo)
-        .catch(() => {});
+      let freshNetwork = null;
+      try {
+        const list = await window.electronAPI.getNetworkInfo();
+        const normalized = Array.isArray(list) ? list : [];
+        setNetworkInfo(normalized);
+        freshNetwork = normalized.filter(isIPv4)[0] ?? null;
+      } catch {
+        freshNetwork = null;
+      }
 
       const result = await window.electronAPI.apiPost('/api/auth/login', {
         employeeId: employeeId.trim(),
         password,
-        ipAddress:  freshNetwork?.ip  ?? '',
+        ipAddress:  freshNetwork?.ip ?? '',
         macAddress: freshNetwork?.mac ?? '',
       });
 
@@ -88,22 +106,23 @@ export default function LoginPage({ onLoginSuccess }) {
         const session = result.body.data;
         await window.electronAPI.storeAuthSession(session);
         onLoginSuccess(session);
-      } else if (result.error) {
-        setError('Cannot reach the server. Check your network connection.');
+      } else if (result.error || result.status === 0) {
+        setError(getLoginErrorMessage('connection'));
       } else {
         const msg = result.body?.message ?? '';
-        if (msg.toLowerCase().includes('device') || msg.toLowerCase().includes('mac')) {
-          setError('This device is not authorised for your account. Contact your administrator.');
-        } else if (msg.toLowerCase().includes('inactive')) {
-          setError('Your account is inactive. Please contact your administrator.');
-        } else if (msg.toLowerCase().includes('invalid') || result.status === 401) {
-          setError('Invalid Employee ID or password. Please try again.');
+        const lower = msg.toLowerCase();
+        if (lower.includes('device') || lower.includes('mac') || lower.includes('workstation')) {
+          setError(getLoginErrorMessage('device'));
+        } else if (lower.includes('inactive') || lower.includes('disabled')) {
+          setError(getLoginErrorMessage('inactive'));
+        } else if (lower.includes('invalid') || lower.includes('credential') || result.status === 401) {
+          setError(getLoginErrorMessage('credentials'));
         } else {
-          setError(msg || 'Login failed. Please try again.');
+          setError(getLoginErrorMessage('generic', msg));
         }
       }
     } catch {
-      setError('Cannot reach the server. Check your network connection.');
+      setError(getLoginErrorMessage('connection'));
     } finally {
       setLoading(false);
     }
@@ -124,7 +143,10 @@ export default function LoginPage({ onLoginSuccess }) {
             <header className="login-card__header">
               <div className="login-card__brand">
                 <img src={logo} alt="MedPlus logo" className="login-card__logo" />
-                <span className="login-card__brand-name">MEDPLUS FRONT DESK</span>
+                <div className="login-card__brand-text">
+                  <span className="login-card__brand-name">{LOGIN_BRAND_PRIMARY}</span>
+                  <span className="login-card__brand-tagline">{LOGIN_BRAND_SECONDARY}</span>
+                </div>
               </div>
               <h1 className="login-card__title">Welcome back.</h1>
               <p className="login-card__subtitle">Securely manage visitors, staff ins &amp; outs, and daily office activity with ease and reliability.</p>
@@ -185,7 +207,7 @@ export default function LoginPage({ onLoginSuccess }) {
 
               <button type="submit" className="login-submit" disabled={loading}>
                 {loading
-                  ? <span className="login-spinner" aria-label="Signing in…" />
+                  ? <LottieLoader size="sm" tone="light" className="login-submit__spinner" ariaLabel="Signing in…" />
                   : 'LOG IN →'}
               </button>
 

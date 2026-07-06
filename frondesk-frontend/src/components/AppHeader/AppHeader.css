@@ -55,6 +55,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 /* Location badge */
@@ -69,6 +71,8 @@
   color: #555;
   font-size: 12px;
   font-weight: 600;
+  min-width: 0;
+  max-width: min(200px, 30vw);
 }
 .app-header__location svg {
   color: var(--color-red);
@@ -81,19 +85,72 @@
   text-overflow: ellipsis;
 }
 
+.app-header__location-filter {
+  flex-shrink: 0;
+}
+
 /* User block */
 .app-header__user {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 4px 10px 4px 4px;
+  position: relative;
 
   background: #f5f6f8;
   border: 1px solid #e0e2e7;
   border-radius: 24px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-  cursor: default;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s;
 }
+.app-header__user:hover,
+.app-header__user--open { background: #eef0f5; border-color: #c8ccd6; }
+
+.app-header__user-caret {
+  font-size: 10px;
+  color: #999;
+  margin-left: -2px;
+  transition: transform 0.18s;
+}
+.app-header__user--open .app-header__user-caret { transform: rotate(180deg); }
+
+/* Dropdown menu */
+.app-header__menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 180px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.13);
+  z-index: 500;
+  overflow: hidden;
+  animation: hdr-menu-in 0.14s ease;
+}
+@keyframes hdr-menu-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.app-header__menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 11px 16px;
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.13s;
+}
+.app-header__menu-item:hover { background: #f5f6f8; color: #C2181D; }
 
 .app-header__avatar {
   width: 30px;
@@ -115,3 +172,68 @@
   font-weight: 600;
   color: #222;
 }
+
+/* ── Change Password Modal ───────────────────────────────────────────────── */
+.cpm-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2000;
+  padding: 16px;
+}
+.cpm-dialog {
+  background: #fff;
+  border-radius: 18px;
+  width: 100%; max-width: 420px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.22);
+  overflow: hidden;
+}
+.cpm-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 20px 22px 14px;
+  border-bottom: 1px solid #f0f1f3;
+}
+.cpm-title { font-size: 16px; font-weight: 700; color: #111; margin: 0; }
+.cpm-sub   { font-size: 12.5px; color: #888; margin: 3px 0 0; }
+.cpm-close {
+  background: none; border: none; cursor: pointer; padding: 4px;
+  color: #aaa; border-radius: 6px; transition: color 0.15s;
+}
+.cpm-close:hover { color: #C2181D; }
+.cpm-body  { padding: 18px 22px 22px; }
+.cpm-error {
+  background: rgba(194,24,29,0.07); border: 1px solid rgba(194,24,29,0.2);
+  color: #C2181D; border-radius: 8px; padding: 9px 13px;
+  font-size: 13px; margin-bottom: 14px;
+}
+.cpm-field       { margin-bottom: 14px; }
+.cpm-label       { display: block; font-size: 12px; font-weight: 600; color: #444; margin-bottom: 6px; }
+.cpm-req         { color: #C2181D; margin-left: 2px; }
+.cpm-input-wrap  { position: relative; display: flex; align-items: center; }
+.cpm-input-icon  { position: absolute; left: 11px; color: #aaa; pointer-events: none; }
+.cpm-input {
+  width: 100%; padding: 10px 38px 10px 34px;
+  border: 1.5px solid #dde0e5; border-radius: 9px;
+  font-size: 14px; color: #111; outline: none;
+  transition: border-color 0.15s;
+}
+.cpm-input:focus { border-color: #C2181D; box-shadow: 0 0 0 3px rgba(194,24,29,0.10); }
+.cpm-eye {
+  position: absolute; right: 10px;
+  background: none; border: none; cursor: pointer; color: #aaa; padding: 4px;
+  transition: color 0.15s;
+}
+.cpm-eye:hover { color: #555; }
+.cpm-footer     { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.cpm-btn        { padding: 10px 20px; border-radius: 9px; font-size: 13.5px; font-weight: 700; cursor: pointer; border: none; transition: background 0.15s; }
+.cpm-btn--cancel { background: #f4f5f7; color: #555; }
+.cpm-btn--cancel:hover:not(:disabled) { background: #e8e9eb; }
+.cpm-btn--submit { background: #C2181D; color: #fff; }
+.cpm-btn--submit:hover:not(:disabled) { background: #a81317; }
+.cpm-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.cpm-success {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 10px; padding: 20px 0 8px; text-align: center;
+}
+.cpm-success__icon { font-size: 36px; }
+.cpm-success__text { font-size: 14px; font-weight: 600; color: #16a34a; }

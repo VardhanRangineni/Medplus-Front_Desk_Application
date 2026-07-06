@@ -59,8 +59,16 @@
   gap: 10px;
   padding: 0 9px;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    box-shadow var(--transition-fast),
+    transform var(--transition-fast);
   white-space: nowrap;
+}
+
+.app-nav-btn:active:not(.app-nav-btn--active) {
+  transform: scale(0.98);
 }
 
 .app-nav-btn:hover {

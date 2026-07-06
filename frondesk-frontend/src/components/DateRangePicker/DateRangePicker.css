@@ -42,12 +42,9 @@
 }
 .drp-chevron--up { transform: rotate(180deg); }
 
-/* ── Popup panel ── */
+/* ── Popup panel (position set via portal + inline coords) ── */
 .drp-popup {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 300;
+  z-index: 10050;
   background: #fff;
   border: 1px solid #e4e6ea;
   border-radius: 16px;
@@ -57,6 +54,15 @@
   overflow: hidden;
   min-width: 560px;
   animation: drpFadeIn 0.15s ease;
+}
+
+.drp-popup--fixed {
+  position: fixed;
+}
+
+.drp-popup--measuring {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 @keyframes drpFadeIn {
@@ -124,9 +130,9 @@
   font-family: var(--font-sans);
 }
 .drp-nav-btn:hover {
-  background: var(--color-red-light);
-  border-color: var(--color-red-ring);
-  color: var(--color-red);
+  background: var(--color-red);
+  border-color: var(--color-red);
+  color: #fff;
 }
 
 .drp-nav-placeholder { width: 26px; }
@@ -168,9 +174,14 @@
   position: relative;
 }
 .drp-day:not(.drp-day--disabled):not(.drp-day--sel):hover {
-  background: var(--color-red-light);
-  color: var(--color-red);
+  background: var(--color-red);
+  color: #fff;
   font-weight: 600;
+}
+
+.drp-day--in-range:not(.drp-day--disabled):not(.drp-day--sel):hover {
+  background: var(--color-red);
+  color: #fff;
 }
 
 .drp-day--today::after {

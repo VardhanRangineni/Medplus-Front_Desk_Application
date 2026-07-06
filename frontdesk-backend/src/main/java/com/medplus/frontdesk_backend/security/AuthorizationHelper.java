@@ -5,68 +5,91 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 /**
- * Central helper for resolving the caller's role and location from a JWT-backed
+ * Central helper for resolving the caller's roles and location from a JWT-backed
  * {@link Authentication} object.
  *
- * Role hierarchy:
- *   PRIMARY_ADMIN   → unrestricted access to all data across all locations.
- *   REGIONAL_ADMIN  → full page access but data scoped to their own location.
- *   RECEPTIONIST    → check-in / check-out + settings only, scoped to their location.
+ * Users may hold multiple roles via {@code user_role_mapping}. The highest-privilege
+ * role (Admin &gt; Supervisor &gt; Receptionist) is returned as the primary role.
  */
 @Component
 @RequiredArgsConstructor
 public class AuthorizationHelper {
 
+    private static final String ROLE_PREFIX = "ROLE_";
+
     private final UserRepository userRepository;
 
     // ── Role resolution ───────────────────────────────────────────────────────
 
-    public String getUserRole(Authentication auth) {
+    public Set<String> getUserRoles(Authentication auth) {
+        if (auth == null) {
+            return Set.of();
+        }
         return auth.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .filter(a -> a.startsWith("ROLE_"))
-                .map(a -> a.replace("ROLE_", ""))
-                .findFirst()
-                .orElse("");
+                .filter(a -> a.startsWith(ROLE_PREFIX))
+                .map(a -> a.substring(ROLE_PREFIX.length()))
+                .collect(Collectors.toSet());
+    }
+
+    /** Primary role — first authority (admin roles are loaded before receptionist). */
+    public String getUserRole(Authentication auth) {
+        return getUserRoles(auth).stream().findFirst().orElse("");
+    }
+
+    public boolean hasRole(Authentication auth, String role) {
+        return getUserRoles(auth).contains(role);
     }
 
     public boolean isPrimaryAdmin(Authentication auth) {
-        return "PRIMARY_ADMIN".equals(getUserRole(auth));
+        return hasRole(auth, "PRIMARY_ADMIN");
     }
 
     public boolean isRegionalAdmin(Authentication auth) {
-        return "REGIONAL_ADMIN".equals(getUserRole(auth));
+        return hasRole(auth, "REGIONAL_ADMIN");
     }
 
     public boolean isReceptionist(Authentication auth) {
-        return "RECEPTIONIST".equals(getUserRole(auth));
+        return hasRole(auth, "RECEPTIONIST");
+    }
+
+    public boolean hasElevatedRole(Authentication auth) {
+        return isPrimaryAdmin(auth) || isRegionalAdmin(auth);
+    }
+
+    /**
+     * Check-in / zone scan / visitor OTP require the Receptionist role.
+     * Admins and supervisors without Receptionist may only monitor data.
+     */
+    public void requireCheckInPermission(Authentication auth) {
+        if (!isReceptionist(auth)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only users with the Receptionist role can perform check-ins. "
+                            + "Ask your administrator to assign you the Receptionist role.");
+        }
+    }
+
+    public void requireCheckInPermission() {
+        requireCheckInPermission(SecurityContextHolder.getContext().getAuthentication());
     }
 
     // ── Location resolution ───────────────────────────────────────────────────
 
-    /**
-     * Looks up the locationId assigned to the given employee in {@code usermanagement}.
-     * Returns {@code null} if the employee has no usermanagement record.
-     */
     public String getUserLocation(String employeeId) {
         return userRepository.findByEmployeeId(employeeId)
                 .map(u -> u.getLocation())
                 .orElse(null);
     }
 
-    /**
-     * Determines the effective location filter to apply for a given caller.
-     *
-     * <ul>
-     *   <li>PRIMARY_ADMIN → uses the {@code requestedLocationId} param (may be {@code null} = all locations)</li>
-     *   <li>REGIONAL_ADMIN → always their own location; {@code requestedLocationId} is ignored</li>
-     *   <li>RECEPTIONIST   → always their own location; {@code requestedLocationId} is ignored</li>
-     * </ul>
-     */
     public String resolveEffectiveLocation(Authentication auth, String requestedLocationId) {
         if (isPrimaryAdmin(auth)) {
             return requestedLocationId;
@@ -74,22 +97,13 @@ public class AuthorizationHelper {
         return getUserLocation(auth.getName());
     }
 
-    // ── Guard helper ──────────────────────────────────────────────────────────
-
-    /**
-     * Throws 403 if the caller is a RECEPTIONIST attempting to access a restricted resource.
-     */
     public void denyReceptionist(Authentication auth) {
-        if (isReceptionist(auth)) {
+        if (isReceptionist(auth) && !hasElevatedRole(auth)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Access denied. Receptionists are not authorized to access this resource.");
         }
     }
 
-    /**
-     * For REGIONAL_ADMIN, asserts that the target locationId matches the caller's location.
-     * Throws 403 if not. PRIMARY_ADMIN passes through unconditionally.
-     */
     public void assertLocationAccess(Authentication auth, String targetLocationId) {
         if (isPrimaryAdmin(auth)) return;
         String callerLocation = getUserLocation(auth.getName());
@@ -97,5 +111,12 @@ public class AuthorizationHelper {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Access denied. You can only manage data for your assigned location.");
         }
+    }
+
+    public static int primaryRoleId(List<Integer> roleIds) {
+        if (roleIds == null || roleIds.isEmpty()) {
+            return 3;
+        }
+        return roleIds.stream().mapToInt(Integer::intValue).min().orElse(3);
     }
 }

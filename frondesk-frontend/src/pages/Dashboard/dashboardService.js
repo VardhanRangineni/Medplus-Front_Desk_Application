@@ -2,49 +2,26 @@
  * dashboardService.js
  *
  * All backend communication for the Dashboard home screen.
- * Uses window.electronAPI.apiRequest() — JWT token injected automatically by main process.
- *
- * Endpoints consumed:
- *   GET /api/dashboard/stats   — today's aggregated statistics + hourly flow
- *   GET /api/visitors/recent   — 20 most recent check-in entries
  */
 
-// ─── Private helper ───────────────────────────────────────────────────────────
+import { formatApiFailure } from '../../services/userFacingErrors';
+import { buildLocationScopeParams } from '../../services/locationScope';
 
 async function api(method, path, body) {
   const result = await window.electronAPI.apiRequest(method, path, body ?? null);
   if (!result.ok) {
-    const msg = result.body?.message || `Request failed: ${result.status}`;
-    throw new Error(msg);
+    throw new Error(formatApiFailure(result));
   }
   return result.body?.data ?? result.body;
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
-
 /**
- * Fetches today's aggregated dashboard statistics.
- *
- * Scope is determined server-side from the caller's role:
- *  - RECEPTIONIST            → their assigned location
- *  - PRIMARY / REGIONAL_ADMIN → all locations
- *
- * @returns {Promise<{
- *   todayCheckinsAll:       number,
- *   todayCheckinsEmp:       number,
- *   todayCheckinsNonEmp:    number,
- *   todayCheckoutsAll:      number,
- *   todayCheckoutsEmp:      number,
- *   todayCheckoutsNonEmp:   number,
- *   activeInBuildingAll:    number,
- *   activeInBuildingEmp:    number,
- *   activeInBuildingNonEmp: number,
- *   pendingSignouts:        number,
- *   visitorFlow:            Array<{ label: string, all: number, employee: number, nonEmployee: number }>
- * }>}
+ * @param {{ locationId?: string|null, allLocations?: boolean }} [scope]
  */
-export async function getDashboardStats() {
-  const data = await api('GET', '/api/dashboard/stats');
+export async function getDashboardStats(scope = {}) {
+  const params = buildLocationScopeParams(scope.locationId, scope.allLocations);
+  const qs = params.toString();
+  const data = await api('GET', `/api/dashboard/stats${qs ? `?${qs}` : ''}`);
   return {
     todayCheckinsAll:       data?.todayCheckinsAll       ?? 0,
     todayCheckinsEmp:       data?.todayCheckinsEmp       ?? 0,
@@ -61,27 +38,12 @@ export async function getDashboardStats() {
 }
 
 /**
- * Fetches the 20 most recent visitor/employee entries for the dashboard table.
- * ISO date strings on checkIn / checkOut are converted to Date objects.
- *
- * @returns {Promise<Array<{
- *   id:           string,
- *   type:         'VISITOR'|'EMPLOYEE',
- *   name:         string,
- *   mobile:       string|null,
- *   empId:        string|null,
- *   status:       'checked-in'|'checked-out',
- *   personToMeet: string|null,
- *   department:   string|null,
- *   locationId:   string|null,
- *   locationName: string|null,
- *   card:         number|null,
- *   checkIn:      Date|null,
- *   checkOut:     Date|null,
- * }>>}
+ * @param {{ locationId?: string|null, allLocations?: boolean }} [scope]
  */
-export async function getRecentVisitors() {
-  const data = await api('GET', '/api/visitors/recent');
+export async function getRecentVisitors(scope = {}) {
+  const params = buildLocationScopeParams(scope.locationId, scope.allLocations);
+  const qs = params.toString();
+  const data = await api('GET', `/api/visitors/recent${qs ? `?${qs}` : ''}`);
   const entries = Array.isArray(data) ? data : [];
   return entries.map((raw) => ({
     ...raw,

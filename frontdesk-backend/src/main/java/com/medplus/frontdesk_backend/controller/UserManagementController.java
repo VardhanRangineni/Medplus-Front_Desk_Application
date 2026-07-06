@@ -1,12 +1,14 @@
 package com.medplus.frontdesk_backend.controller;
 
 import com.medplus.frontdesk_backend.dto.ApiResponse;
-import com.medplus.frontdesk_backend.dto.DeviceResetRequestDto;
-import com.medplus.frontdesk_backend.dto.DeviceResetResponseDto;
 import com.medplus.frontdesk_backend.dto.ManagedUserDto;
+import com.medplus.frontdesk_backend.dto.TempDeviceGrantDto;
+import com.medplus.frontdesk_backend.dto.TempDeviceGrantRequestDto;
 import com.medplus.frontdesk_backend.dto.PagedResponseDto;
+import com.medplus.frontdesk_backend.dto.RoleDto;
 import com.medplus.frontdesk_backend.dto.UserLookupDto;
 import com.medplus.frontdesk_backend.dto.UserStatusRequestDto;
+import com.medplus.frontdesk_backend.model.UserRole;
 import com.medplus.frontdesk_backend.security.AuthorizationHelper;
 import com.medplus.frontdesk_backend.service.UserManagementService;
 import jakarta.validation.Valid;
@@ -17,6 +19,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -38,11 +41,23 @@ public class UserManagementController {
     private final UserManagementService userManagementService;
     private final AuthorizationHelper   authHelper;
 
+    // ── GET /api/managed-users/roles ─────────────────────────────────────────
+
+    /**
+     * Returns the full list of available application roles (Admin, Supervisor, Receptionist).
+     * Used by the frontend to populate the role selector in the Add / Edit User modal.
+     */
+    @GetMapping("/roles")
+    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
+    public ResponseEntity<ApiResponse<List<RoleDto>>> getRoles(Authentication auth) {
+        return ResponseEntity.ok(ApiResponse.success("Roles retrieved.", userManagementService.getRoles(auth)));
+    }
+
     // ── GET /api/managed-users/search?q= ─────────────────────────────────────
 
     /**
-     * Type-ahead lookup over usermaster by employeeid or fullName.
-     * REGIONAL_ADMIN sees only employees at their own location.
+     * Type-ahead lookup over usermanagement directory by employeeid or fullName.
+     * REGIONAL_ADMIN sees only employees they created.
      *
      * Query param: q — search term (min 1 char, empty → [])
      * Returns up to 20 matches: [ { id, name, location, designation, department, email, phone } ]
@@ -54,7 +69,8 @@ public class UserManagementController {
             Authentication auth) {
 
         String locationId = authHelper.resolveEffectiveLocation(auth, null);
-        List<UserLookupDto> results = userManagementService.searchUsers(q, locationId);
+        UserRole callerRole = userRoleFromAuth(auth);
+        List<UserLookupDto> results = userManagementService.searchUsers(q, locationId, callerRole, auth.getName());
         return ResponseEntity.ok(ApiResponse.success("Search results.", results));
     }
 
@@ -65,7 +81,7 @@ public class UserManagementController {
      *
      * Access rules:
      *   PRIMARY_ADMIN  → all users
-     *   REGIONAL_ADMIN → only users at their own location
+     *   REGIONAL_ADMIN → only users they created
      *
      * Query params:
      *   q    (optional) — case-insensitive search term
@@ -81,9 +97,23 @@ public class UserManagementController {
             Authentication auth) {
 
         String locationId = authHelper.resolveEffectiveLocation(auth, null);
+        UserRole callerRole = userRoleFromAuth(auth);
         PagedResponseDto<ManagedUserDto> result =
-                userManagementService.getManagedUsersPaged(q, locationId, page, size);
+                userManagementService.getManagedUsersPaged(q, locationId, page, size, callerRole, auth.getName());
         return ResponseEntity.ok(ApiResponse.success("Users retrieved successfully.", result));
+    }
+
+    // ── GET /api/managed-users/{id} ───────────────────────────────────────────
+
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
+    public ResponseEntity<ApiResponse<ManagedUserDto>> getManagedUser(
+            @PathVariable String id,
+            Authentication auth) {
+
+        UserRole callerRole = userRoleFromAuth(auth);
+        ManagedUserDto user = userManagementService.getManagedUser(id, callerRole, auth.getName());
+        return ResponseEntity.ok(ApiResponse.success("User retrieved successfully.", user));
     }
 
     // ── POST /api/managed-users ───────────────────────────────────────────────
@@ -91,19 +121,22 @@ public class UserManagementController {
     /**
      * Creates a new usermanagement record (and a minimal usermaster if absent).
      *
-     * Request body: { id, name, location, ipAddress, macAddress, status }
+     * Request body: { id, name, location, assignedDeviceId, status, roleId }
      *   - location : descriptive name or LocationId from locationmaster
      *   - role     : always defaults to RECEPTIONIST
      *   - password : always defaults to BCrypt(employeeId)
      *
-     * Restricted to PRIMARY_ADMIN.
+     * PRIMARY_ADMIN can create REGIONAL_ADMIN + RECEPTIONIST.
+     * REGIONAL_ADMIN can create RECEPTIONIST only (own location).
      */
     @PostMapping
-    @PreAuthorize("hasRole('PRIMARY_ADMIN')")
+    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
     public ResponseEntity<ApiResponse<ManagedUserDto>> createManagedUser(
-            @RequestBody ManagedUserDto dto) {
+            @RequestBody ManagedUserDto dto,
+            Authentication auth) {
 
-        ManagedUserDto created = userManagementService.createManagedUser(dto);
+        UserRole callerRole = userRoleFromAuth(auth);
+        ManagedUserDto created = userManagementService.createManagedUser(dto, auth.getName(), callerRole);
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(ApiResponse.success("User created successfully.", created));
@@ -122,17 +155,8 @@ public class UserManagementController {
             @RequestBody ManagedUserDto dto,
             Authentication auth) {
 
-        // Verify REGIONAL_ADMIN is only modifying a user at their location
-        if (authHelper.isRegionalAdmin(auth)) {
-            ManagedUserDto existing = userManagementService.getManagedUsersPaged(id, null, 0, 1)
-                    .getContent().stream()
-                    .filter(u -> id.equals(u.getId()))
-                    .findFirst()
-                    .orElse(null);
-            // Use assertLocationAccess via the resolved location of the target user
-        }
-
-        ManagedUserDto updated = userManagementService.updateManagedUser(id, dto);
+        UserRole callerRole = userRoleFromAuth(auth);
+        ManagedUserDto updated = userManagementService.updateManagedUser(id, dto, auth.getName(), callerRole);
         return ResponseEntity.ok(ApiResponse.success("User updated successfully.", updated));
     }
 
@@ -149,50 +173,130 @@ public class UserManagementController {
             @RequestBody UserStatusRequestDto request,
             Authentication auth) {
 
-        ManagedUserDto updated = userManagementService.updateManagedUserStatus(id, request.isStatus());
+        UserRole callerRole = userRoleFromAuth(auth);
+        ManagedUserDto updated = userManagementService.updateManagedUserStatus(
+                id, request.isStatus(), auth.getName(), callerRole);
         String msg = request.isStatus() ? "User activated." : "User deactivated.";
         return ResponseEntity.ok(ApiResponse.success(msg, updated));
     }
 
-    // ── PUT /api/managed-users/{employeeId}/reset-mac ─────────────────────────
+    // ── POST /api/managed-users/{employeeId}/temp-device-grant ────────────────
 
-    /**
-     * Overwrites the registered MAC address for a target user (device re-registration).
-     *
-     * Request body:
-     * {
-     *   "newMacAddress": "BB:CC:DD:EE:FF:00",         ← required
-     *   "reason":        "Employee changed workstation" ← optional
-     * }
-     *
-     * Role hierarchy enforced in the service:
-     *   PRIMARY_ADMIN  → can reset MAC for REGIONAL_ADMIN or RECEPTIONIST
-     *   REGIONAL_ADMIN → can only reset MAC for RECEPTIONIST
-     */
-    @PutMapping("/{employeeId}/reset-mac")
+    @PostMapping("/{employeeId}/temp-device-grant")
     @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
-    public ResponseEntity<ApiResponse<DeviceResetResponseDto>> resetDeviceMac(
+    public ResponseEntity<ApiResponse<TempDeviceGrantDto>> grantTempDeviceAccess(
             @PathVariable String employeeId,
-            @Valid @RequestBody DeviceResetRequestDto request,
+            @Valid @RequestBody TempDeviceGrantRequestDto request,
             Authentication authentication) {
 
-        String callerEmployeeId = authentication.getName();
-        String callerRole       = extractRole(authentication);
+        TempDeviceGrantDto result = userManagementService.grantTempDeviceAccess(
+                employeeId, request, authentication.getName(), userRoleFromAuth(authentication).name());
+        return ResponseEntity.ok(ApiResponse.success("Temporary desk access granted.", result));
+    }
 
-        DeviceResetResponseDto result =
-                userManagementService.resetDeviceMac(employeeId, request, callerEmployeeId, callerRole);
+    // ── DELETE /api/managed-users/{employeeId}/temp-device-grant ──────────────
 
-        return ResponseEntity.ok(ApiResponse.success("Device MAC address updated successfully.", result));
+    @DeleteMapping("/{employeeId}/temp-device-grant")
+    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
+    public ResponseEntity<ApiResponse<TempDeviceGrantDto>> revokeTempDeviceAccess(
+            @PathVariable String employeeId,
+            Authentication authentication) {
+
+        TempDeviceGrantDto result = userManagementService.revokeTempDeviceAccess(
+                employeeId, authentication.getName(), userRoleFromAuth(authentication).name());
+        return ResponseEntity.ok(ApiResponse.success("Temporary desk access revoked.", result));
+    }
+
+    // ── GET /api/managed-users/{employeeId}/temp-device-grant ─────────────────
+
+    @GetMapping("/{employeeId}/temp-device-grant")
+    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
+    public ResponseEntity<ApiResponse<TempDeviceGrantDto>> getActiveTempDeviceGrant(
+            @PathVariable String employeeId) {
+
+        TempDeviceGrantDto grant = userManagementService.getActiveTempDeviceGrant(employeeId);
+        if (grant == null) {
+            return ResponseEntity.ok(ApiResponse.success("No active temporary access.", null));
+        }
+        return ResponseEntity.ok(ApiResponse.success("Active temporary access.", grant));
+    }
+
+    // ── GET /api/managed-users/{employeeId}/temp-device-grants ────────────────
+
+    @GetMapping("/{employeeId}/temp-device-grants")
+    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
+    public ResponseEntity<ApiResponse<List<TempDeviceGrantDto>>> getTempDeviceGrantHistory(
+            @PathVariable String employeeId,
+            @RequestParam(defaultValue = "20") int limit) {
+
+        List<TempDeviceGrantDto> history =
+                userManagementService.getTempDeviceGrantHistory(employeeId, limit);
+        return ResponseEntity.ok(ApiResponse.success("Grant history.", history));
+    }
+
+    // ── POST /api/managed-users/{id}/reset-password ───────────────────────────
+
+    /**
+     * Resets the target user's password to their Employee ID in ALL CAPS.
+     * PRIMARY_ADMIN can reset any non-admin account.
+     * REGIONAL_ADMIN can only reset RECEPTIONIST accounts.
+     */
+    @PostMapping("/{id}/reset-password")
+    @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> resetPassword(
+            @PathVariable String id,
+            Authentication auth) {
+
+        String callerEmpId = auth.getName();
+        String callerRole  = userRoleFromAuth(auth).name();
+        userManagementService.resetPassword(id, callerEmpId, callerRole);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Password reset to Employee ID (all caps) successfully.", null));
+    }
+
+    // ── POST /api/managed-users/me/change-password ────────────────────────────
+
+    /**
+     * Allows any authenticated user to change their own password.
+     * Requires the current password for verification.
+     *
+     * Request body: { "currentPassword": "...", "newPassword": "..." }
+     */
+    @PostMapping("/me/change-password")
+    public ResponseEntity<ApiResponse<Void>> changePassword(
+            @RequestBody java.util.Map<String, String> body,
+            Authentication auth) {
+
+        String currentPassword = body.get("currentPassword");
+        String newPassword     = body.get("newPassword");
+
+        if (currentPassword == null || currentPassword.isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Current password is required."));
+        }
+        if (newPassword == null || newPassword.isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("New password is required."));
+        }
+
+        userManagementService.changePassword(auth.getName(), currentPassword, newPassword);
+        return ResponseEntity.ok(ApiResponse.success("Password changed successfully.", null));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private String extractRole(Authentication authentication) {
-        return authentication.getAuthorities().stream()
+    private UserRole userRoleFromAuth(Authentication authentication) {
+        var roles = authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .filter(a -> a.startsWith("ROLE_"))
-                .map(a -> a.replace("ROLE_", ""))
-                .findFirst()
-                .orElse("");
+                .map(a -> a.substring("ROLE_".length()))
+                .collect(java.util.stream.Collectors.toSet());
+        if (roles.contains(UserRole.PRIMARY_ADMIN.name())) {
+            return UserRole.PRIMARY_ADMIN;
+        }
+        if (roles.contains(UserRole.REGIONAL_ADMIN.name())) {
+            return UserRole.REGIONAL_ADMIN;
+        }
+        return UserRole.RECEPTIONIST;
     }
 }

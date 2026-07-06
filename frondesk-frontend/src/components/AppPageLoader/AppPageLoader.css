@@ -1,0 +1,31 @@
+.app-page-loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 200px;
+  gap: 12px;
+  background: transparent;
+  color: #64748b;
+  animation: app-loader-fade-in 0.25s ease;
+}
+
+.app-page-loader--fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #f0f2f7;
+}
+
+.app-page-loader__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+}
+
+@keyframes app-loader-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

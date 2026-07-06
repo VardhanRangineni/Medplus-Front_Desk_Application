@@ -1,21 +1,14 @@
 package com.medplus.frontdesk_backend.dto;
 
-import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.List;
-
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 public class VisitorRequestDto {
-
-    /** "INDIVIDUAL" or "GROUP" */
-    @NotBlank(message = "visitType is required (INDIVIDUAL or GROUP)")
-    private String visitType;
 
     /** "VISITOR" or "EMPLOYEE" */
     @NotBlank(message = "entryType is required (VISITOR or EMPLOYEE)")
@@ -44,7 +37,21 @@ public class VisitorRequestDto {
 
     private String reasonForVisit;
 
-    /** Members list — required (and non-empty) when visitType = GROUP */
-    @Valid
-    private List<VisitorMemberRequestDto> members;
+    /** e.g. "INDIVIDUAL", "GROUP" — defaults to INDIVIDUAL if omitted */
+    private String visitType;
+
+    /**
+     * Used only when personToMeetId is "__OTHER__".
+     * Stores the name the front-desk operator typed manually.
+     */
+    private String personToMeetName;
+
+    /**
+     * Company or organisation name if the visitor is representing one.
+     * Null or blank means "not representing a company".
+     */
+    private String companyName;
+
+    /** Checking-in employee's HRMS department (EMPLOYEE entries only). */
+    private String employeeDepartment;
 }

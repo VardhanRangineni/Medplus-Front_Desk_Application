@@ -1,0 +1,4 @@
+MedPlus Visitor Management System (MVMS)
+Copyright (c) MedPlus. All rights reserved.
+
+By installing this software you agree to use it only for authorised MedPlus visitor management operations.

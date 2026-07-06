@@ -7,26 +7,19 @@
  * Endpoints consumed:
  *   GET    /api/visitors?page=&size=&status=&department=&date=
  *   GET    /api/visitors/search?q=&page=&size=&status=&department=&date=
- *   GET    /api/visitors/status-counts  (replaced — counts now derived from getEntries)
  *   PATCH  /api/visitors/:id/checkout
- *   PATCH  /api/visitors/:id/members/:memberId/checkout
  *   GET    /api/visitors/:id
  *   PUT    /api/visitors/:id
  */
 
-import * as XLSX from 'xlsx';
+import { formatApiFailure } from '../../services/userFacingErrors';
+import { buildLocationScopeParams } from '../../services/locationScope';
 
 // ─── Types (JSDoc) ────────────────────────────────────────────────────────────
 
 /**
  * @typedef {'VISITOR'|'EMPLOYEE'} EntryType
  * @typedef {'checked-in'|'checked-out'} EntryStatus
- *
- * @typedef {Object} Member
- * @property {string}      id
- * @property {string}      name
- * @property {number|null} card
- * @property {EntryStatus} status
  *
  * @typedef {Object} Entry
  * @property {string}      id             - e.g. "MED-V-0001"
@@ -40,7 +33,6 @@ import * as XLSX from 'xlsx';
  * @property {number|null} card
  * @property {Date|null}   checkIn
  * @property {Date|null}   checkOut
- * @property {Member[]}    members
  *
  * @typedef {Object} EntriesPage
  * @property {Entry[]} entries
@@ -59,8 +51,7 @@ import * as XLSX from 'xlsx';
 async function api(method, path, body) {
   const result = await window.electronAPI.apiRequest(method, path, body ?? null);
   if (!result.ok) {
-    const msg = result.body?.message || `Request failed: ${result.status}`;
-    throw new Error(msg);
+    throw new Error(formatApiFailure(result));
   }
   return result.body?.data ?? result.body;
 }
@@ -71,7 +62,7 @@ function normalise(raw) {
     ...raw,
     checkIn:  raw.checkIn  ? new Date(raw.checkIn)  : null,
     checkOut: raw.checkOut ? new Date(raw.checkOut) : null,
-    members:  (raw.members ?? []).map((m) => ({ ...m })),
+    lastScan: raw.lastScanAt ? new Date(raw.lastScanAt) : null,
   };
 }
 
@@ -108,6 +99,7 @@ function fmtDate(date) {
  * @param {string}       [options.from]           ISO date "YYYY-MM-DD" range start
  * @param {string}       [options.to]             ISO date "YYYY-MM-DD" range end
  * @param {string|null}  [options.locationId]     Admin-only location filter
+ * @param {string|null}  [options.createdBy]      Filter entries by staff who checked in
  * @returns {Promise<EntriesPage>}
  */
 export async function getEntries({
@@ -119,6 +111,8 @@ export async function getEntries({
   from       = null,
   to         = null,
   locationId = null,
+  allLocations = false,
+  createdBy  = null,
 } = {}) {
   const params = new URLSearchParams();
   params.set('page', String(page));
@@ -127,7 +121,8 @@ export async function getEntries({
   if (department) params.set('department', department);
   if (from)       params.set('from',       from);
   if (to)         params.set('to',         to);
-  if (locationId) params.set('locationId', locationId);
+  if (createdBy)  params.set('createdBy',  createdBy);
+  buildLocationScopeParams(locationId, allLocations).forEach((v, k) => params.set(k, v));
 
   const trimmed = search.trim();
   const endpoint = trimmed
@@ -145,6 +140,52 @@ export async function getEntries({
   };
 }
 
+/** Records per request when assembling a full export (table UI still uses 20). */
+const EXPORT_FETCH_SIZE = 500;
+/** Hard cap so a bug or huge dataset cannot hang the app indefinitely. */
+const EXPORT_MAX_ROWS = 100_000;
+
+/**
+ * Loads every row matching the same filters as the Check-In/Out table, for Excel export.
+ * Paginates until `totalElements` is reached or no more rows are returned.
+ *
+ * @param {Object}       [opts]  Same shape as {@link getEntries} (page/size ignored).
+ * @returns {Promise<Entry[]>}
+ */
+export async function fetchAllEntriesForExport({
+  search     = '',
+  status     = null,
+  department = null,
+  from       = null,
+  to         = null,
+  locationId = null,
+  allLocations = false,
+  createdBy  = null,
+} = {}) {
+  const accumulated = [];
+  let page = 0;
+
+  while (accumulated.length < EXPORT_MAX_ROWS) {
+    const { entries, totalElements } = await getEntries({
+      page,
+      size: EXPORT_FETCH_SIZE,
+      search,
+      status,
+      department,
+      from,
+      to,
+      locationId,
+      allLocations,
+      createdBy,
+    });
+    if (entries.length === 0) break;
+    accumulated.push(...entries);
+    if (accumulated.length >= totalElements) break;
+    page += 1;
+  }
+  return accumulated;
+}
+
 /**
  * Returns aggregate counts by visit status.
  * Derived from three parallel getEntries calls (size=1) so the counts always
@@ -154,10 +195,11 @@ export async function getEntries({
  * @param {string}      [opts.from]        ISO date range start
  * @param {string}      [opts.to]          ISO date range end
  * @param {string|null} [opts.locationId]  Admin-only location filter
+ * @param {string|null} [opts.createdBy]   Filter by staff who created entries
  * @returns {Promise<StatusCounts>}
  */
-export async function getStatusCounts({ from, to, locationId } = {}) {
-  const base = { page: 0, size: 1, from, to, locationId };
+export async function getStatusCounts({ from, to, locationId, allLocations = false, createdBy } = {}) {
+  const base = { page: 0, size: 1, from, to, locationId, allLocations, createdBy };
   const [allData, inData, outData] = await Promise.all([
     getEntries(base),
     getEntries({ ...base, status: 'checked-in'  }),
@@ -188,32 +230,12 @@ export async function getDepartments() {
  *
  * Endpoint: PATCH /api/visitors/:id/checkout
  *
- * @param {string}  id
- * @param {boolean} [cardReturned=true]  Pass false when visitor did NOT return their card.
+ * @param {string} id
  * @returns {Promise<Entry>}
  */
-export async function checkOutEntry(id, cardReturned = true) {
-  const data = await api('PATCH', `/api/visitors/${encodeURIComponent(id)}/checkout`,
-    { cardReturned });
+export async function checkOutEntry(id) {
+  const data = await api('PATCH', `/api/visitors/${encodeURIComponent(id)}/checkout`);
   return normalise(data);
-}
-
-/**
- * Checks out a single member within a group visit.
- *
- * Endpoint: PATCH /api/visitors/:entryId/members/:memberId/checkout
- *
- * @param {string}  entryId
- * @param {string}  memberId
- * @param {boolean} [cardReturned=true]
- * @returns {Promise<Member>}
- */
-export async function checkOutMember(entryId, memberId, cardReturned = true) {
-  return api(
-    'PATCH',
-    `/api/visitors/${encodeURIComponent(entryId)}/members/${encodeURIComponent(memberId)}/checkout`,
-    { cardReturned },
-  );
 }
 
 /**
@@ -227,6 +249,23 @@ export async function checkOutMember(entryId, memberId, cardReturned = true) {
 export async function getEntryDetail(id) {
   const data = await api('GET', `/api/visitors/${encodeURIComponent(id)}`);
   return normalise(data);
+}
+
+/**
+ * Fetches the ordered movement trail for a visitor entry.
+ *
+ * Endpoint: GET /api/visitors/:id/movement
+ *
+ * @param {string} id
+ * @returns {Promise<Array<{ id: number, eventType: string, deviceName: string, locationName: string, floor: string|null, area: string|null, scannedAt: Date|null, scannedBy: string|null }>>}
+ */
+export async function getMovementTrail(id) {
+  const data = await api('GET', `/api/visitors/${encodeURIComponent(id)}/movement`);
+  const events = Array.isArray(data) ? data : [];
+  return events.map((e) => ({
+    ...e,
+    scannedAt: e.scannedAt ? new Date(e.scannedAt) : null,
+  }));
 }
 
 /**
@@ -247,22 +286,20 @@ export async function updateEntry(id, payload) {
 
 /**
  * Generates an Excel (.xlsx) file from the supplied entries and triggers a
- * browser-style download inside Electron.
+ * browser-style download inside Electron. Column order mirrors the on-screen table.
  *
- * Call this with the CURRENTLY VISIBLE PAGE entries, or pre-fetch all pages
- * for a "full export".  Column order mirrors the on-screen table.
- *
- * @param {Entry[]} entries    - Rows to export.
+ * @param {Entry[]} entries    - Rows to export (typically from {@link fetchAllEntriesForExport}).
  * @param {string}  [filename] - Defaults to "visitors_YYYY-MM-DD.xlsx".
  */
-export function exportToExcel(entries, filename) {
+export async function exportToExcel(entries, filename) {
+  const XLSX = await import('xlsx');
   const today   = new Date().toISOString().split('T')[0];
   const outFile = filename ?? `visitors_${today}.xlsx`;
 
   const HEADERS = [
     'Entry ID', 'Type', 'Name', 'Mobile / Emp ID',
     'Department', 'Status', 'Person to Meet',
-    'Card(s)', 'Check-In', 'Check-Out', 'Reason for Visit',
+    'Card(s)', 'Check-In', 'Check-Out', 'Last Scan Place', 'Last Scan Time', 'Reason for Visit',
   ];
 
   const rows = entries.map((e) => [
@@ -273,9 +310,11 @@ export function exportToExcel(entries, filename) {
     e.department ?? '',
     e.status === 'checked-in' ? 'Checked-in' : 'Checked-out',
     e.personToMeet ?? '',
-    e.type === 'EMPLOYEE' ? 'N/A' : (e.card != null ? String(e.card) : ''),
+    e.card != null ? String(e.card) : '',
     fmtDate(e.checkIn),
     fmtDate(e.checkOut),
+    e.lastScanDeviceName ?? '',
+    fmtDate(e.lastScan),
     e.reasonForVisit ?? '',
   ]);
 
@@ -293,6 +332,8 @@ export function exportToExcel(entries, filename) {
     { wch: 10 }, // Card(s)
     { wch: 22 }, // Check-In
     { wch: 22 }, // Check-Out
+    { wch: 22 }, // Last Scan Place
+    { wch: 22 }, // Last Scan Time
     { wch: 30 }, // Reason
   ];
   ws['!freeze'] = { xSplit: 0, ySplit: 1 };
@@ -362,12 +403,34 @@ export async function searchPreRegStaff(query, token) {
  * @param {string} token  The raw token from the QR code (without "PREREG:" prefix)
  * @returns {Promise<object>}  The created visitor log entry
  */
-export async function checkInByQr(token, resolvedPersonId) {
+export async function checkInByQr(token, resolvedPersonId, cardNumber = null) {
+  const body = { resolvedPersonId };
+  if (cardNumber != null && String(cardNumber).trim() !== '') {
+    body.cardNumber = parseInt(String(cardNumber).trim(), 10);
+  }
   const result = await window.electronAPI.apiRequest(
-    'POST', `/api/pre-register/checkin/${encodeURIComponent(token)}`, { resolvedPersonId }
+    'POST', `/api/pre-register/checkin/${encodeURIComponent(token)}`, body
   );
   if (!result.ok) {
     const msg = result.body?.message || 'QR check-in failed.';
+    throw new Error(msg);
+  }
+  return result.body?.data ?? result.body;
+}
+
+/**
+ * Records a zone movement scan for a checked-in visitor.
+ * Endpoint: POST /api/visitors/scan
+ *
+ * @param {string} payload  Raw QR text (PREREG:token, VISITOR:MED-V-0001, or MED-V-0001)
+ * @returns {Promise<object>}
+ */
+export async function recordZoneScan(payload) {
+  const result = await window.electronAPI.apiRequest(
+    'POST', '/api/visitors/scan', { payload }
+  );
+  if (!result.ok) {
+    const msg = result.body?.message || 'Zone scan failed.';
     throw new Error(msg);
   }
   return result.body?.data ?? result.body;

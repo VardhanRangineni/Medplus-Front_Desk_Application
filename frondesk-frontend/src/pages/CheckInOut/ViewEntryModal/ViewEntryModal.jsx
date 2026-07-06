@@ -2,12 +2,10 @@
  * ViewEntryModal — read-only detail view for a single check-in entry.
  *
  * Loads extended entry data (including photo, email, govtId, etc.) from
- * getEntryDetail() on mount, then renders a two-column layout:
- *   Left  — all textual details
- *   Right — photo + members list (if group)
+ * getEntryDetail() on mount, then renders the full details layout.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import './ViewEntryModal.css';
 import {
   IconX,
@@ -18,9 +16,8 @@ import {
   IconBuilding,
   IconMapPin,
   IconEdit,
-  IconUsers,
 } from '../../../components/Icons/Icons';
-import { getEntryDetail } from '../checkInOutService';
+import { getEntryDetail, getMovementTrail } from '../checkInOutService';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -28,7 +25,59 @@ const GOVT_ID_LABELS = {
   AADHAAR: 'Aadhaar Card',
 };
 
+const EVENT_LABELS = {
+  CHECK_IN: 'Check-in',
+  ZONE_SCAN: 'Zone scan',
+  CHECK_OUT: 'Check-out',
+};
+
+const EVENT_VARIANTS = {
+  CHECK_IN: 'in',
+  ZONE_SCAN: 'zone',
+  CHECK_OUT: 'out',
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatDevicePlace(event) {
+  const parts = [event.deviceName, event.floor, event.area].filter(Boolean);
+  return parts.length ? parts.join(' · ') : (event.deviceId ?? '—');
+}
+
+function MovementTimeline({ events, loading }) {
+  if (loading) {
+    return <p className="vem-movement-empty">Loading movement trail…</p>;
+  }
+  if (!events?.length) {
+    return (
+      <p className="vem-movement-empty">
+        No movement scans recorded yet. Use Zone Scan when the visitor passes a kiosk.
+      </p>
+    );
+  }
+
+  return (
+    <ol className="vem-movement-list">
+      {events.map((event) => (
+        <li key={event.id} className="vem-movement-item">
+          <div className={`vem-movement-dot vem-movement-dot--${EVENT_VARIANTS[event.eventType] ?? 'zone'}`} />
+          <div className="vem-movement-body">
+            <div className="vem-movement-head">
+              <span className={`vem-movement-type vem-movement-type--${EVENT_VARIANTS[event.eventType] ?? 'zone'}`}>
+                {EVENT_LABELS[event.eventType] ?? event.eventType}
+              </span>
+              <span className="vem-movement-time">{fmt(event.scannedAt)}</span>
+            </div>
+            <p className="vem-movement-place">{formatDevicePlace(event)}</p>
+            {event.locationName && (
+              <p className="vem-movement-meta">{event.locationName}</p>
+            )}
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 function fmt(date) {
   if (!date) return '—';
@@ -54,29 +103,115 @@ function DetailRow({ icon, label, value }) {
   );
 }
 
+function VisitPassQrPanel({ visitPassToken, detailLoading }) {
+  const qrRef = useRef(null);
+  const [qrError, setQrError] = useState(false);
+
+  useEffect(() => {
+    setQrError(false);
+    if (!visitPassToken || !qrRef.current) return;
+
+    const payload = `PREREG:${visitPassToken}`;
+    let cancelled = false;
+
+    const draw = () => {
+      if (cancelled || !qrRef.current) return;
+      import('qrcode').then((mod) => {
+        if (cancelled || !qrRef.current) return;
+        const QRCode = mod.default || mod;
+        return QRCode.toCanvas(qrRef.current, payload, {
+          width: 176,
+          margin: 1,
+          color: { dark: '#111111', light: '#ffffff' },
+        });
+      }).catch(() => {
+        if (!cancelled) setQrError(true);
+      });
+    };
+
+    requestAnimationFrame(draw);
+    return () => { cancelled = true; };
+  }, [visitPassToken]);
+
+  return (
+    <div className="vem-right">
+      <div className="vem-qr-section">
+        <p className="vem-section__title">Visit Pass QR</p>
+        <div className="vem-qr-frame">
+          {detailLoading && (
+            <p className="vem-qr-placeholder">Loading QR…</p>
+          )}
+          {!detailLoading && !visitPassToken && (
+            <p className="vem-qr-placeholder vem-qr-placeholder--muted">
+              QR not available for this entry.
+            </p>
+          )}
+          {!detailLoading && visitPassToken && qrError && (
+            <p className="vem-qr-placeholder vem-qr-placeholder--muted">
+              Could not render QR. Ask reception to resend the visit pass SMS.
+            </p>
+          )}
+          {!detailLoading && visitPassToken && !qrError && (
+            <canvas ref={qrRef} className="vem-qr-canvas" aria-label="Visitor visit pass QR code" />
+          )}
+        </div>
+        <p className="vem-qr-hint">
+          Same QR sent by SMS. Visitor can scan this at any kiosk for zone tracking if the message was not received.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ViewEntryModal({ entry, onClose, onEdit }) {
-  const [detail, setDetail] = useState(entry);   // pre-fill immediately; enriched when API ready
+  const [detail, setDetail] = useState(entry);
+  const [detailLoading, setDetailLoading] = useState(true);
+  const [movement, setMovement] = useState([]);
+  const [movementLoading, setMovementLoading] = useState(true);
 
-  // Close on Escape
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  // Silently try to load full entry detail — no error shown if API not ready
   useEffect(() => {
+    let cancelled = false;
+    setDetailLoading(true);
     getEntryDetail(entry.id)
-      .then((d) => { if (d) setDetail(d); })   // ignore null/falsy responses
-      .catch(() => { /* API not ready yet — keep displaying entry prop data */ });
+      .then((d) => { if (!cancelled && d) setDetail(d); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setDetailLoading(false); });
+    return () => { cancelled = true; };
   }, [entry.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMovementLoading(true);
+    getMovementTrail(entry.id)
+      .then((events) => {
+        if (!cancelled) setMovement(events);
+      })
+      .catch(() => {
+        if (!cancelled) setMovement([]);
+      })
+      .finally(() => {
+        if (!cancelled) setMovementLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [entry.id]);
+
+  const lastScanLabel = detail.lastScanDeviceName
+    ?? entry.lastScanDeviceName
+    ?? null;
+  const lastScanTime = detail.lastScan ?? entry.lastScan ?? null;
 
   const isVisitor  = entry.type === 'VISITOR';
   const isIn       = entry.status === 'checked-in';
-  const isGroup    = (detail?.visitType ?? '').toUpperCase() === 'GROUP'
-    || entry.members.length > 0;
+  const visitPassToken = detail.visitPassToken ?? entry.visitPassToken ?? null;
+  const showQrPanel = isVisitor && isIn;
 
   const handleOverlayClick = (e) => {
     if (e.target === e.currentTarget) onClose();
@@ -90,20 +225,13 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
       aria-labelledby="vem-title"
       onClick={handleOverlayClick}
     >
-      <div className="vem-dialog">
+      <div className={`vem-dialog${showQrPanel ? ' vem-dialog--with-qr' : ''}`}>
 
-        {/* ── Header ─────────────────────────────────────────────────── */}
         <div className="vem-header">
           <div className="vem-header__left">
             <span className={`vem-type-badge vem-type-badge--${entry.type.toLowerCase()}`}>
               {isVisitor ? 'Visitor' : 'Employee'}
             </span>
-            {isGroup && (
-              <span className="vem-group-badge">
-                <IconUsers size={12} />
-                Group Visit
-              </span>
-            )}
           </div>
           <div className="vem-header__right">
             <span className={`vem-status-badge vem-status-badge--${isIn ? 'in' : 'out'}`}>
@@ -115,19 +243,14 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
           </div>
         </div>
 
-        {/* Entry name + ID */}
         <div className="vem-name-row">
           <h2 className="vem-name" id="vem-title">{entry.name}</h2>
           <span className="vem-entry-id">{entry.id}</span>
         </div>
 
-        {/* ── Body — always shown; detail enriches when API is ready ── */}
         <div className="vem-body">
+            <div className={`vem-details${showQrPanel ? '' : ' vem-details--full'}`}>
 
-            {/* ── Left: details ─────────────────────────────────────── */}
-            <div className="vem-details">
-
-              {/* Contact */}
               <div className="vem-section">
                 <p className="vem-section__title">Contact</p>
                 {isVisitor ? (
@@ -159,7 +282,6 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
                 )}
               </div>
 
-              {/* Govt ID (visitor only) */}
               {isVisitor && (detail.govtIdType || detail.govtIdNumber) && (
                 <div className="vem-section">
                   <p className="vem-section__title">Identity Proof</p>
@@ -176,7 +298,6 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
                 </div>
               )}
 
-              {/* Visit info */}
               <div className="vem-section">
                 <p className="vem-section__title">Visit Details</p>
                 {detail.location && (
@@ -196,6 +317,13 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
                   label="Host Department"
                   value={detail.hostDepartment}
                 />
+                {isVisitor && (
+                  <DetailRow
+                    icon={<IconBuilding size={13} />}
+                    label="Representing Company"
+                    value={detail.companyName ?? entry.companyName}
+                  />
+                )}
                 {detail.reasonForVisit && (
                   <div className="vem-detail-row vem-detail-row--full">
                     <span className="vem-detail-icon"><IconUser size={13} /></span>
@@ -207,24 +335,18 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
                 )}
               </div>
 
-              {/* Card + timing */}
               <div className="vem-section">
                 <p className="vem-section__title">Entry Log</p>
-                {isGroup ? (
-                  <>
-                    <DetailRow
-                      icon={<IconCreditCard size={13} />}
-                      label="Lead Card"
-                      value={detail.leadCardNumber ?? detail.card}
-                    />
-                  </>
-                ) : (
-                  <DetailRow
-                    icon={<IconCreditCard size={13} />}
-                    label="Card Number"
-                    value={entry.card ?? detail.card}
-                  />
-                )}
+                <DetailRow
+                  icon={<IconCreditCard size={13} />}
+                  label="Card Number"
+                  value={entry.card ?? detail.card}
+                />
+                <DetailRow
+                  icon={<IconMapPin size={13} />}
+                  label="Check-In Kiosk"
+                  value={detail.checkInDeviceName ?? entry.checkInDeviceName}
+                />
                 <DetailRow
                   icon={<IconPhone size={13} />}
                   label="Check-In"
@@ -237,38 +359,31 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
                     value={fmt(entry.checkOut)}
                   />
                 )}
+                {(lastScanLabel || lastScanTime) && (
+                  <DetailRow
+                    icon={<IconMapPin size={13} />}
+                    label="Last Scan"
+                    value={lastScanLabel
+                      ? `${lastScanLabel}${lastScanTime ? ` · ${fmt(lastScanTime)}` : ''}`
+                      : fmt(lastScanTime)}
+                  />
+                )}
+              </div>
+
+              <div className="vem-section">
+                <p className="vem-section__title">Movement Trail</p>
+                <MovementTimeline events={movement} loading={movementLoading} />
               </div>
             </div>
 
-            {/* ── Right: members (group only) ────────────────────────── */}
-            {isGroup && entry.members.length > 0 && (
-              <div className="vem-right">
-                <div className="vem-members-section">
-                  <p className="vem-section__title">
-                    <IconUsers size={12} />
-                    &nbsp;Group Members ({entry.members.length})
-                  </p>
-                  <div className="vem-members-list">
-                    {entry.members.map((m, i) => (
-                      <div key={m.id} className="vem-member-row">
-                        <span className="vem-member-num">{i + 1}</span>
-                        <span className="vem-member-name">{m.name || '—'}</span>
-                        <span className="vem-member-card">
-                          <IconCreditCard size={11} />
-                          {m.card ?? '—'}
-                        </span>
-                        <span className={`vem-member-status vem-member-status--${m.status === 'checked-in' ? 'in' : 'out'}`}>
-                          {m.status === 'checked-in' ? 'In' : 'Out'}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
+            {showQrPanel && (
+              <VisitPassQrPanel
+                visitPassToken={visitPassToken}
+                detailLoading={detailLoading}
+              />
             )}
           </div>
 
-        {/* ── Footer ─────────────────────────────────────────────────── */}
         <div className="vem-footer">
           <button className="vem-btn vem-btn--close" onClick={onClose}>
             Close

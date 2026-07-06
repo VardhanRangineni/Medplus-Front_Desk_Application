@@ -9,26 +9,17 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import '../AddVisitorModal/AddVisitorModal.css';
 import '../AddEmployeeModal/AddEmployeeModal.css';
 import './EditEmployeeModal.css';
 import {
   IconX,
-  IconBuilding,
-  IconChevronDown,
   IconIdCard,
-  IconCreditCard,
-  IconPlus,
-  IconTrash,
-  IconUsers,
 } from '../../../components/Icons/Icons';
 import { getEntryDetail } from '../checkInOutService';
-import {
-  getPersonsToMeet,
-  getDepartments,
-  updateEmployeeEntry,
-} from '../AddEmployeeModal/addEmployeeService';
+import { updateEmployeeEntry } from '../AddEmployeeModal/addEmployeeService';
+import PersonToMeetMobileLookup from '../PersonToMeetMobileLookup';
+import { PRESET_REASONS } from '../../../constants/visitReasons';
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
 
@@ -55,103 +46,16 @@ function InputWithIcon({ icon, ...props }) {
   );
 }
 
-function SelectField({ icon, placeholder, value, onChange, options, disabled }) {
-  const [open,      setOpen]      = useState(false);
-  const [highlight, setHighlight] = useState(-1);
-  const [dropStyle, setDropStyle] = useState({});
-  const btnRef  = useRef(null);
-  const dropRef = useRef(null);
-
-  function openMenu() {
-    const rect = btnRef.current.getBoundingClientRect();
-    setDropStyle({ position: 'fixed', top: rect.bottom + 5, left: rect.left, width: rect.width, zIndex: 9999 });
-    setOpen(true);
-    setHighlight(-1);
-  }
-  function closeMenu() { setOpen(false); }
-  function toggle() { if (!disabled) open ? closeMenu() : openMenu(); }
-  function choose(id) { onChange(id); closeMenu(); }
-
-  useEffect(() => {
-    if (!open) return;
-    function onOutside(e) {
-      if (btnRef.current && !btnRef.current.contains(e.target) &&
-          (dropRef.current == null || !dropRef.current.contains(e.target))) closeMenu();
-    }
-    function onScroll() { closeMenu(); }
-    document.addEventListener('mousedown', onOutside);
-    document.addEventListener('scroll', onScroll, true);
-    return () => {
-      document.removeEventListener('mousedown', onOutside);
-      document.removeEventListener('scroll', onScroll, true);
-    };
-  }, [open]);
-
-  function onKey(e) {
-    if (e.key === 'Escape') { closeMenu(); return; }
-    if ((e.key === 'Enter' || e.key === ' ') && !open) { openMenu(); e.preventDefault(); return; }
-    if (e.key === 'Enter' && open && highlight >= 0) { choose(options[highlight].id); e.preventDefault(); return; }
-    if (e.key === 'ArrowDown') { e.preventDefault(); if (!open) openMenu(); setHighlight((h) => Math.min(h + 1, options.length - 1)); }
-    if (e.key === 'ArrowUp')   { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)); }
-  }
-
-  const selected = options.find((o) => o.id === value);
-
-  return (
-    <div className="avm-select-wrap">
-      {icon && <span className="avm-input-icon">{icon}</span>}
-      <button
-        ref={btnRef}
-        type="button"
-        className={['avm-select-btn', icon ? 'avm-select-btn--icon' : '', open ? 'avm-select-btn--open' : '', !value ? 'avm-select-btn--empty' : ''].filter(Boolean).join(' ')}
-        onClick={toggle}
-        onKeyDown={onKey}
-        disabled={disabled}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-      >
-        {selected ? selected.name : placeholder}
-      </button>
-      <span className={`avm-select-caret${open ? ' avm-select-caret--open' : ''}`}>
-        <IconChevronDown size={14} />
-      </span>
-      {open && createPortal(
-        <div ref={dropRef} className="avm-dropdown" style={dropStyle} role="listbox">
-          {options.map((o, i) => (
-            <div
-              key={o.id}
-              role="option"
-              aria-selected={o.id === value}
-              className={['avm-dropdown__option', o.id === value ? 'avm-dropdown__option--active' : '', i === highlight ? 'avm-dropdown__option--hi' : ''].filter(Boolean).join(' ')}
-              onMouseDown={(e) => { e.preventDefault(); choose(o.id); }}
-              onMouseEnter={() => setHighlight(i)}
-            >
-              {o.name}
-            </div>
-          ))}
-        </div>,
-        document.body,
-      )}
-    </div>
-  );
-}
-
 // ─── Build form from entry + optional detail ──────────────────────────────────
 
 function buildForm(entry, detail) {
-  const d = detail ?? {};
+  const d       = detail ?? {};
+  const ptmId   = d.personToMeetId ?? entry.personToMeetId ?? '';
   return {
-    visitType:      (d.visitType     ?? entry.visitType     ?? 'individual').toLowerCase(),
-    personToMeet:   d.personToMeetId ?? d.personToMeet      ?? entry.personToMeet ?? '',
-    hostDepartment: d.hostDepartment ?? '',
-    reasonForVisit: d.reasonForVisit ?? '',
-    cardNumber:     d.card           != null ? String(d.card)           : (entry.card != null ? String(entry.card) : ''),
-    leadCardNumber: d.leadCardNumber != null ? String(d.leadCardNumber) : '',
-    members: (d.members ?? entry.members ?? []).map((m) => ({
-      id:   m.id   ?? Date.now() + Math.random(),
-      name: m.name ?? '',
-      card: m.card != null ? String(m.card) : '',
-    })),
+    personToMeet:       ptmId === '__OTHER__' ? '' : ptmId,
+    personToMeetCustom: '',
+    hostDepartment:     d.hostDepartment ?? entry.hostDepartment ?? '',
+    reasonForVisit:     d.reasonForVisit ?? entry.reasonForVisit ?? '',
   };
 }
 
@@ -164,20 +68,15 @@ export default function EditEmployeeModal({ entry, onClose, onSuccess }) {
     empId:      entry.empId ?? '',
     department: '',
   });
-  const [persons,     setPersons]     = useState([]);
-  const [departments, setDepartments] = useState([]);
-  const [submitting,  setSubmitting]  = useState(false);
-  const [submitError, setSubmitError] = useState('');
+  const [existingPtmLabel, setExistingPtmLabel] = useState('');
+  const [submitting,       setSubmitting]       = useState(false);
+  const [submitError,      setSubmitError]      = useState('');
 
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; });
 
-  // ── Load dropdowns + silently try full detail ─────────────────────────────
+  // ── Silently enrich from full detail ──────────────────────────────────────
   useEffect(() => {
-    Promise.all([getPersonsToMeet(), getDepartments()])
-      .then(([pers, depts]) => { setPersons(pers); setDepartments(depts); })
-      .catch(() => {});
-
     getEntryDetail(entry.id)
       .then((detail) => {
         setEmployee({
@@ -186,8 +85,11 @@ export default function EditEmployeeModal({ entry, onClose, onSuccess }) {
           department: detail.department ?? '',
         });
         setFormState(buildForm(entry, detail));
+        setExistingPtmLabel(detail.personToMeet ?? entry.personToMeet ?? '');
       })
-      .catch(() => {});
+      .catch(() => {
+        setExistingPtmLabel(entry.personToMeet ?? '');
+      });
   }, [entry.id]);
 
   // ── Escape key ────────────────────────────────────────────────────────────
@@ -200,37 +102,24 @@ export default function EditEmployeeModal({ entry, onClose, onSuccess }) {
   // ── Form helpers ──────────────────────────────────────────────────────────
   const setField = (field, value) => setFormState((f) => ({ ...f, [field]: value }));
 
-  function handlePersonToMeet(personId) {
-    setFormState((f) => {
-      const person = persons.find((p) => p.id === personId);
-      const dept   = person ? departments.find((d) => d.name === person.department) : null;
-      return { ...f, personToMeet: personId, hostDepartment: dept ? dept.id : f.hostDepartment };
-    });
+  function handlePersonToMeetBulk(updates) {
+    setFormState((f) => ({ ...f, ...updates }));
   }
-
-  const addMember    = () => setField('members', [...form.members, { id: Date.now(), name: '', card: '' }]);
-  const removeMember = (id) => setField('members', form.members.filter((m) => m.id !== id));
-  const updateMember = (id, field, val) =>
-    setField('members', form.members.map((m) => (m.id === id ? { ...m, [field]: val } : m)));
 
   // ── Submit ────────────────────────────────────────────────────────────────
   async function handleSubmit() {
     setSubmitting(true);
     setSubmitError('');
     try {
-      const isGroup = form.visitType === 'group';
       const payload = {
-        type:           'EMPLOYEE',
-        visitType:      form.visitType,
-        empId:          employee.empId,
-        name:           employee.name,
-        department:     employee.department,
-        personToMeet:   form.personToMeet,
-        hostDepartment: form.hostDepartment,
-        reasonForVisit: form.reasonForVisit,
-        ...(isGroup
-          ? { leadCardNumber: form.leadCardNumber, members: form.members }
-          : { cardNumber: form.cardNumber }),
+        type:               'EMPLOYEE',
+        empId:              employee.empId,
+        name:               employee.name,
+        department:         employee.department,
+        personToMeet:       form.personToMeet,
+        personToMeetCustom: form.personToMeetCustom,
+        hostDepartment:     form.hostDepartment,
+        reasonForVisit:     form.reasonForVisit,
       };
       const result = await updateEmployeeEntry(entry.id, payload);
       if (result.success) { onSuccess?.(result); onClose(); }
@@ -241,7 +130,8 @@ export default function EditEmployeeModal({ entry, onClose, onSuccess }) {
     }
   }
 
-  const canSave = form.personToMeet !== '';
+  const canSave = form.personToMeet.trim() !== ''
+               && form.reasonForVisit.trim() !== '';
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -258,9 +148,6 @@ export default function EditEmployeeModal({ entry, onClose, onSuccess }) {
         <div className="avm-header">
           <div>
             <h2 className="avm-title" id="eem-title">Edit Employee Entry</h2>
-            <p className="avm-subtitle">
-              Editing <strong>{entry.id}</strong> — update the fields and save.
-            </p>
           </div>
           <button className="avm-close" onClick={onClose} aria-label="Close">
             <IconX size={16} />
@@ -283,45 +170,27 @@ export default function EditEmployeeModal({ entry, onClose, onSuccess }) {
               </div>
             </div>
 
-            {/* Visit type */}
-            <Field label="Visit Type" required>
-              <div className="avm-radio-group">
-                {['individual', 'group'].map((t) => (
-                  <label key={t} className={`avm-radio${form.visitType === t ? ' avm-radio--active' : ''}`}>
-                    <input
-                      type="radio" name="eem-visitType" value={t}
-                      checked={form.visitType === t}
-                      onChange={() => setField('visitType', t)}
-                    />
-                    <span>{t === 'individual' ? 'Individual' : 'Group'}</span>
-                  </label>
-                ))}
-              </div>
-            </Field>
-
-            {/* Person to meet */}
-            <Field label="Person To Meet" required>
-              <SelectField
-                placeholder="Select a person…"
-                value={form.personToMeet}
-                onChange={handlePersonToMeet}
-                options={persons.map((p) => ({ id: p.id, name: `${p.name} — ${p.department}` }))}
-              />
-            </Field>
-
-            {/* Host department */}
-            <Field label="Host Department">
-              <SelectField
-                icon={<IconBuilding size={14} />}
-                placeholder="Select a department"
-                value={form.hostDepartment}
-                onChange={(v) => setField('hostDepartment', v)}
-                options={departments}
-              />
-            </Field>
+            <PersonToMeetMobileLookup
+              personToMeet={form.personToMeet}
+              personToMeetCustom={form.personToMeetCustom}
+              onChange={handlePersonToMeetBulk}
+              existingPersonLabel={existingPtmLabel}
+            />
 
             {/* Reason */}
-            <Field label="Reason for Visit">
+            <Field label="Reason for Visit" required>
+              <div className="avm-reason-chips">
+                {PRESET_REASONS.map((r) => (
+                  <button
+                    key={r.label}
+                    type="button"
+                    className="avm-reason-chip"
+                    onClick={() => setField('reasonForVisit', r.text)}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
               <textarea
                 className="avm-textarea"
                 placeholder="e.g. Project meeting"
@@ -330,50 +199,6 @@ export default function EditEmployeeModal({ entry, onClose, onSuccess }) {
                 onChange={(e) => setField('reasonForVisit', e.target.value)}
               />
             </Field>
-
-            {/* Card number */}
-            <Field label={form.visitType === 'group' ? 'Lead Card Number' : 'Card Number'}>
-              <InputWithIcon
-                icon={<IconCreditCard size={14} />}
-                type="text"
-                placeholder="e.g. 123"
-                value={form.visitType === 'group' ? form.leadCardNumber : form.cardNumber}
-                onChange={(e) =>
-                  setField(form.visitType === 'group' ? 'leadCardNumber' : 'cardNumber', e.target.value)
-                }
-              />
-            </Field>
-
-            {/* Group members */}
-            {form.visitType === 'group' && (
-              <div className="avm-members">
-                <div className="avm-members__header">
-                  <span className="avm-members__title"><IconUsers size={14} />Sub-Visitors</span>
-                  <button className="avm-members__add-btn" onClick={addMember}>
-                    <IconPlus size={12} />Add Member
-                  </button>
-                </div>
-                {form.members.length === 0 ? (
-                  <p className="avm-members__empty">No sub-visitors yet.</p>
-                ) : (
-                  <>
-                    <div className="avm-members__cols">
-                      <span>Name</span><span>Card #</span><span />
-                    </div>
-                    {form.members.map((m) => (
-                      <div key={m.id} className="avm-members__row">
-                        <input className="avm-input" type="text" placeholder="Guest name"
-                          value={m.name} onChange={(e) => updateMember(m.id, 'name', e.target.value)} />
-                        <input className="avm-input" type="text" placeholder="Card #"
-                          value={m.card} onChange={(e) => updateMember(m.id, 'card', e.target.value)} />
-                        <button className="avm-members__del-btn" onClick={() => removeMember(m.id)}
-                          aria-label="Remove"><IconTrash size={13} /></button>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </div>
-            )}
 
           </div>
         </div>

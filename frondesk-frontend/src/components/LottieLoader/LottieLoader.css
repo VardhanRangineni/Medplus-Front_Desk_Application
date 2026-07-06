@@ -1,0 +1,66 @@
+.app-spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.app-spinner--sm {
+  width: 20px;
+  height: 20px;
+}
+
+.app-spinner--md {
+  width: 32px;
+  height: 32px;
+}
+
+.app-spinner--lg {
+  width: 44px;
+  height: 44px;
+}
+
+.app-spinner--xl {
+  width: 56px;
+  height: 56px;
+}
+
+.app-spinner__ring {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2px solid #e2e8f0;
+  border-top-color: #c2181d;
+  animation: app-spinner-spin 0.65s linear infinite;
+}
+
+.app-spinner--sm .app-spinner__ring {
+  border-width: 2px;
+}
+
+.app-spinner--md .app-spinner__ring {
+  border-width: 2.5px;
+}
+
+.app-spinner--lg .app-spinner__ring,
+.app-spinner--xl .app-spinner__ring {
+  border-width: 3px;
+}
+
+.app-spinner--muted .app-spinner__ring {
+  border-color: #e8eaed;
+  border-top-color: #94a3b8;
+}
+
+.app-spinner--light .app-spinner__ring {
+  border-color: rgba(255, 255, 255, 0.28);
+  border-top-color: #ffffff;
+}
+
+@keyframes app-spinner-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

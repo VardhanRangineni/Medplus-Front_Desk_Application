@@ -1,0 +1,22 @@
+# Dependencies & build output
+node_modules/
+.webpack/
+out/
+target/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Logs & OS
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE (optional — remove if team shares .vscode)
+.idea/
+*.iml
+
+# Backend runtime uploads
+frontdesk-backend/images/

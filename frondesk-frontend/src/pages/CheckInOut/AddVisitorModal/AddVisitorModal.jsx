@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import './AddVisitorModal.css';
 import {
   IconX,
@@ -8,16 +7,15 @@ import {
   IconMail,
   IconCreditCard,
   IconBuilding,
-  IconChevronDown,
 } from '../../../components/Icons/Icons';
 import {
   sendOtp,
   verifyOtp,
-  getPersonsToMeet,
-  getDepartments,
   createVisitorEntry,
   updateVisitorEntry,
 } from './addVisitorService';
+import PersonToMeetMobileLookup from '../PersonToMeetMobileLookup';
+import { PRESET_REASONS } from '../../../constants/visitReasons';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const AADHAAR_REGEX       = /^\d{12}$/;
@@ -25,7 +23,7 @@ const OTP_RESEND_SECONDS  = 30;
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
 
-function Field({ label, required, children, hint, error }) {
+function Field({ label, required, children, error }) {
   return (
     <div className="avm-field">
       {label && (
@@ -36,7 +34,6 @@ function Field({ label, required, children, hint, error }) {
       )}
       {children}
       {error && <p className="avm-error" style={{ marginTop: 4, fontSize: 11 }}>{error}</p>}
-      {hint && !error && <p className="avm-hint">{hint}</p>}
     </div>
   );
 }
@@ -46,87 +43,6 @@ function InputWithIcon({ icon, inputRef, ...props }) {
     <div className="avm-input-wrap">
       <span className="avm-input-icon">{icon}</span>
       <input className="avm-input" ref={inputRef} {...props} />
-    </div>
-  );
-}
-
-function SelectField({ icon, placeholder, value, onChange, options, disabled }) {
-  const [open,      setOpen]      = useState(false);
-  const [highlight, setHighlight] = useState(-1);
-  const [dropStyle, setDropStyle] = useState({});
-  const btnRef  = useRef(null);
-  const dropRef = useRef(null);
-
-  function openMenu() {
-    const rect = btnRef.current.getBoundingClientRect();
-    setDropStyle({ position: 'fixed', top: rect.bottom + 5, left: rect.left, width: rect.width, zIndex: 9999 });
-    setOpen(true);
-    setHighlight(-1);
-  }
-  function closeMenu() { setOpen(false); }
-  function toggle() { if (!disabled) open ? closeMenu() : openMenu(); }
-  function choose(id) { onChange(id); closeMenu(); }
-
-  useEffect(() => {
-    if (!open) return;
-    function onOutside(e) {
-      if (btnRef.current && !btnRef.current.contains(e.target) &&
-          (dropRef.current == null || !dropRef.current.contains(e.target))) closeMenu();
-    }
-    function onScroll() { closeMenu(); }
-    document.addEventListener('mousedown', onOutside);
-    document.addEventListener('scroll', onScroll, true);
-    return () => {
-      document.removeEventListener('mousedown', onOutside);
-      document.removeEventListener('scroll', onScroll, true);
-    };
-  }, [open]);
-
-  function onKey(e) {
-    if (e.key === 'Escape') { closeMenu(); return; }
-    if ((e.key === 'Enter' || e.key === ' ') && !open) { openMenu(); e.preventDefault(); return; }
-    if (e.key === 'Enter' && open && highlight >= 0) { choose(options[highlight].id); e.preventDefault(); return; }
-    if (e.key === 'ArrowDown') { e.preventDefault(); if (!open) openMenu(); setHighlight((h) => Math.min(h + 1, options.length - 1)); }
-    if (e.key === 'ArrowUp')   { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)); }
-  }
-
-  const selected = options.find((o) => o.id === value);
-
-  return (
-    <div className="avm-select-wrap">
-      {icon && <span className="avm-input-icon">{icon}</span>}
-      <button
-        ref={btnRef}
-        type="button"
-        className={['avm-select-btn', icon ? 'avm-select-btn--icon' : '', open ? 'avm-select-btn--open' : '', !value ? 'avm-select-btn--empty' : ''].filter(Boolean).join(' ')}
-        onClick={toggle}
-        onKeyDown={onKey}
-        disabled={disabled}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-      >
-        {selected ? selected.name : placeholder}
-      </button>
-      <span className={`avm-select-caret${open ? ' avm-select-caret--open' : ''}`}>
-        <IconChevronDown size={14} />
-      </span>
-      {open && createPortal(
-        <div ref={dropRef} className="avm-dropdown" style={dropStyle} role="listbox">
-          {options.map((o, i) => (
-            <div
-              key={o.id}
-              role="option"
-              aria-selected={o.id === value}
-              className={['avm-dropdown__option', o.id === value ? 'avm-dropdown__option--active' : '', i === highlight ? 'avm-dropdown__option--hi' : ''].filter(Boolean).join(' ')}
-              onMouseDown={(e) => { e.preventDefault(); choose(o.id); }}
-              onMouseEnter={() => setHighlight(i)}
-            >
-              {o.name}
-            </div>
-          ))}
-        </div>,
-        document.body,
-      )}
     </div>
   );
 }
@@ -208,7 +124,7 @@ function StepOtp({ mobile, onMobileChange, verified, onVerified, onChangeNumber 
   }
 
   async function handleVerify() {
-    if (otp.length !== 6 || verifying) return;
+    if (otp.length !== 5 || verifying) return;
     setVerifying(true);
     setOtpError('');
     try {
@@ -243,7 +159,7 @@ function StepOtp({ mobile, onMobileChange, verified, onVerified, onChangeNumber 
       </div>
 
       {/* Mobile input row */}
-      <Field label="Mobile Number" required error={sendError || null}>
+      <Field label="Mobile Number" required>
         <div className="avm-side-by-side">
           <InputWithIcon
             icon={<IconPhone size={14} />}
@@ -272,6 +188,20 @@ function StepOtp({ mobile, onMobileChange, verified, onVerified, onChangeNumber 
         </div>
       </Field>
 
+      {/* Send error banner — shown prominently when OTP dispatch fails */}
+      {sendError && (
+        <div className="avm-send-error-banner" role="alert">
+          <span className="avm-send-error-banner__icon">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="8" cy="8" r="8" fill="#b91c1c" />
+              <rect x="7.2" y="4" width="1.6" height="5.2" rx="0.8" fill="#fff" />
+              <rect x="7.2" y="10.4" width="1.6" height="1.6" rx="0.8" fill="#fff" />
+            </svg>
+          </span>
+          {sendError}
+        </div>
+      )}
+
       {/* OTP input row — shown only after OTP is sent and not yet verified */}
       {otpSent && !verified && (
         <Field label="One-Time Password">
@@ -281,26 +211,23 @@ function StepOtp({ mobile, onMobileChange, verified, onVerified, onChangeNumber 
               className="avm-input avm-input--otp"
               type="text"
               inputMode="numeric"
-              placeholder="_ _ _ _ _ _"
+              placeholder="_ _ _ _ _"
               value={otp}
-              maxLength={6}
+              maxLength={5}
               autoComplete="one-time-code"
-              onChange={(e) => { setOtpError(''); setOtp(e.target.value.replace(/\D/g, '').slice(0, 6)); }}
-              onKeyDown={(e) => { if (e.key === 'Enter' && otp.length === 6) handleVerify(); }}
+              onChange={(e) => { setOtpError(''); setOtp(e.target.value.replace(/\D/g, '').slice(0, 5)); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && otp.length === 5) handleVerify(); }}
             />
             <button
               type="button"
               className="avm-otp-btn"
               onClick={handleVerify}
-              disabled={otp.length !== 6 || verifying}
+              disabled={otp.length !== 5 || verifying}
             >
               {verifying ? 'Verifying…' : 'Verify OTP'}
             </button>
           </div>
           {otpError && <p className="avm-error" style={{ marginTop: 4 }}>{otpError}</p>}
-          {!otpError && (
-            <p className="avm-hint">OTP sent to +91 {sentToMobile} · Check the visitor's phone.</p>
-          )}
         </Field>
       )}
 
@@ -328,13 +255,12 @@ function StepOtp({ mobile, onMobileChange, verified, onVerified, onChangeNumber 
 }
 
 // ─── Step 1 — Visitor details ──────────────────────────────────────────────────
-function StepDetails({ state, dispatch, refData }) {
+function StepDetails({ state, dispatch }) {
   const {
     fullName, email, govtIdNumber,
-    personToMeet, hostDepartment, reasonForVisit, cardNumber,
+    personToMeet, personToMeetCustom, reasonForVisit, cardNumber,
+    representsCompany, companyName,
   } = state;
-
-  const { persons, departments } = refData;
 
   return (
     <div className="avm-step">
@@ -360,8 +286,7 @@ function StepDetails({ state, dispatch, refData }) {
       </Field>
 
       <Field
-        label="Aadhaar Number"
-        required
+        label="Aadhaar Number (Optional)"
         error={govtIdNumber && !AADHAAR_REGEX.test(govtIdNumber) ? 'Aadhaar number must be exactly 12 digits' : null}
       >
         <InputWithIcon
@@ -377,26 +302,56 @@ function StepDetails({ state, dispatch, refData }) {
         />
       </Field>
 
-      <Field label="Person To Meet" required>
-        <SelectField
-          placeholder="Select a person…"
-          value={personToMeet}
-          onChange={(v) => dispatch({ type: 'SET_PERSON_TO_MEET', value: v })}
-          options={persons.map((p) => ({ id: p.id, name: `${p.name} — ${p.department}` }))}
-        />
+      <PersonToMeetMobileLookup
+        personToMeet={personToMeet}
+        personToMeetCustom={personToMeetCustom}
+        onChange={(updates) => dispatch({ type: 'SET_PERSON_TO_MEET_BULK', ...updates })}
+      />
+
+      {/* ── Company representation ─────────────────────────────────────── */}
+      <Field label="Representing a Company?">
+        <div className="avm-toggle-row">
+          <label className="avm-toggle-label" htmlFor="avm-company-toggle">
+            {representsCompany ? 'Yes — enter company name below' : 'No'}
+          </label>
+          <button
+            id="avm-company-toggle"
+            type="button"
+            role="switch"
+            aria-checked={representsCompany}
+            className={`avm-toggle-switch${representsCompany ? ' avm-toggle-switch--on' : ''}`}
+            onClick={() => dispatch({ type: 'SET_FIELD', field: 'representsCompany', value: !representsCompany })}
+          >
+            <span className="avm-toggle-switch__thumb" />
+          </button>
+        </div>
+        {representsCompany && (
+          <div style={{ marginTop: 8 }}>
+            <InputWithIcon
+              icon={<IconBuilding size={14} />}
+              type="text"
+              placeholder="Enter company / organisation name"
+              value={companyName}
+              onChange={(e) => dispatch({ type: 'SET_FIELD', field: 'companyName', value: e.target.value })}
+              autoFocus
+            />
+          </div>
+        )}
       </Field>
 
-      <Field label="Host Department">
-        <SelectField
-          icon={<IconBuilding size={14} />}
-          placeholder="Select a department"
-          value={hostDepartment}
-          onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'hostDepartment', value: v })}
-          options={departments}
-        />
-      </Field>
-
-      <Field label="Reason for Visit">
+      <Field label="Reason for Visit" required>
+        <div className="avm-reason-chips">
+          {PRESET_REASONS.map((r) => (
+            <button
+              key={r.label}
+              type="button"
+              className="avm-reason-chip"
+              onClick={() => dispatch({ type: 'SET_FIELD', field: 'reasonForVisit', value: r.text })}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
         <textarea
           className="avm-textarea"
           placeholder="e.g. Scheduled meeting"
@@ -408,19 +363,17 @@ function StepDetails({ state, dispatch, refData }) {
         />
       </Field>
 
-      <Field label="Visitor Card Number">
+      <Field label="Visitor ID Card Number" required>
         <InputWithIcon
           icon={<IconCreditCard size={14} />}
           type="text"
-          placeholder="Leave blank to auto-assign"
+          inputMode="numeric"
+          placeholder="Enter printed card number"
           value={cardNumber}
           onChange={(e) =>
             dispatch({ type: 'SET_FIELD', field: 'cardNumber', value: e.target.value })
           }
         />
-        <span style={{ fontSize: 11, color: '#aaa', marginTop: 2, display: 'block' }}>
-          A card will be automatically assigned if left blank.
-        </span>
       </Field>
 
     </div>
@@ -435,13 +388,16 @@ const STEPS = [
 
 // ─── Initial detail-form state ────────────────────────────────────────────────
 const initialDetails = {
-  fullName:       '',
-  email:          '',
-  govtIdNumber:   '',
-  personToMeet:   '',
-  hostDepartment: '',
-  reasonForVisit: '',
-  cardNumber:     '',
+  fullName:           '',
+  email:              '',
+  govtIdNumber:       '',
+  personToMeet:       '',
+  personToMeetCustom: '',
+  hostDepartment:     '',
+  reasonForVisit:     '',
+  cardNumber:         '',
+  representsCompany:  false,
+  companyName:        '',
 };
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -456,34 +412,9 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
   const [details,          setDetails]         = useState(initialDetails);
   const [submitting,       setSubmitting]       = useState(false);
   const [submitError,      setSubmitError]      = useState('');
-  const [assignedCardHint, setAssignedCardHint] = useState(null);
-
-  // ── Reference data ────────────────────────────────────────────────────────
-  const [persons,     setPersons]     = useState([]);
-  const [departments, setDepartments] = useState([]);
-  const [refLoading,  setRefLoading]  = useState(true);
-  const [refError,    setRefError]    = useState('');
 
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; });
-
-  // Load reference data as soon as modal mounts (not on step change)
-  useEffect(() => {
-    setRefLoading(true);
-    setRefError('');
-    Promise.all([getPersonsToMeet(), getDepartments()])
-      .then(([pers, depts]) => {
-        setPersons(pers);
-        setDepartments(depts);
-        if (pers.length === 0) {
-          setRefError('No employees found at your location. Contact your administrator.');
-        }
-      })
-      .catch((err) => {
-        setRefError(err?.message || 'Failed to load form data. Please close and reopen this modal.');
-      })
-      .finally(() => setRefLoading(false));
-  }, []);
 
   // Escape key handler
   useEffect(() => {
@@ -499,14 +430,9 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
         setDetails((s) => ({ ...s, [action.field]: action.value }));
         break;
 
-      case 'SET_PERSON_TO_MEET': {
-        const person = persons.find((p) => p.id === action.value);
-        const dept   = person ? departments.find((d) => d.name === person.department) : null;
-        setDetails((s) => ({
-          ...s,
-          personToMeet:   action.value,
-          hostDepartment: dept ? dept.id : s.hostDepartment,
-        }));
+      case 'SET_PERSON_TO_MEET_BULK': {
+        const { type: _t, ...updates } = action;
+        setDetails((s) => ({ ...s, ...updates }));
         break;
       }
 
@@ -516,10 +442,11 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
   }
 
   // ── Form validity for step 1 ──────────────────────────────────────────────
-  const detailsValid = !refLoading
-    && details.fullName.trim() !== ''
-    && details.personToMeet !== ''
-    && AADHAAR_REGEX.test(details.govtIdNumber);
+  const detailsValid = details.fullName.trim() !== ''
+    && details.personToMeet.trim() !== ''
+    && details.reasonForVisit.trim() !== ''
+    && details.cardNumber.trim() !== ''
+    && (details.govtIdNumber === '' || AADHAAR_REGEX.test(details.govtIdNumber));
 
   // ── Submit ────────────────────────────────────────────────────────────────
   async function handleSubmit() {
@@ -528,26 +455,21 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
     try {
       const payload = {
         mobile,
-        visitType:      'individual',
-        fullName:       details.fullName,
-        email:          details.email,
-        govtIdType:     details.govtIdNumber ? 'AADHAAR' : '',
-        govtIdNumber:   details.govtIdNumber,
-        personToMeet:   details.personToMeet,
-        hostDepartment: details.hostDepartment,
-        reasonForVisit: details.reasonForVisit,
-        cardNumber:     details.cardNumber,
+        fullName:           details.fullName,
+        email:              details.email,
+        govtIdType:         details.govtIdNumber ? 'AADHAAR' : '',
+        govtIdNumber:       details.govtIdNumber,
+        personToMeet:       details.personToMeet,
+        personToMeetCustom: details.personToMeetCustom,
+        hostDepartment:     details.hostDepartment,
+        reasonForVisit:     details.reasonForVisit,
+        cardNumber:         details.cardNumber,
+        companyName:        details.representsCompany ? details.companyName.trim() : '',
       };
       const result = await createVisitorEntry(payload);
       if (result.success) {
-        const assignedCard = result.cardCode || (result.card != null ? result.card : null);
-        if (assignedCard) {
-          setAssignedCardHint(assignedCard);
-          setTimeout(() => { onSuccess?.(result); onClose(); }, 1800);
-        } else {
-          onSuccess?.(result);
-          onClose();
-        }
+        onSuccess?.(result);
+        onClose();
       }
     } catch (err) {
       setSubmitError(err?.message || 'Failed to create entry. Please try again.');
@@ -577,9 +499,6 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
         <div className="avm-header">
           <div>
             <h2 className="avm-title" id="avm-title">Add New Visitor</h2>
-            <p className="avm-subtitle">
-              Step {step + 1} of {STEPS.length} — {STEPS[step].label}
-            </p>
           </div>
           <button className="avm-close" onClick={onClose} aria-label="Close">
             <IconX size={16} />
@@ -604,21 +523,7 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
           )}
 
           {step === 1 && (
-            <>
-              {refLoading && (
-                <p className="avm-hint" style={{ textAlign: 'center', padding: '8px 0' }}>
-                  Loading form data…
-                </p>
-              )}
-              {!refLoading && refError && (
-                <p className="avm-error" style={{ marginBottom: '12px' }}>{refError}</p>
-              )}
-              <StepDetails
-                state={details}
-                dispatch={dispatch}
-                refData={{ persons, departments }}
-              />
-            </>
+            <StepDetails state={details} dispatch={dispatch} />
           )}
         </div>
 
@@ -637,22 +542,6 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
           <div className="avm-footer__spacer" />
 
           {submitError && <p className="avm-error avm-error--footer">{submitError}</p>}
-
-          {assignedCardHint && (
-            <div style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
-              background: '#f0fdf4', border: '1.5px solid #bbf7d0',
-              borderRadius: 9, padding: '10px 16px', fontSize: 13,
-            }}>
-              <span style={{ fontWeight: 700, color: '#16a34a', fontSize: 11, textTransform: 'uppercase', letterSpacing: .5 }}>
-                Card Assigned
-              </span>
-              <span style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 18, color: '#111' }}>
-                {assignedCardHint}
-              </span>
-              <span style={{ fontSize: 11, color: '#6b7280' }}>Hand this card to the visitor</span>
-            </div>
-          )}
 
           {step === 0 && (
             <button

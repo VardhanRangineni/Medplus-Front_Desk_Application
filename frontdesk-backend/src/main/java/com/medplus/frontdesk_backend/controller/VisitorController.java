@@ -5,10 +5,14 @@ import com.medplus.frontdesk_backend.dto.EmployeeLookupResponseDto;
 import com.medplus.frontdesk_backend.dto.PagedResponseDto;
 import com.medplus.frontdesk_backend.dto.PersonToMeetDto;
 import com.medplus.frontdesk_backend.dto.StatusCountsDto;
-import com.medplus.frontdesk_backend.dto.VisitorMemberDto;
+import com.medplus.frontdesk_backend.dto.VisitorMovementEventDto;
 import com.medplus.frontdesk_backend.dto.VisitorRequestDto;
 import com.medplus.frontdesk_backend.dto.VisitorResponseDto;
+import com.medplus.frontdesk_backend.dto.VisitorScanRequestDto;
+import com.medplus.frontdesk_backend.dto.VisitorScanResponseDto;
+import com.medplus.frontdesk_backend.service.VisitorScanService;
 import com.medplus.frontdesk_backend.service.VisitorService;
+import com.medplus.frontdesk_backend.util.WorkstationMacUtil;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +28,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -31,6 +36,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @RestController
@@ -39,15 +45,15 @@ import java.util.List;
 public class VisitorController {
 
     private final VisitorService visitorService;
+    private final VisitorScanService visitorScanService;
 
     // ── POST /api/visitors ────────────────────────────────────────────────────
 
     /**
      * Creates a new check-in entry (visitor or employee).
      *
-     * Request body example — individual visitor:
+     * Request body example:
      * {
-     *   "visitType":      "INDIVIDUAL",
      *   "entryType":      "VISITOR",
      *   "name":           "Prabhas",
      *   "mobile":         "9000000001",
@@ -55,31 +61,47 @@ public class VisitorController {
      *   "cardNumber":     77,
      *   "reasonForVisit": "Business meeting"
      * }
-     *
-     * Request body example — group visitor:
-     * {
-     *   "visitType":      "GROUP",
-     *   "entryType":      "VISITOR",
-     *   "name":           "Rohit",
-     *   "mobile":         "9000000002",
-     *   "personToMeetId": "EMP-002",
-     *   "cardNumber":     44,
-     *   "members": [
-     *     { "name": "Virat Kohli",  "cardNumber": 45 },
-     *     { "name": "Rohit Sharma", "cardNumber": 46 }
-     *   ]
-     * }
      */
     @PostMapping
     public ResponseEntity<ApiResponse<VisitorResponseDto>> checkIn(
             @Valid @RequestBody VisitorRequestDto request,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
             Authentication auth) {
 
         String caller = auth.getName();
-        VisitorResponseDto created = visitorService.checkIn(request, caller);
+        VisitorResponseDto created = visitorService.checkIn(request, caller, workstationMac);
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(ApiResponse.success("Check-in successful.", created));
+    }
+
+    // ── POST /api/visitors/scan ───────────────────────────────────────────────
+
+    /**
+     * Records a zone movement scan for a checked-in visitor (floor kiosk / corridor scanner).
+     * QR payload: PREREG:token, VISITOR:MED-V-0001, or MED-V-0001.
+     */
+    @PostMapping("/scan")
+    public ResponseEntity<ApiResponse<VisitorScanResponseDto>> recordZoneScan(
+            @Valid @RequestBody VisitorScanRequestDto request,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
+            Authentication auth) {
+
+        VisitorScanResponseDto result = visitorScanService.recordZoneScan(
+                request.getPayload(), auth.getName(), workstationMac);
+        return ResponseEntity.ok(ApiResponse.success(result.getMessage(), result));
+    }
+
+    // ── POST /api/visitors/{id}/resend-visit-pass ─────────────────────────────
+
+    @PostMapping("/{id}/resend-visit-pass")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> resendVisitPass(@PathVariable String id) {
+        boolean sent = visitorService.resendVisitPass(id);
+        if (!sent) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Could not resend visit pass. Check mobile number and try again."));
+        }
+        return ResponseEntity.ok(ApiResponse.success("Visit pass resend queued.", Map.of("sent", true)));
     }
 
     // ── GET /api/visitors ─────────────────────────────────────────────────────
@@ -116,15 +138,31 @@ public class VisitorController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String locationId,
+            @RequestParam(required = false) Boolean allLocations,
             @RequestParam(required = false) String department,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String createdBy,
             @RequestParam(defaultValue = "0")  int page,
             @RequestParam(defaultValue = "20") int size,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
             Authentication auth) {
 
         PagedResponseDto<VisitorResponseDto> result =
-                visitorService.getEntries(auth.getName(), from, to, locationId, department, status, page, size, auth);
+                visitorService.getEntries(auth.getName(), from, to, locationId, allLocations, department, status,
+                        createdBy, page, size, workstationMac, auth);
         return ResponseEntity.ok(ApiResponse.success("Entries retrieved successfully.", result));
+    }
+
+    // ── GET /api/visitors/{visitorId}/movement ────────────────────────────────
+
+    /**
+     * Ordered movement trail: check-in, zone scans, and check-out for one entry.
+     */
+    @GetMapping("/{visitorId}/movement")
+    public ResponseEntity<ApiResponse<List<VisitorMovementEventDto>>> getMovementTrail(
+            @PathVariable String visitorId) {
+        List<VisitorMovementEventDto> trail = visitorService.getMovementTrail(visitorId);
+        return ResponseEntity.ok(ApiResponse.success("Movement trail retrieved.", trail));
     }
 
     // ── GET /api/visitors/{visitorId} ─────────────────────────────────────────
@@ -134,7 +172,7 @@ public class VisitorController {
      * Used by the Edit Visitor / Edit Employee modals to pre-fill their forms.
      *
      * Path param:
-     *   visitorId — e.g. "MED-V-0001" or "MED-GV-0001"
+     *   visitorId — e.g. "MED-V-0001"
      */
     @GetMapping("/{visitorId}")
     public ResponseEntity<ApiResponse<VisitorResponseDto>> getEntryById(
@@ -153,9 +191,13 @@ public class VisitorController {
      */
     @GetMapping("/recent")
     public ResponseEntity<ApiResponse<List<VisitorResponseDto>>> getRecentEntries(
+            @RequestParam(required = false) String locationId,
+            @RequestParam(required = false) Boolean allLocations,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
             Authentication auth) {
 
-        List<VisitorResponseDto> entries = visitorService.getRecentEntries(auth.getName(), auth);
+        List<VisitorResponseDto> entries = visitorService.getRecentEntries(
+                auth.getName(), workstationMac, locationId, allLocations, auth);
         return ResponseEntity.ok(ApiResponse.success("Recent entries retrieved.", entries));
     }
 
@@ -182,14 +224,18 @@ public class VisitorController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String locationId,
+            @RequestParam(required = false) Boolean allLocations,
             @RequestParam(required = false) String department,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String createdBy,
             @RequestParam(defaultValue = "0")  int page,
             @RequestParam(defaultValue = "20") int size,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
             Authentication auth) {
 
         PagedResponseDto<VisitorResponseDto> results =
-                visitorService.searchEntries(auth.getName(), from, to, q, locationId, department, status, page, size, auth);
+                visitorService.searchEntries(auth.getName(), from, to, q, locationId, allLocations, department, status,
+                        createdBy, page, size, workstationMac, auth);
         return ResponseEntity.ok(ApiResponse.success("Search results.", results));
     }
 
@@ -205,10 +251,12 @@ public class VisitorController {
     @GetMapping("/status-counts")
     public ResponseEntity<ApiResponse<StatusCountsDto>> getStatusCounts(
             @RequestParam(required = false) String locationId,
+            @RequestParam(required = false) Boolean allLocations,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
             Authentication auth) {
 
         StatusCountsDto counts =
-                visitorService.getStatusCounts(auth.getName(), locationId, auth);
+                visitorService.getStatusCounts(auth.getName(), locationId, allLocations, workstationMac, auth);
         return ResponseEntity.ok(ApiResponse.success("Status counts.", counts));
     }
 
@@ -228,10 +276,12 @@ public class VisitorController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) String locationId,
+            @RequestParam(required = false) Boolean allLocations,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
             Authentication auth) {
 
         List<String> depts =
-                visitorService.getDepartmentsInLog(auth.getName(), date, locationId, auth);
+                visitorService.getDepartmentsInLog(auth.getName(), date, locationId, allLocations, workstationMac, auth);
         return ResponseEntity.ok(ApiResponse.success("Log departments.", depts));
     }
 
@@ -253,10 +303,13 @@ public class VisitorController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) String locationId,
+            @RequestParam(required = false) Boolean allLocations,
             @RequestParam(required = false) String department,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
             Authentication auth) {
 
-        byte[] csv = visitorService.exportCsv(auth.getName(), date, locationId, department, auth);
+        byte[] csv = visitorService.exportCsv(
+                auth.getName(), date, locationId, allLocations, department, workstationMac, auth);
         LocalDate queryDate = date != null ? date : LocalDate.now();
         String filename = "visitors_" + queryDate.format(DateTimeFormatter.ISO_LOCAL_DATE) + ".csv";
 
@@ -276,9 +329,11 @@ public class VisitorController {
     public ResponseEntity<ApiResponse<VisitorResponseDto>> updateEntry(
             @PathVariable String visitorId,
             @Valid @RequestBody VisitorRequestDto request,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
             Authentication auth) {
 
-        VisitorResponseDto updated = visitorService.updateEntry(visitorId, request, auth.getName());
+        VisitorResponseDto updated = visitorService.updateEntry(
+                visitorId, request, auth.getName(), workstationMac, auth);
         return ResponseEntity.ok(ApiResponse.success("Entry updated successfully.", updated));
     }
 
@@ -286,37 +341,17 @@ public class VisitorController {
 
     /**
      * Checks out the primary visitor / employee entry.
-     * Accepts optional body {@code {"cardReturned": true|false}}.
-     * Defaults to {@code true} (card assumed returned) when body is absent.
      */
     @PatchMapping("/{visitorId}/checkout")
     public ResponseEntity<ApiResponse<VisitorResponseDto>> checkOut(
             @PathVariable String visitorId,
             @RequestBody(required = false) java.util.Map<String, Object> body,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
             Authentication auth) {
 
-        boolean cardReturned = body == null || !Boolean.FALSE.equals(body.get("cardReturned"));
-        VisitorResponseDto result = visitorService.checkOut(visitorId, cardReturned, auth.getName());
+        VisitorResponseDto result = visitorService.checkOut(
+                visitorId, auth.getName(), workstationMac, auth);
         return ResponseEntity.ok(ApiResponse.success("Checked out successfully.", result));
-    }
-
-    // ── PATCH /api/visitors/{visitorId}/members/{memberId}/checkout ───────────
-
-    /**
-     * Checks out a single member within a group visit entry.
-     * Accepts optional body {@code {"cardReturned": true|false}}.
-     */
-    @PatchMapping("/{visitorId}/members/{memberId}/checkout")
-    public ResponseEntity<ApiResponse<VisitorMemberDto>> checkOutMember(
-            @PathVariable String visitorId,
-            @PathVariable String memberId,
-            @RequestBody(required = false) java.util.Map<String, Object> body,
-            Authentication auth) {
-
-        boolean cardReturned = body == null || !Boolean.FALSE.equals(body.get("cardReturned"));
-        VisitorMemberDto result = visitorService.checkOutMember(
-            visitorId, memberId, cardReturned, auth.getName());
-        return ResponseEntity.ok(ApiResponse.success("Member checked out successfully.", result));
     }
 
     // ── GET /api/visitors/person-search ──────────────────────────────────────
@@ -329,10 +364,34 @@ public class VisitorController {
     @GetMapping("/person-search")
     public ResponseEntity<ApiResponse<List<PersonToMeetDto>>> searchPersonsToMeet(
             @RequestParam(defaultValue = "") String q,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
             Authentication auth) {
 
-        List<PersonToMeetDto> results = visitorService.searchPersonsToMeet(auth.getName(), q);
+        List<PersonToMeetDto> results = visitorService.searchPersonsToMeet(
+                auth.getName(), q, workstationMac);
         return ResponseEntity.ok(ApiResponse.success("Person search results.", results));
+    }
+
+    // ── GET /api/visitors/person-by-mobile ────────────────────────────────────
+
+    /**
+     * Looks up person-to-meet by mobile number via HRMS.
+     */
+    @GetMapping("/person-by-mobile")
+    public ResponseEntity<ApiResponse<PersonToMeetDto>> lookupPersonByMobile(
+            @RequestParam String mobile,
+            Authentication auth) {
+        if (mobile == null || mobile.replaceAll("\\D", "").length() < 10) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("A valid 10-digit mobile number is required."));
+        }
+        try {
+            PersonToMeetDto result = visitorService.lookupPersonToMeetByMobile(mobile, auth.getName());
+            return ResponseEntity.ok(ApiResponse.success("Person found.", result));
+        } catch (org.springframework.web.server.ResponseStatusException ex) {
+            return ResponseEntity.status(ex.getStatusCode())
+                    .body(ApiResponse.error(ex.getReason()));
+        }
     }
 
     // ── GET /api/visitors/persons-at-location ─────────────────────────────────
@@ -343,9 +402,11 @@ public class VisitorController {
      */
     @GetMapping("/persons-at-location")
     public ResponseEntity<ApiResponse<List<PersonToMeetDto>>> getPersonsAtLocation(
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
             Authentication auth) {
 
-        List<PersonToMeetDto> results = visitorService.getPersonsAtLocation(auth.getName());
+        List<PersonToMeetDto> results = visitorService.getPersonsAtLocation(
+                auth.getName(), workstationMac);
         return ResponseEntity.ok(ApiResponse.success("Persons at location.", results));
     }
 
@@ -357,8 +418,10 @@ public class VisitorController {
      * Response: ["Operations", "HR", "IT", ...]
      */
     @GetMapping("/departments")
-    public ResponseEntity<ApiResponse<List<String>>> getDepartments(Authentication auth) {
-        List<String> depts = visitorService.getDepartmentsAtLocation(auth.getName());
+    public ResponseEntity<ApiResponse<List<String>>> getDepartments(
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
+            Authentication auth) {
+        List<String> depts = visitorService.getDepartmentsAtLocation(auth.getName(), workstationMac);
         return ResponseEntity.ok(ApiResponse.success("Departments.", depts));
     }
 

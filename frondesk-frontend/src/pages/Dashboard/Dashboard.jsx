@@ -1,19 +1,46 @@
-import { useState, useEffect } from 'react';
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from 'recharts';
+import { useState, useEffect, lazy, Suspense, useMemo } from 'react';
 import './Dashboard.css';
-import AppHeader       from '../../components/AppHeader/AppHeader';
-import AppSidebar      from '../../components/AppSidebar/AppSidebar';
-import UserMaster      from '../UserMaster/UserMaster';
-import LocationMaster  from '../LocationMaster/LocationMaster';
-import CheckInOut      from '../CheckInOut/CheckInOut';
-import UserManagement  from '../UserManagement/UserManagement';
-import Reports         from '../Reports/Reports';
-import Settings        from '../Settings/Settings';
-import Appointments    from '../Appointments/Appointments';
+import AppHeader      from '../../components/AppHeader/AppHeader';
+import AppSidebar     from '../../components/AppSidebar/AppSidebar';
+import AppPageLoader  from '../../components/AppPageLoader/AppPageLoader';
+import LottieLoader   from '../../components/LottieLoader/LottieLoader';
 import { IconPlus, IconMapPin } from '../../components/Icons/Icons';
 import { getDashboardStats, getRecentVisitors } from './dashboardService';
+import {
+  defaultAdminLocationId,
+  hasAnyRole,
+  canCheckIn,
+  canFilterAllLocations,
+  canFilterLocations,
+  getAssignedLocationIds,
+  buildLocationScope,
+} from '../../services/locationScope';
+// Eager import — default nav is Check In/Out; lazy chunk caused ChunkLoadError in dev.
+import CheckInOut from '../CheckInOut/CheckInOut';
+
+/** Retry once on stale webpack chunks after `rs` or dev-server hiccups. */
+function lazyWithRetry(importFn, chunkLabel) {
+  return lazy(() => importFn().catch((err) => {
+    const isChunk = err?.name === 'ChunkLoadError' || /loading chunk/i.test(String(err?.message));
+    if (isChunk && typeof sessionStorage !== 'undefined') {
+      const key = `mvms_chunk_retry_${chunkLabel}`;
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, '1');
+        window.location.reload();
+        return new Promise(() => {});
+      }
+      sessionStorage.removeItem(key);
+    }
+    throw err;
+  }));
+}
+
+const VisitorFlowChart = lazyWithRetry(() => import('./DashboardChart'), 'chart');
+const UserManagement   = lazyWithRetry(() => import('../UserManagement/UserManagement'), 'users');
+const Reports          = lazyWithRetry(() => import('../Reports/Reports'), 'reports');
+const StaffActivity    = lazyWithRetry(() => import('../StaffActivity/StaffActivity'), 'staff');
+const LocationMaster   = lazyWithRetry(() => import('../LocationMaster/LocationMaster'), 'locations');
+const DeviceMaster     = lazyWithRetry(() => import('../DeviceMaster/DeviceMaster'), 'devices');
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 
@@ -30,65 +57,6 @@ function formatCheckIn(date) {
     month: 'short', day: 'numeric', year: 'numeric',
     hour: 'numeric', minute: '2-digit', hour12: true,
   });
-}
-
-/* ── Visitor Flow Chart (Recharts) ───────────────────────────────────────── */
-
-function VisitorFlowChart({ points = [] }) {
-  if (!points.length) {
-    return (
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        height: '100%', color: '#ccc', fontSize: 13,
-      }}>
-        No visitor data yet today
-      </div>
-    );
-  }
-
-  // Recharts needs an array of objects with named keys
-  const chartData = points.map(p => ({ label: p.label, visitors: p.all }));
-
-  return (
-    <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={chartData} margin={{ top: 8, right: 8, bottom: 4, left: -28 }}>
-        <defs>
-          <linearGradient id="visitFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%"   stopColor="#C2181D" stopOpacity={0.18} />
-            <stop offset="100%" stopColor="#C2181D" stopOpacity={0.02} />
-          </linearGradient>
-        </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="#f0f1f3" vertical={false} />
-        <XAxis
-          dataKey="label"
-          tick={{ fontSize: 9, fill: '#aaa' }}
-          axisLine={false} tickLine={false}
-        />
-        <YAxis
-          allowDecimals={false}
-          tick={{ fontSize: 9, fill: '#ccc' }}
-          axisLine={false} tickLine={false}
-          width={28}
-        />
-        <Tooltip
-          formatter={(v) => [v, 'Visitors']}
-          contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #eee' }}
-          itemStyle={{ color: '#C2181D' }}
-        />
-        <Area
-          type="monotone"
-          dataKey="visitors"
-          stroke="#C2181D"
-          strokeWidth={2}
-          fill="url(#visitFill)"
-          dot={{ r: 3.5, fill: '#C2181D', stroke: '#fff', strokeWidth: 1.5 }}
-          activeDot={{ r: 5 }}
-          isAnimationActive={true}
-          animationDuration={700}
-        />
-      </AreaChart>
-    </ResponsiveContainer>
-  );
 }
 
 /* ── Stat Card ───────────────────────────────────────────────────────────── */
@@ -131,64 +99,109 @@ function StatCard({ title, values = {}, live = false }) {
 
 /* ── Role-based route guard ──────────────────────────────────────────────── */
 
+/**
+ * Maps a nav-item id to the roles that are allowed to access it.
+ * Matches the roles array defined in AppSidebar's ALL_NAV_ITEMS.
+ * A RECEPTIONIST that tries to navigate to a restricted page is silently
+ * redirected back to the dashboard home.
+ */
 const RESTRICTED_ROUTES = {
   'user-management': ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
-  'user-master':     ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
-  'location-master': ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
+  'staff-activity':  ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
+  'location-master': ['PRIMARY_ADMIN'],
+  'device-master':   ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
 };
 
 /* ── Page content router ─────────────────────────────────────────────────── */
 
-function PageContent({ activeNav, setActiveNav, session }) {
-  const role = session?.role ?? 'RECEPTIONIST';
-
-  // Silently redirect to dashboard if the user attempts to access a restricted page
+function PageContent({ activeNav, setActiveNav, session, locationScope }) {
   const allowedRoles = RESTRICTED_ROUTES[activeNav];
-  if (allowedRoles && !allowedRoles.includes(role)) {
-    return <DashboardHome session={session} onNavigate={setActiveNav} />;
+  if (allowedRoles && !hasAnyRole(session, allowedRoles)) {
+    return (
+      <div className="app-page-shell" key="dashboard">
+        <DashboardHome session={session} onNavigate={setActiveNav} locationScope={locationScope} />
+      </div>
+    );
   }
 
+  let page;
   switch (activeNav) {
-    case 'home':            return <CheckInOut session={session} />;
-    case 'appointments':    return <Appointments session={session} />;
-    case 'user-management': return <UserManagement session={session} />;
-    case 'user-master':     return <UserMaster session={session} />;
-    case 'location-master': return <LocationMaster session={session} />;
-    case 'reports':         return <Reports session={session} />;
-    case 'settings':        return <Settings session={session} />;
-    default:                return <DashboardHome session={session} onNavigate={setActiveNav} />;
+    case 'home':
+      return (
+        <div className="app-page-shell" key="home">
+          <CheckInOut session={session} locationScope={locationScope} />
+        </div>
+      );
+    case 'user-management':
+      page = <UserManagement session={session} />;
+      break;
+    case 'reports':
+      page = <Reports session={session} locationScope={locationScope} />;
+      break;
+    case 'staff-activity':
+      page = <StaffActivity session={session} locationScope={locationScope} />;
+      break;
+    case 'location-master':
+      page = <LocationMaster session={session} />;
+      break;
+    case 'device-master':
+      page = <DeviceMaster session={session} />;
+      break;
+    default:
+      return (
+        <div className="app-page-shell" key="dashboard">
+          <DashboardHome session={session} onNavigate={setActiveNav} locationScope={locationScope} />
+        </div>
+      );
   }
+
+  return (
+    <div className="app-page-shell" key={activeNav}>
+      <Suspense fallback={<AppPageLoader />}>
+        {page}
+      </Suspense>
+    </div>
+  );
 }
 
 /* ── Dashboard home content ─────────────────────────────────────────────── */
 
-function DashboardHome({ session, onNavigate }) {
-  const firstName = session?.fullName?.split(' ')[0] ?? session?.employeeId;
+function DashboardHome({ session, onNavigate, locationScope }) {
+  const displayName = (session?.fullName || session?.employeeId || 'User').trim();
 
   const [stats,    setStats]    = useState(null);
   const [visitors, setVisitors] = useState([]);
   const [loading,  setLoading]  = useState(true);
+  const [loadError, setLoadError] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      try {
-        const [s, v] = await Promise.all([getDashboardStats(), getRecentVisitors()]);
-        if (!cancelled) {
-          setStats(s);
-          setVisitors(v);
-        }
-      } catch (err) {
-        console.error('Dashboard load error:', err);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+      setLoading(true);
+      setLoadError(null);
+
+      const statsPromise = getDashboardStats(locationScope)
+        .then((s) => { if (!cancelled) setStats(s); })
+        .catch((err) => {
+          console.error('Dashboard stats error:', err);
+          if (!cancelled) setLoadError('Could not load dashboard statistics.');
+        });
+
+      const visitorsPromise = getRecentVisitors(locationScope)
+        .then((v) => { if (!cancelled) setVisitors(v); })
+        .catch((err) => {
+          console.error('Recent visitors error:', err);
+          if (!cancelled) setVisitors([]);
+        });
+
+      await Promise.allSettled([statsPromise, visitorsPromise]);
+      if (!cancelled) setLoading(false);
     }
 
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [locationScope.locationId, locationScope.allLocations]);
 
   const peakPoint = stats?.visitorFlow?.reduce(
     (best, p) => (p.all > (best?.all ?? 0) ? p : best),
@@ -200,7 +213,10 @@ function DashboardHome({ session, onNavigate }) {
   return (
     <main className="db-content">
 
-      {/* Stats row */}
+      {loadError && (
+        <p className="db-load-error" role="alert">{loadError}</p>
+      )}
+
       <div className="db-stats-row">
         <StatCard
           title="Today Check-in's"
@@ -236,7 +252,7 @@ function DashboardHome({ session, onNavigate }) {
         <div className="db-summary">
           <div className="db-summary__progress" />
           <span className="db-summary__badge">TODAY&apos;S SUMMARY</span>
-          <h2 className="db-summary__greeting">{getGreeting()},<br />{firstName}.</h2>
+          <h2 className="db-summary__greeting">{getGreeting()},<br />{displayName}</h2>
           <p className="db-summary__sub">
             {loading
               ? 'Loading summary\u2026'
@@ -247,7 +263,7 @@ function DashboardHome({ session, onNavigate }) {
           </p>
           <button className="db-summary__btn" onClick={() => onNavigate('home')}>
             <IconPlus size={14} />
-            Register Visitor
+            {canCheckIn(session) ? 'Register Visitor' : 'View Check In / Out'}
           </button>
         </div>
 
@@ -270,7 +286,13 @@ function DashboardHome({ session, onNavigate }) {
             </span>
           </div>
           <div className="db-chart-area">
-            <VisitorFlowChart points={stats?.visitorFlow ?? []} />
+            <Suspense fallback={
+              <div className="db-chart-loading">
+                <LottieLoader size="md" ariaLabel="Loading chart" />
+              </div>
+            }>
+              <VisitorFlowChart points={stats?.visitorFlow ?? []} />
+            </Suspense>
           </div>
         </div>
       </div>
@@ -294,8 +316,8 @@ function DashboardHome({ session, onNavigate }) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', color: '#aaa', padding: 20 }}>
-                    Loading&hellip;
+                  <td colSpan={8} className="db-table-loading">
+                    <LottieLoader size="md" ariaLabel="Loading visitors" />
                   </td>
                 </tr>
               ) : visitors.length === 0 ? (
@@ -342,10 +364,25 @@ function DashboardHome({ session, onNavigate }) {
 
 export default function Dashboard({ session, onLogout }) {
   const [activeNav, setActiveNav] = useState('dashboard');
+  const showLocationFilter = canFilterLocations(session);
+  const allowAllLocations = canFilterAllLocations(session);
+  const allowedLocationIds = allowAllLocations ? null : getAssignedLocationIds(session);
+  const [locationId, setLocationId] = useState(() => defaultAdminLocationId(session));
+  const locationScope = useMemo(
+    () => buildLocationScope(locationId, session),
+    [locationId, session],
+  );
 
   return (
     <div className="app-root">
-      <AppHeader session={session} />
+      <AppHeader
+        session={session}
+        showLocationFilter={showLocationFilter}
+        locationId={locationId}
+        onLocationChange={setLocationId}
+        allowedLocationIds={allowedLocationIds}
+        allowAllLocations={allowAllLocations}
+      />
       <div className="app-body">
         <AppSidebar
           session={session}
@@ -353,7 +390,12 @@ export default function Dashboard({ session, onLogout }) {
           onNavChange={setActiveNav}
           onLogout={onLogout}
         />
-        <PageContent activeNav={activeNav} setActiveNav={setActiveNav} session={session} />
+        <PageContent
+          activeNav={activeNav}
+          setActiveNav={setActiveNav}
+          session={session}
+          locationScope={locationScope}
+        />
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 package com.medplus.frontdesk_backend.security;
 
 import com.medplus.frontdesk_backend.model.UserManagement;
+import com.medplus.frontdesk_backend.model.UserRole;
 import com.medplus.frontdesk_backend.model.UserStatus;
 import com.medplus.frontdesk_backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -12,7 +13,10 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -29,10 +33,24 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .orElseThrow(() -> new UsernameNotFoundException(
                         "No user found with employeeId: " + employeeId));
 
+        List<UserRole> roles = userManagement.getRoles() != null && !userManagement.getRoles().isEmpty()
+                ? userManagement.getRoles()
+                : List.of(userManagement.getRole() != null ? userManagement.getRole() : UserRole.RECEPTIONIST);
+
+        Set<String> authorityNames = new LinkedHashSet<>();
+        for (UserRole role : roles) {
+            authorityNames.add("ROLE_" + role.name());
+        }
+
+        List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+        for (String name : authorityNames) {
+            authorities.add(new SimpleGrantedAuthority(name));
+        }
+
         return User.builder()
                 .username(userManagement.getEmployeeid())
                 .password(userManagement.getPassword())
-                .authorities(List.of(new SimpleGrantedAuthority("ROLE_" + userManagement.getRole())))
+                .authorities(authorities)
                 .accountExpired(false)
                 .accountLocked(false)
                 .credentialsExpired(false)

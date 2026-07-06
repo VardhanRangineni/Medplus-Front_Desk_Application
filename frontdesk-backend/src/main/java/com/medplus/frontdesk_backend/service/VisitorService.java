@@ -1,34 +1,43 @@
 package com.medplus.frontdesk_backend.service;
 
+import com.medplus.frontdesk_backend.dto.DeviceMasterDto;
 import com.medplus.frontdesk_backend.dto.EmployeeLookupResponseDto;
 import com.medplus.frontdesk_backend.dto.PagedResponseDto;
 import com.medplus.frontdesk_backend.dto.PersonToMeetDto;
 import com.medplus.frontdesk_backend.dto.StatusCountsDto;
-import com.medplus.frontdesk_backend.dto.VisitorMemberDto;
-import com.medplus.frontdesk_backend.dto.VisitorMemberRequestDto;
+import com.medplus.frontdesk_backend.dto.UserLookupDto;
+import com.medplus.frontdesk_backend.dto.VisitorMovementEventDto;
 import com.medplus.frontdesk_backend.dto.VisitorRequestDto;
 import com.medplus.frontdesk_backend.dto.VisitorResponseDto;
 import com.medplus.frontdesk_backend.model.EntryType;
 import com.medplus.frontdesk_backend.model.GovtIdType;
 import com.medplus.frontdesk_backend.model.UserManagement;
+import com.medplus.frontdesk_backend.model.UserRole;
 import com.medplus.frontdesk_backend.model.VisitStatus;
 import com.medplus.frontdesk_backend.model.VisitType;
 import com.medplus.frontdesk_backend.model.Visitor;
-import com.medplus.frontdesk_backend.model.VisitorMember;
+import com.medplus.frontdesk_backend.repository.DeviceMasterRepository;
 import com.medplus.frontdesk_backend.repository.UserRepository;
 import com.medplus.frontdesk_backend.repository.VisitorRepository;
+import com.medplus.frontdesk_backend.security.AuthorizationHelper;
+import com.medplus.frontdesk_backend.util.WorkstationMacUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 @Service
 public class VisitorService {
@@ -37,12 +46,30 @@ public class VisitorService {
 
     private final VisitorRepository visitorRepository;
     private final UserRepository    userRepository;
-    private final CardService       cardService;
+    private final HrmsService       hrmsService;
+    private final VisitPassService  visitPassService;
+    private final OperationalLocationService operationalLocationService;
+    private final LocationScopeService locationScopeService;
+    private final VisitorScanService visitorScanService;
+    private final DeviceMasterRepository deviceMasterRepository;
+    private final AuthorizationHelper authorizationHelper;
 
-    public VisitorService(VisitorRepository visitorRepository, UserRepository userRepository, CardService cardService) {
+    public VisitorService(VisitorRepository visitorRepository, UserRepository userRepository,
+                          HrmsService hrmsService, VisitPassService visitPassService,
+                          OperationalLocationService operationalLocationService,
+                          LocationScopeService locationScopeService,
+                          VisitorScanService visitorScanService,
+                          DeviceMasterRepository deviceMasterRepository,
+                          AuthorizationHelper authorizationHelper) {
         this.visitorRepository = visitorRepository;
         this.userRepository = userRepository;
-        this.cardService = cardService;
+        this.hrmsService = hrmsService;
+        this.visitPassService = visitPassService;
+        this.operationalLocationService = operationalLocationService;
+        this.locationScopeService = locationScopeService;
+        this.visitorScanService = visitorScanService;
+        this.deviceMasterRepository = deviceMasterRepository;
+        this.authorizationHelper = authorizationHelper;
     }
 
     // ── Create ────────────────────────────────────────────────────────────────
@@ -52,30 +79,42 @@ public class VisitorService {
      * The locationId is resolved from the authenticated user's assigned location.
      */
     @Transactional
-    public VisitorResponseDto checkIn(VisitorRequestDto req, String createdBy) {
+    public VisitorResponseDto checkIn(VisitorRequestDto req, String createdBy, String workstationMac) {
+        return checkIn(req, createdBy, workstationMac, null);
+    }
 
-        VisitType visitType = parseVisitType(req.getVisitType());
+    /**
+     * @param existingPreregToken when set (QR check-in from website self-registration),
+     *                            skip desk visit-pass SMS — visitor already has the QR.
+     */
+    @Transactional
+    public VisitorResponseDto checkIn(VisitorRequestDto req, String createdBy, String workstationMac,
+                                      String existingPreregToken) {
 
-        // Validate: GROUP visits must include at least one member
-        if (visitType == VisitType.GROUP
-                && (req.getMembers() == null || req.getMembers().isEmpty())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "GROUP visits must include at least one member.");
-        }
+        authorizationHelper.requireCheckInPermission();
 
-        // Resolve person-to-meet details
-        PersonToMeetDto person = visitorRepository.findPersonById(req.getPersonToMeetId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "Person to meet not found: " + req.getPersonToMeetId()));
-
-        // Resolve the caller's location
-        String locationId = getUserLocation(createdBy);
-
-        // Generate visitor ID
-        int seq = visitorRepository.nextVisitorSequence(visitType);
-        String visitorId = buildVisitorId(visitType, seq);
+        validateVisitRequest(req);
 
         EntryType entryType = parseEntryType(req.getEntryType());
+        PersonToMeetDto person = resolvePersonToMeet(req.getPersonToMeetId());
+
+        String entryDepartment = entryType == EntryType.EMPLOYEE
+                && req.getEmployeeDepartment() != null && !req.getEmployeeDepartment().isBlank()
+                ? req.getEmployeeDepartment().trim()
+                : person.getDepartment();
+
+        // Prefer operator's assigned kiosk (desk identity), not only PC MAC.
+        var deviceOpt = operationalLocationService.resolveDeskDevice(createdBy, workstationMac);
+        String locationId = deviceOpt
+                .map(com.medplus.frontdesk_backend.dto.DeviceMasterDto::getLocationId)
+                .filter(id -> id != null && !id.isBlank())
+                .orElseGet(() -> operationalLocationService.resolveForUser(createdBy, workstationMac));
+        String checkInDeviceId = deviceOpt.map(com.medplus.frontdesk_backend.dto.DeviceMasterDto::getDeviceId)
+                .orElse(null);
+
+        // Generate visitor ID — always INDIVIDUAL now
+        int seq = visitorRepository.nextVisitorSequence(VisitType.INDIVIDUAL);
+        String visitorId = String.format("MED-V-%04d", seq);
 
         // Guard: block duplicate active check-ins for the same person at the same location
         visitorRepository.findActiveCheckin(
@@ -93,16 +132,9 @@ public class VisitorService {
                     "Please check out the existing entry before checking in again.");
         });
 
-        // Auto-assign a card from card master for VISITOR entries when no card is manually provided
-        Integer manualCard = req.getCardNumber();
-        String  autoCardCode = null;
-        if (entryType == EntryType.VISITOR && manualCard == null) {
-            autoCardCode = cardService.assignNextCard(locationId, visitorId).orElse(null);
-        }
-
         Visitor visitor = Visitor.builder()
                 .visitorId(visitorId)
-                .visitType(visitType)
+                .visitType(VisitType.INDIVIDUAL)
                 .entryType(entryType)
                 .name(req.getName().trim())
                 .mobile(req.getMobile() != null ? req.getMobile().trim() : null)
@@ -110,57 +142,76 @@ public class VisitorService {
                 .status(VisitStatus.CHECKED_IN)
                 .personToMeet(person.getId())
                 .personName(person.getName())
-                .department(person.getDepartment())
+                .department(entryDepartment)
                 .locationId(locationId)
-                .cardNumber(manualCard)
-                .cardCode(autoCardCode)
+                .cardNumber(req.getCardNumber())
                 .govtIdType(parseGovtIdType(req.getGovtIdType()))
                 .govtIdNumber(req.getGovtIdNumber() != null ? req.getGovtIdNumber().trim() : null)
                 .checkInTime(LocalDateTime.now())
                 .reasonForVisit(req.getReasonForVisit())
+                .companyName(req.getCompanyName() != null && !req.getCompanyName().isBlank()
+                        ? req.getCompanyName().trim() : null)
                 .createdBy(createdBy)
+                .workstationMac(WorkstationMacUtil.toStoredValue(workstationMac))
+                .checkInDeviceId(checkInDeviceId)
+                .lastScanDeviceId(checkInDeviceId)
+                .lastScanAt(checkInDeviceId != null ? LocalDateTime.now() : null)
                 .build();
 
         visitorRepository.insertVisitor(visitor);
+        String preregTokenForScan = hasText(existingPreregToken) ? existingPreregToken.trim() : null;
+        deviceOpt.ifPresent(device -> visitorScanService.recordCheckInScan(
+                visitor, device, createdBy, workstationMac, preregTokenForScan));
         log.info("Check-in created: {} ({}) card={} by {}",
-                 visitorId, req.getName(), autoCardCode != null ? autoCardCode : manualCard, createdBy);
+                 visitorId, req.getName(), req.getCardNumber(), createdBy);
 
-        // Insert members for group visits — each member also gets an auto-assigned card
-        if (visitType == VisitType.GROUP && req.getMembers() != null) {
-            int memberSeq = visitorRepository.nextMemberSequence();
-            for (VisitorMemberRequestDto m : req.getMembers()) {
-                String memberId = String.format("MED-GM-%04d", memberSeq++);
-                String memberAutoCard = null;
-                if (m.getCardNumber() == null) {
-                    memberAutoCard = cardService.assignNextCard(locationId, visitorId).orElse(null);
-                }
-                visitorRepository.insertMember(VisitorMember.builder()
-                        .memberId(memberId)
-                        .visitorId(visitorId)
-                        .name(m.getName().trim())
-                        .cardNumber(m.getCardNumber())
-                        .cardCode(memberAutoCard)
-                        .status(VisitStatus.CHECKED_IN)
-                        .build());
-                log.info("Member registered: {} for group visit {} card={}",
-                         memberId, visitorId, memberAutoCard != null ? memberAutoCard : m.getCardNumber());
-            }
+        VisitorResponseDto response = toResponses(List.of(visitor)).get(0);
+
+        if (preregTokenForScan != null) {
+            response.setVisitPassToken(preregTokenForScan);
+            response.setVisitPassSmsStatus("SKIPPED");
+            response.setVisitPassMessage("Visitor already has a registration QR — no SMS sent.");
+        } else if (visitPassService.isEligible(visitor)) {
+            String passToken = visitPassService.initiateDeskWalkInPass(visitor);
+            response.setVisitPassToken(passToken);
+            response.setVisitPassSmsStatus("PENDING");
+            response.setVisitPassMessage("Visit pass is being sent to the visitor's mobile.");
+        } else {
+            response.setVisitPassSmsStatus("SKIPPED");
         }
 
-        return buildResponse(visitor);
+        return response;
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     // ── Read ──────────────────────────────────────────────────────────────────
+
+    public boolean resendVisitPass(String visitorId) {
+        return visitPassService.resendForVisitor(visitorId);
+    }
 
     /**
      * Returns a single entry by visitor ID.
      * Throws 404 if not found.
      */
     public VisitorResponseDto getEntryById(String visitorId) {
-        return visitorRepository.findById(visitorId)
-                .map(this::buildResponse)
+        Visitor visitor = visitorRepository.findById(visitorId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Visitor entry not found: " + visitorId));
+        VisitorResponseDto dto = toResponses(List.of(visitor)).get(0);
+        visitPassService.findPassTokenForVisitor(visitorId).ifPresent(dto::setVisitPassToken);
+        return dto;
+    }
+
+    public List<VisitorMovementEventDto> getMovementTrail(String visitorId) {
+        if (!visitorRepository.findById(visitorId).isPresent()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "Visitor entry not found: " + visitorId);
+        }
+        return visitorScanService.getMovementTrail(visitorId);
     }
 
     /**
@@ -172,8 +223,8 @@ public class VisitorService {
      * Role rules:
      *  - RECEPTIONIST: always scoped to their own location; locationIdParam ignored.
      *  - PRIMARY_ADMIN / REGIONAL_ADMIN:
-     *      - locationIdParam supplied → that location only
-     *      - locationIdParam blank/null → all locations
+     *      - locationIdParam / allLocations → admin overrides
+     *      - otherwise → operational location from current kiosk
      *
      * @param status    optional tab filter: "checked-in", "checked-out"; null = all
      * @param page      0-based page index
@@ -183,25 +234,24 @@ public class VisitorService {
                                                            LocalDate from,
                                                            LocalDate to,
                                                            String locationIdParam,
+                                                           Boolean allLocations,
                                                            String department,
                                                            String status,
+                                                           String createdByParam,
                                                            int page, int size,
+                                                           String workstationMac,
                                                            Authentication auth) {
-        String dept     = blankToNull(department);
-        String dbStatus = labelToDbStatus(status);
-        int    offset   = page * size;
+        String dept       = blankToNull(department);
+        String dbStatus   = labelToDbStatus(status);
+        String createdBy  = resolveCreatedByFilter(callerEmployeeId, createdByParam, auth);
+        int    offset     = page * size;
 
-        if (isAdmin(auth)) {
-            String locId = blankToNull(locationIdParam);
-            List<Visitor> rows  = visitorRepository.findPaged(locId, from, to, dept, dbStatus, offset, size);
-            long          total = visitorRepository.countFiltered(locId, from, to, dept, dbStatus);
-            return PagedResponseDto.of(rows.stream().map(this::buildResponse).toList(), page, size, total);
-        }
-
-        String locationId = getUserLocation(callerEmployeeId);
-        List<Visitor> rows  = visitorRepository.findPaged(locationId, from, to, dept, dbStatus, offset, size);
-        long          total = visitorRepository.countFiltered(locationId, from, to, dept, dbStatus);
-        return PagedResponseDto.of(rows.stream().map(this::buildResponse).toList(), page, size, total);
+        String locationId = locationScopeService.resolveReadScope(
+                callerEmployeeId, workstationMac, auth, locationIdParam, allLocations);
+        List<Visitor> rows  = visitorRepository.findPaged(
+                locationId, from, to, dept, dbStatus, createdBy, offset, size);
+        long total = visitorRepository.countFiltered(locationId, from, to, dept, dbStatus, createdBy);
+        return PagedResponseDto.of(toResponses(rows), page, size, total);
     }
 
     /**
@@ -213,29 +263,29 @@ public class VisitorService {
                                                               LocalDate to,
                                                               String query,
                                                               String locationIdParam,
+                                                              Boolean allLocations,
                                                               String department,
                                                               String status,
+                                                              String createdByParam,
                                                               int page, int size,
+                                                              String workstationMac,
                                                               Authentication auth) {
         if (query == null || query.isBlank()) {
-            return getEntries(callerEmployeeId, from, to, locationIdParam, department, status, page, size, auth);
+            return getEntries(callerEmployeeId, from, to, locationIdParam, allLocations, department, status,
+                    createdByParam, page, size, workstationMac, auth);
         }
 
-        String dept     = blankToNull(department);
-        String dbStatus = labelToDbStatus(status);
-        int    offset   = page * size;
+        String dept      = blankToNull(department);
+        String dbStatus  = labelToDbStatus(status);
+        String createdBy = resolveCreatedByFilter(callerEmployeeId, createdByParam, auth);
+        int    offset    = page * size;
 
-        if (isAdmin(auth)) {
-            String locId  = blankToNull(locationIdParam);
-            List<Visitor> rows  = visitorRepository.searchPaged(locId, from, to, query, dept, dbStatus, offset, size);
-            long          total = visitorRepository.countSearch(locId, from, to, query, dept, dbStatus);
-            return PagedResponseDto.of(rows.stream().map(this::buildResponse).toList(), page, size, total);
-        }
-
-        String locationId = getUserLocation(callerEmployeeId);
-        List<Visitor> rows  = visitorRepository.searchPaged(locationId, from, to, query, dept, dbStatus, offset, size);
-        long          total = visitorRepository.countSearch(locationId, from, to, query, dept, dbStatus);
-        return PagedResponseDto.of(rows.stream().map(this::buildResponse).toList(), page, size, total);
+        String locationId = locationScopeService.resolveReadScope(
+                callerEmployeeId, workstationMac, auth, locationIdParam, allLocations);
+        List<Visitor> rows = visitorRepository.searchPaged(
+                locationId, from, to, query, dept, dbStatus, createdBy, offset, size);
+        long total = visitorRepository.countSearch(locationId, from, to, query, dept, dbStatus, createdBy);
+        return PagedResponseDto.of(toResponses(rows), page, size, total);
     }
 
     /**
@@ -244,12 +294,11 @@ public class VisitorService {
      */
     public StatusCountsDto getStatusCounts(String callerEmployeeId,
                                            String locationIdParam,
+                                           Boolean allLocations,
+                                           String workstationMac,
                                            Authentication auth) {
-        if (isAdmin(auth)) {
-            String locId = blankToNull(locationIdParam);
-            return visitorRepository.findStatusCounts(locId);
-        }
-        String locationId = getUserLocation(callerEmployeeId);
+        String locationId = locationScopeService.resolveReadScope(
+                callerEmployeeId, workstationMac, auth, locationIdParam, allLocations);
         return visitorRepository.findStatusCounts(locationId);
     }
 
@@ -258,14 +307,17 @@ public class VisitorService {
      * Admins with no location filter receive the latest 20 entries across all locations.
      * Used by the Dashboard "Recent Visitors" widget.
      */
-    public List<VisitorResponseDto> getRecentEntries(String callerEmployeeId, Authentication auth) {
-        if (isAdmin(auth)) {
-            return visitorRepository.findRecentAll(20)
-                    .stream().map(this::buildResponse).toList();
+    public List<VisitorResponseDto> getRecentEntries(String callerEmployeeId,
+                                                     String workstationMac,
+                                                     String locationIdParam,
+                                                     Boolean allLocations,
+                                                     Authentication auth) {
+        String locationId = locationScopeService.resolveReadScope(
+                callerEmployeeId, workstationMac, auth, locationIdParam, allLocations);
+        if (locationId == null) {
+            return toResponses(visitorRepository.findRecentAll(20));
         }
-        String locationId = getUserLocation(callerEmployeeId);
-        return visitorRepository.findRecent(locationId, 20)
-                .stream().map(this::buildResponse).toList();
+        return toResponses(visitorRepository.findRecent(locationId, 20));
     }
 
     /**
@@ -275,12 +327,11 @@ public class VisitorService {
      * Used to build the dynamic "Filter by Dept" dropdown on the home page.
      */
     public List<String> getDepartmentsInLog(String callerEmployeeId, LocalDate date,
-                                            String locationIdParam, Authentication auth) {
-        if (isAdmin(auth)) {
-            String locId = (locationIdParam != null && !locationIdParam.isBlank()) ? locationIdParam : null;
-            return visitorRepository.findDistinctDepartmentsInLog(locId, date);
-        }
-        String locationId = getUserLocation(callerEmployeeId);
+                                            String locationIdParam, Boolean allLocations,
+                                            String workstationMac,
+                                            Authentication auth) {
+        String locationId = locationScopeService.resolveReadScope(
+                callerEmployeeId, workstationMac, auth, locationIdParam, allLocations);
         return visitorRepository.findDistinctDepartmentsInLog(locationId, date);
     }
 
@@ -290,21 +341,17 @@ public class VisitorService {
      * Applies the same admin/location/department rules as getEntries.
      */
     public byte[] exportCsv(String callerEmployeeId, LocalDate date,
-                            String locationIdParam, String department, Authentication auth) {
+                            String locationIdParam, Boolean allLocations, String department,
+                            String workstationMac, Authentication auth) {
         LocalDate exportDate = date != null ? date : LocalDate.now();
         String    dept       = (department != null && !department.isBlank()) ? department : null;
 
-        // Fetch all matching rows (no pagination) for the export
-        List<Visitor> rows;
-        if (isAdmin(auth)) {
-            String locId = blankToNull(locationIdParam);
-            rows = visitorRepository.findPaged(locId, exportDate, exportDate, dept, null, 0, Integer.MAX_VALUE);
-        } else {
-            String locationId = getUserLocation(callerEmployeeId);
-            rows = visitorRepository.findPaged(locationId, exportDate, exportDate, dept, null, 0, Integer.MAX_VALUE);
-        }
+        String locationId = locationScopeService.resolveReadScope(
+                callerEmployeeId, workstationMac, auth, locationIdParam, allLocations);
+        List<Visitor> rows = visitorRepository.findPaged(
+                locationId, exportDate, exportDate, dept, null, null, 0, Integer.MAX_VALUE);
 
-        List<VisitorResponseDto> entries = rows.stream().map(this::buildResponse).toList();
+        List<VisitorResponseDto> entries = toResponses(rows);
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm");
 
         StringBuilder sb = new StringBuilder();
@@ -347,14 +394,17 @@ public class VisitorService {
      * Does not change status — use checkout endpoints for that.
      */
     @Transactional
-    public VisitorResponseDto updateEntry(String visitorId, VisitorRequestDto req, String callerEmployeeId) {
+    public VisitorResponseDto updateEntry(String visitorId, VisitorRequestDto req,
+                                          String callerEmployeeId, String workstationMac,
+                                          Authentication auth) {
         Visitor existing = visitorRepository.findById(visitorId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Visitor entry not found: " + visitorId));
+        assertCanMutateEntry(existing, callerEmployeeId, workstationMac, auth);
 
-        PersonToMeetDto person = visitorRepository.findPersonById(req.getPersonToMeetId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "Person to meet not found: " + req.getPersonToMeetId()));
+        validateVisitRequest(req);
+
+        PersonToMeetDto person = resolvePersonToMeet(req.getPersonToMeetId());
 
         existing.setName(req.getName().trim());
         existing.setMobile(req.getMobile() != null ? req.getMobile().trim() : null);
@@ -366,12 +416,14 @@ public class VisitorService {
         existing.setGovtIdType(parseGovtIdType(req.getGovtIdType()));
         existing.setGovtIdNumber(req.getGovtIdNumber() != null ? req.getGovtIdNumber().trim() : null);
         existing.setReasonForVisit(req.getReasonForVisit());
+        existing.setCompanyName(req.getCompanyName() != null && !req.getCompanyName().isBlank()
+                ? req.getCompanyName().trim() : null);
         existing.setCreatedBy(callerEmployeeId);
 
         visitorRepository.updateVisitor(existing);
         log.info("Entry updated: {} by {}", visitorId, callerEmployeeId);
 
-        return buildResponse(existing);
+        return toResponses(List.of(existing)).get(0);
     }
 
     // ── Check-out ─────────────────────────────────────────────────────────────
@@ -379,75 +431,37 @@ public class VisitorService {
     /**
      * Checks out a main visitor/employee entry.
      *
-     * @param cardReturned true = visitor returned their card (mark AVAILABLE);
-     *                     false = card not returned (mark MISSING).
-     *                     Ignored for EMPLOYEE entries (no card assigned).
      */
     @Transactional
-    public VisitorResponseDto checkOut(String visitorId, boolean cardReturned, String callerEmployeeId) {
+    public VisitorResponseDto checkOut(String visitorId,
+                                       String callerEmployeeId, String workstationMac,
+                                       Authentication auth) {
         Visitor existing = visitorRepository.findById(visitorId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Visitor entry not found: " + visitorId));
+        assertCanMutateEntry(existing, callerEmployeeId, workstationMac, auth);
 
         if (existing.getStatus() == VisitStatus.CHECKED_OUT) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Entry is already checked out: " + visitorId);
         }
 
-        // Release card from card master when applicable
-        if (existing.getEntryType() == EntryType.VISITOR && existing.getCardCode() != null) {
-            cardService.releaseCard(existing.getCardCode(), cardReturned);
-        }
-
         LocalDateTime now = LocalDateTime.now();
         visitorRepository.checkOutVisitor(visitorId, now, callerEmployeeId);
+
+        operationalLocationService.resolveDeskDevice(callerEmployeeId, workstationMac)
+                .ifPresent(device -> {
+                    visitorScanService.recordCheckOutScan(
+                            existing, device, callerEmployeeId, workstationMac);
+                    existing.setLastScanDeviceId(device.getDeviceId());
+                    existing.setLastScanAt(now);
+                });
 
         existing.setStatus(VisitStatus.CHECKED_OUT);
         existing.setCheckOutTime(now);
 
-        log.info("Checked out: {} (cardReturned={}) by {}", visitorId, cardReturned, callerEmployeeId);
-        return buildResponse(existing);
-    }
-
-    /** Checks out a single member within a group visit. */
-    @Transactional
-    public VisitorMemberDto checkOutMember(String visitorId, String memberId,
-                                           boolean cardReturned, String callerEmployeeId) {
-        visitorRepository.findById(visitorId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
-                        "Visitor entry not found: " + visitorId));
-
-        VisitorMember member = visitorRepository.findMemberById(memberId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
-                        "Member not found: " + memberId));
-
-        if (!member.getVisitorId().equals(visitorId)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Member does not belong to this visitor entry.");
-        }
-        if (member.getStatus() == VisitStatus.CHECKED_OUT) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Member is already checked out: " + memberId);
-        }
-
-        // Release member card
-        if (member.getCardCode() != null) {
-            cardService.releaseCard(member.getCardCode(), cardReturned);
-        }
-
-        LocalDateTime now = LocalDateTime.now();
-        visitorRepository.checkOutMember(memberId, now);
-
-        log.info("Member checked out: {} (group: {}) cardReturned={} by {}",
-                 memberId, visitorId, cardReturned, callerEmployeeId);
-
-        return VisitorMemberDto.builder()
-                .id(memberId)
-                .name(member.getName())
-                .card(member.getCardNumber())
-                .cardCode(member.getCardCode())
-                .status(VisitStatus.CHECKED_OUT.toLabel())
-                .build();
+        log.info("Checked out: {} by {}", visitorId, callerEmployeeId);
+        return toResponses(List.of(existing)).get(0);
     }
 
     // ── Person-to-meet search ─────────────────────────────────────────────────
@@ -456,17 +470,64 @@ public class VisitorService {
      * Returns ALL employees at the caller's location (no filter).
      * Used to populate the "Person to Meet" dropdown on modal open.
      */
-    public List<PersonToMeetDto> getPersonsAtLocation(String callerEmployeeId) {
-        String locationId = getUserLocation(callerEmployeeId);
+    public List<PersonToMeetDto> getPersonsAtLocation(String callerEmployeeId, String workstationMac) {
+        String locationId = operationalLocationService.resolveForUser(callerEmployeeId, workstationMac);
         return visitorRepository.findAllPersonsAtLocation(locationId);
+    }
+
+    /**
+     * Looks up a person-to-meet by mobile via HRMS (no location filter).
+     */
+    public PersonToMeetDto lookupPersonToMeetByMobile(String mobile, String callerEmployeeId) {
+        UserLookupDto hrms = hrmsService.lookupByPhoneNo(mobile)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "No employee found in HRMS for this mobile number."));
+
+        if (hrms.getId() == null || hrms.getId().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "HRMS response is missing an employee ID.");
+        }
+        if (hrms.getName() == null || hrms.getName().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "HRMS response is missing an employee name.");
+        }
+
+        return toPersonToMeet(hrms);
+    }
+
+    /** Resolves person-to-meet from local user master, or HRMS when not registered locally. */
+    private PersonToMeetDto resolvePersonToMeet(String personToMeetId) {
+        return visitorRepository.findPersonById(personToMeetId)
+                .or(() -> lookupPersonFromHrms(personToMeetId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Person to meet not found: " + personToMeetId));
+    }
+
+    private Optional<PersonToMeetDto> lookupPersonFromHrms(String idOrHrmsId) {
+        Optional<UserLookupDto> hrms = hrmsService.lookupByEmployeeId(idOrHrmsId);
+        if (hrms.isEmpty()) {
+            hrms = hrmsService.lookupByHrmsId(idOrHrmsId);
+        }
+        return hrms.map(this::toPersonToMeet);
+    }
+
+    private PersonToMeetDto toPersonToMeet(UserLookupDto e) {
+        return PersonToMeetDto.builder()
+                .id(e.getId())
+                .name(e.getName())
+                .phone(e.getPhone())
+                .department(e.getDepartment() != null ? e.getDepartment() : "")
+                .designation(e.getDesignation())
+                .build();
     }
 
     /**
      * Searches employees at the caller's location by name, employee ID, or phone.
      * Returns all if query is blank (same as getPersonsAtLocation).
      */
-    public List<PersonToMeetDto> searchPersonsToMeet(String callerEmployeeId, String query) {
-        String locationId = getUserLocation(callerEmployeeId);
+    public List<PersonToMeetDto> searchPersonsToMeet(String callerEmployeeId, String query,
+                                                     String workstationMac) {
+        String locationId = operationalLocationService.resolveForUser(callerEmployeeId, workstationMac);
         if (query == null || query.isBlank()) {
             return visitorRepository.findAllPersonsAtLocation(locationId);
         }
@@ -477,8 +538,8 @@ public class VisitorService {
      * Returns distinct department names at the caller's location.
      * Used to populate the "Host Department" dropdown.
      */
-    public List<String> getDepartmentsAtLocation(String callerEmployeeId) {
-        String locationId = getUserLocation(callerEmployeeId);
+    public List<String> getDepartmentsAtLocation(String callerEmployeeId, String workstationMac) {
+        String locationId = operationalLocationService.resolveForUser(callerEmployeeId, workstationMac);
         return visitorRepository.findDistinctDepartmentsAtLocation(locationId);
     }
 
@@ -510,6 +571,27 @@ public class VisitorService {
     }
 
     /**
+     * Resolves createdBy filter for list/search:
+     * - Receptionist may only filter to their own employee ID.
+     * - Admins may filter to any staff ID (or omit for all).
+     */
+    private String resolveCreatedByFilter(String callerEmployeeId, String createdByParam,
+                                          Authentication auth) {
+        String requested = blankToNull(createdByParam);
+        if (requested == null) {
+            return null;
+        }
+        if (isAdmin(auth)) {
+            return requested;
+        }
+        if (!requested.equalsIgnoreCase(callerEmployeeId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "You can only view your own entries.");
+        }
+        return requested;
+    }
+
+    /**
      * Converts the UI label sent by the frontend to the DB enum name.
      * "checked-in"  → "CHECKED_IN"
      * "checked-out" → "CHECKED_OUT"
@@ -529,11 +611,47 @@ public class VisitorService {
         return phone.substring(0, 2) + "****" + phone.substring(phone.length() - 2);
     }
 
-    private String getUserLocation(String employeeId) {
-        return userRepository.findByEmployeeId(employeeId)
-                .map(UserManagement::getLocation)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED,
-                        "User not found in management records: " + employeeId));
+    /**
+     * Mutation access rules for visitor entries:
+     * - PRIMARY_ADMIN: can mutate any entry.
+     * - REGIONAL_ADMIN: can mutate own entries OR entries created by receptionists they created.
+     * - RECEPTIONIST: entries they created, or entries checked in on this workstation (shift handoff).
+     */
+    private void assertCanMutateEntry(Visitor existing, String callerEmployeeId,
+                                      String callerWorkstationMac, Authentication auth) {
+        if (auth == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied.");
+        }
+        String entryCreator = existing.getCreatedBy();
+        if (entryCreator == null || entryCreator.isBlank()) {
+            if (hasRole(auth, "ROLE_PRIMARY_ADMIN")) return;
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Action blocked. Entry has no creator mapping.");
+        }
+
+        if (hasRole(auth, "ROLE_PRIMARY_ADMIN")) return;
+
+        if (hasRole(auth, "ROLE_REGIONAL_ADMIN")) {
+            if (entryCreator.equalsIgnoreCase(callerEmployeeId)) return;
+            UserManagement creator = userRepository.findByEmployeeId(entryCreator).orElse(null);
+            String creatorAdmin = creator != null ? creator.getCreatedBy() : null;
+            if (creatorAdmin != null && creatorAdmin.equalsIgnoreCase(callerEmployeeId)) return;
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Access denied. You can only act on entries by users you created.");
+        }
+
+        if (entryCreator.equalsIgnoreCase(callerEmployeeId)) {
+            return;
+        }
+        if (WorkstationMacUtil.matches(existing.getWorkstationMac(), callerWorkstationMac)) {
+            return;
+        }
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "Access denied. You can only act on entries from your desk or that you created.");
+    }
+
+    private static boolean hasRole(Authentication auth, String role) {
+        return auth.getAuthorities().stream().anyMatch(a -> role.equals(a.getAuthority()));
     }
 
     /**
@@ -545,15 +663,6 @@ public class VisitorService {
         return auth.getAuthorities().stream().anyMatch(a ->
                 "ROLE_PRIMARY_ADMIN".equals(a.getAuthority()) ||
                 "ROLE_REGIONAL_ADMIN".equals(a.getAuthority()));
-    }
-
-    private static VisitType parseVisitType(String raw) {
-        try {
-            return VisitType.valueOf(raw.toUpperCase());
-        } catch (IllegalArgumentException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Invalid visitType '" + raw + "'. Must be INDIVIDUAL or GROUP.");
-        }
     }
 
     private static EntryType parseEntryType(String raw) {
@@ -575,34 +684,46 @@ public class VisitorService {
         }
     }
 
-    private static String buildVisitorId(VisitType visitType, int seq) {
-        String prefix = visitType == VisitType.GROUP ? "MED-GV" : "MED-V";
-        return String.format("%s-%04d", prefix, seq);
+    private static void validateVisitRequest(VisitorRequestDto req) {
+        if (req.getReasonForVisit() == null || req.getReasonForVisit().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Reason for visit is required.");
+        }
+        if (req.getPersonToMeetId() == null || req.getPersonToMeetId().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Person to meet is required.");
+        }
+        if ("__OTHER__".equals(req.getPersonToMeetId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Person to meet must be verified via HRMS mobile lookup.");
+        }
     }
 
-    /** Builds a full VisitorResponseDto (with members list loaded from DB). */
-    private VisitorResponseDto buildResponse(Visitor v) {
-        List<VisitorMemberDto> members = visitorRepository
-                .findMembersByVisitorId(v.getVisitorId())
-                .stream()
-                .map(m -> VisitorMemberDto.builder()
-                        .id(m.getMemberId())
-                        .name(m.getName())
-                        .card(m.getCardNumber())
-                        .cardCode(m.getCardCode())
-                        .status(m.getStatus().toLabel())
-                        .build())
-                .toList();
+    private List<VisitorResponseDto> toResponses(List<Visitor> visitors) {
+        if (visitors == null || visitors.isEmpty()) {
+            return List.of();
+        }
+        Set<String> deviceIds = new HashSet<>();
+        for (Visitor v : visitors) {
+            if (StringUtils.hasText(v.getCheckInDeviceId())) {
+                deviceIds.add(v.getCheckInDeviceId());
+            }
+            if (StringUtils.hasText(v.getLastScanDeviceId())) {
+                deviceIds.add(v.getLastScanDeviceId());
+            }
+        }
+        Map<String, DeviceMasterDto> devices = deviceMasterRepository.findByIds(deviceIds);
+        return visitors.stream().map(v -> toResponse(v, devices)).toList();
+    }
 
+    private VisitorResponseDto toResponse(Visitor v, Map<String, DeviceMasterDto> devices) {
         String locationName = visitorRepository.findLocationName(v.getLocationId()).orElse(null);
-
-        // For GROUP visits, expose cardNumber also as leadCardNumber so edit forms pre-fill correctly
-        Integer leadCard = (v.getVisitType() == VisitType.GROUP) ? v.getCardNumber() : null;
+        DeviceMasterDto checkInDevice = resolveDevice(devices, v.getCheckInDeviceId());
+        DeviceMasterDto lastScanDevice = resolveDevice(devices, v.getLastScanDeviceId());
 
         return VisitorResponseDto.builder()
                 .id(v.getVisitorId())
                 .type(v.getEntryType().name())
-                .visitType(v.getVisitType().name())
                 .name(v.getName())
                 .mobile(v.getMobile())
                 .empId(v.getEmpId())
@@ -614,14 +735,31 @@ public class VisitorService {
                 .locationId(v.getLocationId())
                 .locationName(locationName)
                 .card(v.getCardNumber())
-                .leadCardNumber(leadCard)
-                .cardCode(v.getCardCode())
                 .govtIdType(v.getGovtIdType() != null ? v.getGovtIdType().name() : null)
                 .govtIdNumber(v.getGovtIdNumber())
+                .visitType(v.getVisitType() != null ? v.getVisitType().name() : null)
                 .checkIn(v.getCheckInTime())
                 .checkOut(v.getCheckOutTime())
                 .reasonForVisit(v.getReasonForVisit())
-                .members(members)
+                .companyName(v.getCompanyName())
+                .createdBy(v.getCreatedBy())
+                .workstationMac(v.getWorkstationMac())
+                .checkInDeviceId(v.getCheckInDeviceId())
+                .checkInDeviceName(checkInDevice != null ? checkInDevice.getDisplayName() : null)
+                .lastScanDeviceId(v.getLastScanDeviceId())
+                .lastScanDeviceName(lastScanDevice != null ? lastScanDevice.getDisplayName() : null)
+                .lastScanAt(v.getLastScanAt())
                 .build();
+    }
+
+    private DeviceMasterDto resolveDevice(Map<String, DeviceMasterDto> devices, String deviceId) {
+        if (!StringUtils.hasText(deviceId)) {
+            return null;
+        }
+        DeviceMasterDto cached = devices.get(deviceId);
+        if (cached != null) {
+            return cached;
+        }
+        return deviceMasterRepository.findById(deviceId).orElse(null);
     }
 }

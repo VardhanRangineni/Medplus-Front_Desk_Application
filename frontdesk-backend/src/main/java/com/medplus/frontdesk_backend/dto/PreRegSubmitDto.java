@@ -15,4 +15,5 @@ public class PreRegSubmitDto {
     private String reasonForVisit;
     private String govtIdType;     // e.g. "AADHAAR"
     private String govtIdNumber;   // 12-digit Aadhaar number
+    private String companyName;    // Company/organisation the visitor represents (optional)
 }

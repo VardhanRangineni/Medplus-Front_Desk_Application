@@ -1,16 +1,50 @@
 {
-  "name": "medplus-frontdesk",
-  "productName": "MedPlus Front Desk",
+  "name": "medplus-mvms",
+  "productName": "MedPlus Visitor Management System",
   "version": "1.0.0",
-  "description": "MedPlus Front Desk — visitor and staff management application",
+  "description": "MedPlus Visitor Management System (MVMS) — visitor and staff management",
   "main": ".webpack/main",
   "private": true,
   "scripts": {
-    "start": "electron-forge start",
-    "package": "electron-forge package",
-    "make": "electron-forge make",
+    "patch-dev-icon": "node scripts/patch-electron-dev-icon.js",
+    "prestart": "node scripts/patch-electron-dev-icon.js",
+    "start": "node scripts/start-dev.js",
+    "package": "cross-env NODE_ENV=production electron-forge package",
+    "package:win": "cross-env NODE_ENV=production electron-forge package --platform=win32 --arch=x64",
+    "make": "cross-env NODE_ENV=production electron-forge make",
+    "make:win": "cross-env NODE_ENV=production electron-forge make --platform=win32 --arch=x64",
+    "dist:win": "npm run package:win && electron-builder --prepackaged out/medplus-mvms-win32-x64 --win nsis",
     "publish": "electron-forge publish",
     "lint": "echo \"No linting configured\""
+  },
+  "build": {
+    "appId": "com.medplus.mvms",
+    "productName": "MedPlus Visitor Management System",
+    "executableName": "MedPlusMVMS",
+    "copyright": "Copyright © MedPlus",
+    "directories": {
+      "output": "dist-installer"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "src/Assets/images/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "installerIcon": "src/Assets/images/icon.ico",
+      "uninstallerIcon": "src/Assets/images/icon.ico",
+      "installerHeaderIcon": "src/Assets/images/icon.ico",
+      "license": "build/license.txt",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "MedPlus MVMS",
+      "deleteAppDataOnUninstall": false
+    }
   },
   "keywords": [],
   "author": "MedPlus",
@@ -30,10 +64,14 @@
     "@electron/fuses": "^1.8.0",
     "@vercel/webpack-asset-relocator-loader": "^1.7.3",
     "babel-loader": "^10.1.1",
+    "cross-env": "^7.0.3",
     "css-loader": "^6.11.0",
-    "electron": "41.1.0",
+    "dotenv": "^16.6.1",
+    "electron": "^41.1.0",
+    "electron-builder": "^26.8.1",
     "file-loader": "^6.2.0",
     "node-loader": "^2.1.0",
+    "rcedit": "^5.0.2",
     "style-loader": "^3.3.4",
     "url-loader": "^4.1.1"
   },

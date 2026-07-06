@@ -19,6 +19,6 @@ public class OtpVerifyRequestDto {
     private String mobile;
 
     @NotBlank(message = "otp is required")
-    @Pattern(regexp = "^\\d{6}$", message = "otp must be exactly 6 digits")
+    @Pattern(regexp = "^\\d{5}$", message = "otp must be exactly 5 digits")
     private String otp;
 }
