@@ -343,7 +343,17 @@ let updateState = {
 
 // Only enable in production builds
 if (isPackaged) {
-  // Disable the built-in GitHub request header so electron-updater uses GH_TOKEN for auth
+  // Explicitly set GitHub update feed URL so electron-updater doesn't look for local app-update.yml
+  const pkg = require('../package.json');
+  const publishCfg = Array.isArray(pkg.build?.publish) ? pkg.build.publish[0] : pkg.build.publish;
+  if (publishCfg && publishCfg.provider === 'github') {
+    autoUpdater.setFeedURL({
+      provider: 'github',
+      owner: publishCfg.owner,
+      repo: publishCfg.repo,
+    });
+  }
+
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.requestAdminRights = true;

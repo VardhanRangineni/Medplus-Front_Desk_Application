@@ -339,11 +339,11 @@
   margin-top: clamp(4px, 0.5vw, 8px);
   padding: clamp(12px, 1.3vw, 18px) var(--space-4);
 
-  /* Glass-enhanced blue */
+  /* Glass-enhanced red */
   background: linear-gradient(
     140deg,
-    rgba(59, 130, 246, 0.92) 0%,
-    rgba(37, 99, 235, 0.96) 100%
+    rgba(194, 24, 29, 0.88) 0%,
+    rgba(165, 19, 24, 0.94) 100%
   );
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
