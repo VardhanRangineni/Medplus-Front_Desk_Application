@@ -151,7 +151,7 @@ export default function LoginPage({ onLoginSuccess }) {
                 </div>
               </div>
               <h1 className="login-card__title">Welcome back.</h1>
-              <p className="login-card__subtitle">Securely manage visitors, staff ins &amp; outs, and daily office activity — now with real-time updates.</p>
+              <p className="login-card__subtitle">Securely manage visitors, staff ins &amp; outs, and daily office activity.</p>
             </header>
 
             <form className="login-form" onSubmit={handleSubmit} noValidate>
