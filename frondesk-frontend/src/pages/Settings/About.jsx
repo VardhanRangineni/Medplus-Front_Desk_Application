@@ -44,7 +44,7 @@ function DownloadProgress({ progress }) {
 
 /* ─── Status Badge ────────────────────────────────────────────────────────── */
 
-function StatusBadge({ status, version }) {
+function StatusBadge({ status, version, errorMsg }) {
   switch (status) {
     case 'up-to-date':
       return (
@@ -73,7 +73,7 @@ function StatusBadge({ status, version }) {
       return (
         <div className="about-status about-status--error">
           <IconInfo size={18} />
-          <span>Unable to check for updates</span>
+          <span>{errorMsg ?? 'Unable to check for updates'}</span>
         </div>
       );
     case 'checking':
@@ -163,7 +163,7 @@ export default function About({ onClose }) {
 
           {uiStatus === 'downloading' && state.downloadProgress
             ? <DownloadProgress progress={state.downloadProgress} />
-            : <StatusBadge status={uiStatus} version={state?.version ?? ''} />
+            : <StatusBadge status={uiStatus} version={state?.version ?? ''} errorMsg={state?.error} />
           }
 
           <div className="about-actions">

@@ -426,10 +426,12 @@ ipcMain.handle('check-for-updates', async () => {
     return { ok: false, error: 'Updates are only available in production builds.' };
   }
   try {
+    console.log('[MVMS-Update] Renderer triggered check-for-updates');
     await autoUpdater.checkForUpdates();
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: err?.message ?? 'Check failed' };
+    console.error('[MVMS-Update] checkForUpdates error:', err, err?.stack);
+    return { ok: false, error: err?.message ?? JSON.stringify(err) ?? 'Check failed' };
   }
 });
 
