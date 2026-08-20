@@ -7,10 +7,9 @@ import {
 import logo  from '../../Assets/images/logo.png';
 import bgImg from '../../Assets/images/background 2.png';
 import { LOGIN_BRAND_PRIMARY, LOGIN_BRAND_SECONDARY } from '../../constants/branding';
-import pkg from '../../../package.json';
-const APP_VERSION = pkg.version ?? '1.0.0';
 import { getLoginErrorMessage } from '../../services/userFacingErrors';
 import LottieLoader from '../../components/LottieLoader/LottieLoader';
+const APP_VERSION = require('../../../package.json').version ?? '1.0.0';
 
 
 export default function LoginPage({ onLoginSuccess }) {
@@ -151,7 +150,7 @@ export default function LoginPage({ onLoginSuccess }) {
                 </div>
               </div>
               <h1 className="login-card__title">Welcome back.</h1>
-              <p className="login-card__subtitle">Securely manage visitors, staff ins &amp; outs, and daily office activity.</p>
+              <p className="login-card__subtitle">Securely manage visitors, staff ins &amp; outs, and daily office activity with ease and reliability.</p>
             </header>
 
             <form className="login-form" onSubmit={handleSubmit} noValidate>
