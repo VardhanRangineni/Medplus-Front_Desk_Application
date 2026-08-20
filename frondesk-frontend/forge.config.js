@@ -11,7 +11,7 @@ module.exports = {
     asar: true,
     icon: appIconBase,
     executableName: 'MedPlusMVMS',
-    extraResource: [iconIco],
+    extraResource: [iconIco, path.resolve(__dirname, 'build/app-update.yml')],
   },
   rebuildConfig: {},
   makers: [
