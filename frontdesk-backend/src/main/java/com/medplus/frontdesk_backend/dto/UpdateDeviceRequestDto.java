@@ -5,6 +5,10 @@ import lombok.Data;
 
 @Data
 public class UpdateDeviceRequestDto {
+    /** When set, moves the device to another location (same deviceId retained). */
+    @Size(max = 50)
+    private String locationId;
+
     @Size(max = 150)
     private String displayName;
 

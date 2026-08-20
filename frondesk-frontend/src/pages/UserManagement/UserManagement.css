@@ -577,8 +577,8 @@
 }
 
 .umg-temp-dialog {
-  width: min(520px, calc(100vw - 32px));
-  max-height: calc(100vh - 48px);
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -752,10 +752,25 @@
 }
 
 .umg-temp-desk__user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 13.5px;
   font-weight: 600;
   color: #0f172a;
   margin-bottom: 10px;
+  line-height: 1.35;
+}
+
+.umg-temp-desk__user svg {
+  flex-shrink: 0;
+  color: #64748b;
+}
+
+.umg-temp-desk__user .mono {
+  font-weight: 500;
+  color: #64748b;
+  font-size: 12px;
 }
 
 .umg-temp-desk__grid {
@@ -900,26 +915,42 @@
 .umg-temp-status--expired { background: #fee2e2; color: #b91c1c; }
 
 .umg-temp-history {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid #f1f5f9;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid #e2e8f0;
 }
 
 .umg-temp-history__scroll {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: 240px;
+  border: 1px solid #f1f5f9;
+  border-radius: 10px;
+  background: #fafbfc;
 }
 
 .umg-temp-history__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .umg-temp-history__table th,
 .umg-temp-history__table td {
-  padding: 6px 8px;
+  padding: 10px 12px;
   text-align: left;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid #eef2f6;
+  vertical-align: middle;
+}
+
+.umg-temp-history__table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.umg-temp-history__table td:last-child {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .umg-temp-history__table th {

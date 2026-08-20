@@ -28,16 +28,30 @@ public class JwtTokenProvider {
     }
 
     public String generateToken(String employeeId, String role) {
+        return generateToken(employeeId, role, null);
+    }
+
+    public String generateToken(String employeeId, String role, String department) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + jwtExpirationMs);
 
-        return Jwts.builder()
+        var claimsBuilder = Jwts.claims()
                 .subject(employeeId)
-                .claim("role", role)
+                .add("role", role);
+        if (department != null && !department.isBlank()) {
+            claimsBuilder.add("department", department);
+        }
+        Claims claims = claimsBuilder.build();
+        return Jwts.builder()
+                .claims(claims)
                 .issuedAt(now)
                 .expiration(expiry)
                 .signWith(getSigningKey())
                 .compact();
+    }
+
+    public String extractDepartment(String token) {
+        return parseClaims(token).get("department", String.class);
     }
 
     public String extractEmployeeId(String token) {

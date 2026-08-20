@@ -57,10 +57,7 @@ public class DeviceMasterService {
         String mac = normalizeMacOrNull(req.getMacAddress());
         String ip = normalizeIpOrNull(req.getIpAddress());
 
-        if (mac != null && repository.macUsedByOtherDevice(mac, null)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "This MAC address is already registered to another device.");
-        }
+        assertMacAvailableForRegistration(mac, null);
 
         int seq = repository.nextSequenceForLocation(locationId);
         if (seq > 999) {
@@ -76,6 +73,14 @@ public class DeviceMasterService {
     public DeviceMasterDto update(String deviceId, UpdateDeviceRequestDto req, String actor) {
         DeviceMasterDto existing = getById(deviceId);
 
+        String locationId = existing.getLocationId();
+        if (req.getLocationId() != null && StringUtils.hasText(req.getLocationId().trim())) {
+            locationId = req.getLocationId().trim();
+            if (!repository.locationExists(locationId)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Location not found.");
+            }
+        }
+
         String displayName = req.getDisplayName() != null
                 ? req.getDisplayName().trim() : existing.getDisplayName();
         if (!StringUtils.hasText(displayName)) {
@@ -89,22 +94,41 @@ public class DeviceMasterService {
         String ip = req.getIpAddress() != null
                 ? normalizeIpOrNull(req.getIpAddress()) : existing.getIpAddress();
 
-        if (mac != null && repository.macUsedByOtherDevice(mac, deviceId)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "This MAC address is already registered to another device.");
-        }
+        assertMacAvailableForRegistration(mac, deviceId);
 
-        repository.update(deviceId, displayName, floor, area, mac, ip, actor);
+        repository.update(deviceId, locationId, displayName, floor, area, mac, ip, actor);
         return getById(deviceId);
     }
 
     public void updateStatus(String deviceId, boolean active, String actor) {
-        getById(deviceId);
+        DeviceMasterDto existing = getById(deviceId);
+        if (active) {
+            // Block reactivate when another site already went live with same MAC.
+            assertMacAvailableForRegistration(existing.getMacAddress(), deviceId);
+        }
         repository.updateStatus(deviceId, active, actor);
     }
 
     public void touchLastKnownIp(String deviceId, String ip) {
         repository.updateLastKnownIp(deviceId, ip);
+    }
+
+    /**
+     * MAC may be re-registered only when no other ACTIVE device holds it.
+     * Inactive device at previous location → allow add at new site.
+     */
+    private void assertMacAvailableForRegistration(String mac, String excludeDeviceId) {
+        if (mac == null) {
+            return;
+        }
+        repository.findActiveByMacExcluding(mac, excludeDeviceId).ifPresent(other -> {
+            String locLabel = StringUtils.hasText(other.getLocationName())
+                    ? other.getLocationName() + " (" + other.getLocationId() + ")"
+                    : other.getLocationId();
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This MAC is already active at " + locLabel
+                            + ". Deactivate or move that device first, or contact your admin / that location's supervisor.");
+        });
     }
 
     private static String trimOrNull(String value) {

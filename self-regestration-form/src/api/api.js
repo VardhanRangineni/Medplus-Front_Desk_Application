@@ -1,5 +1,5 @@
-// const DEFAULT_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:9090';
-const DEFAULT_BASE = import.meta.env.VITE_API_BASE || 'https://tapping-overhang-gigabyte.ngrok-free.dev/';
+const DEFAULT_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:9090';
+//const DEFAULT_BASE = import.meta.env.VITE_API_BASE || 'https://tapping-overhang-gigabyte.ngrok-free.dev/';
 
 
 export function getApiBase() {

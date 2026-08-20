@@ -3,9 +3,10 @@ import { createPortal } from 'react-dom';
 import './AppHeader.css';
 import logo from '../../Assets/images/logo.png';
 import { APP_SHORT_NAME } from '../../constants/branding';
-import { IconMapPin, IconLock, IconEye, IconEyeOff, IconX, IconMonitor } from '../Icons/Icons';
+import { IconMapPin, IconLock, IconEye, IconEyeOff, IconX, IconMonitor, IconInfo } from '../Icons/Icons';
 import { changeOwnPassword } from '../../services/accountService';
 import LocationSelector from '../LocationSelector/LocationSelector';
+import About from '../../pages/Settings/About';
 
 function formatDate(date) {
   return date.toLocaleDateString('en-IN', {
@@ -181,6 +182,7 @@ export default function AppHeader({
 
   const [menuOpen,  setMenuOpen]  = useState(false);
   const [showCpModal, setShowCpModal] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
   const userRef = useRef(null);
 
   // Close menu on outside click
@@ -257,6 +259,14 @@ export default function AppHeader({
                   <IconLock size={13} />
                   Change Password
                 </button>
+                <button
+                  className="app-header__menu-item"
+                  role="menuitem"
+                  onClick={(e) => { e.stopPropagation(); setMenuOpen(false); setShowAbout(true); }}
+                >
+                  <IconInfo size={13} />
+                  About
+                </button>
               </div>
             )}
           </div>
@@ -264,6 +274,7 @@ export default function AppHeader({
       </header>
 
       {showCpModal && <ChangePasswordModal onClose={() => setShowCpModal(false)} />}
+      {showAbout && <About onClose={() => setShowAbout(false)} />}
     </>
   );
 }

@@ -143,6 +143,7 @@ export async function updateVisitorEntry(id, visitorData) {
 export async function createVisitorEntry(visitorData) {
   const payload = {
     entryType:        'VISITOR',
+    visitType:        visitorData.visitType || 'INDIVIDUAL',
     name:             visitorData.fullName,
     mobile:           visitorData.mobile || null,
     empId:            null,
@@ -160,8 +161,38 @@ export async function createVisitorEntry(visitorData) {
     type: 'VISITOR',
     entryId: entry.id,
     card: entry.card ?? null,
+    groupId: entry.groupId ?? null,
     visitPassSmsStatus: entry.visitPassSmsStatus ?? null,
     visitPassMessage: entry.visitPassMessage ?? null,
+  };
+}
+
+/**
+ * Creates a group visitor check-in (MED-GROUP + MED-GV members).
+ * Endpoint: POST /api/visitors/group
+ */
+export async function createGroupVisitorEntries(groupData) {
+  const payload = {
+    entryType:      'VISITOR',
+    personToMeetId: groupData.personToMeet,
+    govtIdType:     groupData.govtIdType   || null,
+    govtIdNumber:   groupData.govtIdNumber || null,
+    reasonForVisit: groupData.reasonForVisit || null,
+    companyName:    groupData.companyName  || null,
+    members: (groupData.members || []).map((m) => ({
+      name: m.fullName || m.name,
+      mobile: m.mobile,
+      cardNumber: m.cardNumber ? parseInt(m.cardNumber, 10) : null,
+    })),
+  };
+
+  const result = await api('POST', '/api/visitors/group', payload);
+  return {
+    success: true,
+    type: 'VISITOR',
+    groupId: result.groupId,
+    members: result.members || [],
+    entryId: result.members?.[0]?.id ?? null,
   };
 }
 

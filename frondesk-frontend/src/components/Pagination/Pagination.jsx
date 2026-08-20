@@ -1,6 +1,43 @@
 import './Pagination.css';
 
 /**
+ * Find nearest scrollable ancestor (table wrap / page content).
+ * Fall back to window if none found.
+ */
+function findScrollParent(el) {
+  let node = el?.parentElement;
+  while (node && node !== document.body) {
+    const style = window.getComputedStyle(node);
+    const overflowY = style.overflowY;
+    const canScroll =
+      (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay')
+      && node.scrollHeight > node.clientHeight + 1;
+    if (canScroll) return node;
+    node = node.parentElement;
+  }
+  return document.scrollingElement || document.documentElement;
+}
+
+function scrollListToTop(fromEl) {
+  const target = findScrollParent(fromEl);
+  if (!target) return;
+  if (typeof target.scrollTo === 'function') {
+    target.scrollTo({ top: 0, behavior: 'smooth' });
+  } else {
+    target.scrollTop = 0;
+  }
+  // Sticky headers / nested scroll: also nudge page shell if present
+  const pageShell = fromEl?.closest?.('.ci-page, .db-content, .app-page-shell');
+  if (pageShell && pageShell !== target && pageShell.scrollHeight > pageShell.clientHeight) {
+    if (typeof pageShell.scrollTo === 'function') {
+      pageShell.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      pageShell.scrollTop = 0;
+    }
+  }
+}
+
+/**
  * Generic pagination bar.
  * Props:
  *   currentPage  – 1-based current page number
@@ -34,12 +71,18 @@ export default function Pagination({ currentPage, totalPages, onPageChange, alwa
     return tokens;
   };
 
+  function goTo(page, event) {
+    if (page === currentPage) return;
+    onPageChange(page);
+    scrollListToTop(event?.currentTarget);
+  }
+
   return (
     <nav className="pgn" aria-label="Pagination">
       {/* Previous */}
       <button
         className="pgn__btn pgn__btn--arrow"
-        onClick={() => onPageChange(currentPage - 1)}
+        onClick={(e) => goTo(currentPage - 1, e)}
         disabled={currentPage === 1}
         aria-label="Previous page"
       >
@@ -59,7 +102,7 @@ export default function Pagination({ currentPage, totalPages, onPageChange, alwa
           <button
             key={token}
             className={`pgn__btn${isActive ? ' pgn__btn--active' : ''}`}
-            onClick={() => !isActive && onPageChange(token)}
+            onClick={(e) => !isActive && goTo(token, e)}
             aria-label={`Page ${token}`}
             aria-current={isActive ? 'page' : undefined}
           >
@@ -71,7 +114,7 @@ export default function Pagination({ currentPage, totalPages, onPageChange, alwa
       {/* Next */}
       <button
         className="pgn__btn pgn__btn--arrow"
-        onClick={() => onPageChange(currentPage + 1)}
+        onClick={(e) => goTo(currentPage + 1, e)}
         disabled={currentPage >= safeTotal}
         aria-label="Next page"
       >

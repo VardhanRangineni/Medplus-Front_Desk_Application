@@ -89,6 +89,41 @@
 
 .vem-status-badge--in  { background: #fff0f0; color: #C2181D; border: 1px solid #fecaca; }
 .vem-status-badge--out { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+.vem-status-badge--pending { background: #fff7ed; color: #c2410c; border: 1px solid #fdba74; }
+.vem-status-badge--approved { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+.vem-status-badge--rejected { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+
+.vem-detail-value--reject {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.vem-reject-banner {
+  margin-top: 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid #fecaca;
+  background: linear-gradient(180deg, #fef2f2 0%, #fff1f2 100%);
+  box-shadow: inset 3px 0 0 #dc2626;
+}
+
+.vem-reject-banner__label {
+  margin: 0 0 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #b91c1c;
+}
+
+.vem-reject-banner__text {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #7f1d1d;
+  line-height: 1.35;
+  word-break: break-word;
+}
 
 .vem-close {
   display: flex;
@@ -129,6 +164,13 @@
   padding: 2px 8px;
   border-radius: 5px;
   border: 1px solid #e8eaed;
+}
+
+.vem-group-id {
+  margin: 0 22px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #C2181D;
 }
 
 /* ── Body ────────────────────────────────────────────────────────────────── */

@@ -62,8 +62,13 @@ public class AuthorizationHelper {
         return hasRole(auth, "RECEPTIONIST");
     }
 
+    public boolean isDeptHead(Authentication auth) {
+        return hasRole(auth, "DEPT_HEAD");
+    }
+
+    /** Admin, supervisor, or department head — all non-receptionist roles. */
     public boolean hasElevatedRole(Authentication auth) {
-        return isPrimaryAdmin(auth) || isRegionalAdmin(auth);
+        return isPrimaryAdmin(auth) || isRegionalAdmin(auth) || isDeptHead(auth);
     }
 
     /**
@@ -111,6 +116,19 @@ public class AuthorizationHelper {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Access denied. You can only manage data for your assigned location.");
         }
+    }
+
+    /** Department of the user (non-null only for DEPT_HEAD role). */
+    public String getUserDepartment(String employeeId) {
+        return userRepository.findUserDepartment(employeeId).orElse(null);
+    }
+
+    /**
+     * DEPT_HEAD has no department scoping — same visibility as admin/supervisor.
+     * Returns null for all roles (no department filter applied).
+     */
+    public String getDeptScopeIfApplicable(Authentication auth) {
+        return null;
     }
 
     public static int primaryRoleId(List<Integer> roleIds) {

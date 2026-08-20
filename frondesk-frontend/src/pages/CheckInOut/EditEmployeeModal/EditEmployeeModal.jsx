@@ -66,6 +66,7 @@ export default function EditEmployeeModal({ entry, onClose, onSuccess }) {
   const [employee,    setEmployee]    = useState({
     name:       entry.name  ?? '',
     empId:      entry.empId ?? '',
+    mobile:     entry.mobile ?? '',
     department: '',
   });
   const [existingPtmLabel, setExistingPtmLabel] = useState('');
@@ -82,7 +83,8 @@ export default function EditEmployeeModal({ entry, onClose, onSuccess }) {
         setEmployee({
           name:       detail.name       ?? entry.name  ?? '',
           empId:      detail.empId      ?? entry.empId ?? '',
-          department: detail.department ?? '',
+          mobile:     detail.mobile     ?? entry.mobile ?? '',
+          department: detail.hostDepartment ?? detail.department ?? '',
         });
         setFormState(buildForm(entry, detail));
         setExistingPtmLabel(detail.personToMeet ?? entry.personToMeet ?? '');
@@ -115,7 +117,7 @@ export default function EditEmployeeModal({ entry, onClose, onSuccess }) {
         type:               'EMPLOYEE',
         empId:              employee.empId,
         name:               employee.name,
-        department:         employee.department,
+        mobile:             employee.mobile || null,
         personToMeet:       form.personToMeet,
         personToMeetCustom: form.personToMeetCustom,
         hostDepartment:     form.hostDepartment,

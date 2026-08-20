@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
+@Order(300)
 @RequiredArgsConstructor
 public class LocationDataNormalizationMigration implements ApplicationRunner {
 
@@ -49,9 +51,23 @@ public class LocationDataNormalizationMigration implements ApplicationRunner {
                 WHERE u.location = 'HO-HO-HYD'
                 """, CANONICAL_LOCATION);
 
-        if (fromDevice > 0 || legacyVisitor > 0 || legacyUsers > 0) {
-            log.info("[LocationNormalize] visitorlog via device={}, HO-HO-HYD visitors={}, users={}",
-                    fromDevice, legacyVisitor, legacyUsers);
+        int legacyMappings = jdbc.update("""
+                DELETE ulm FROM user_location_mapping ulm
+                INNER JOIN user_location_mapping canon
+                  ON canon.employeeId = ulm.employeeId
+                 AND canon.locationId = ?
+                WHERE ulm.locationId = 'HO-HO-HYD'
+                """, CANONICAL_LOCATION);
+
+        legacyMappings += jdbc.update("""
+                UPDATE user_location_mapping
+                SET locationId = ?
+                WHERE locationId = 'HO-HO-HYD'
+                """, CANONICAL_LOCATION);
+
+        if (fromDevice > 0 || legacyVisitor > 0 || legacyUsers > 0 || legacyMappings > 0) {
+            log.info("[LocationNormalize] visitorlog via device={}, HO-HO-HYD visitors={}, users={}, mappings={}",
+                    fromDevice, legacyVisitor, legacyUsers, legacyMappings);
         }
     }
 

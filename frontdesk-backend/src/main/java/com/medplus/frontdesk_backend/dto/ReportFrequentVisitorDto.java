@@ -6,9 +6,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * A visitor (entryType = VISITOR) who has checked in more than once
- * within the requested date range.
- * Returned as a list ordered by visitCount descending.
+ * Person (visitor or employee) with {@code minVisits}+ check-ins in the date range.
+ * Ordered by visitCount descending.
  */
 @Data
 @Builder
@@ -16,24 +15,22 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class ReportFrequentVisitorDto {
 
-    /** Visitor's full name. */
+    /** VISITOR or EMPLOYEE */
+    private String entryType;
+
     private String name;
 
-    /** Visitor's mobile number. */
+    /** Visitor mobile (null for employees when only empId is set). */
     private String mobile;
 
-    /** Number of check-ins in the date range. */
+    /** Employee HRMS id (null for visitors). */
+    private String empId;
+
     private long visitCount;
 
-    /**
-     * Most recent check-in timestamp (ISO-8601 string, e.g. 2026-03-28T14:35:00).
-     * Formatted in SQL as DATE_FORMAT(MAX(checkInTime), '%Y-%m-%dT%H:%i:%s').
-     */
+    /** Most recent check-in (ISO-ish DATE_FORMAT string). */
     private String lastVisit;
 
-    /**
-     * Comma-separated list of distinct departments the visitor checked into
-     * within the date range.
-     */
+    /** Distinct departments visited in the range, comma-separated. */
     private String departments;
 }

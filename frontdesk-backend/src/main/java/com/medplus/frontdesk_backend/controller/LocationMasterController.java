@@ -263,6 +263,11 @@ public class LocationMasterController {
             Authentication auth) {
         DeviceMasterDto existing = deviceMasterService.getById(deviceId);
         assertDeviceLocationAccess(auth, existing.getLocationId());
+        // Location move: caller must also be allowed at the destination site.
+        if (body.getLocationId() != null && !body.getLocationId().isBlank()
+                && !body.getLocationId().trim().equalsIgnoreCase(existing.getLocationId())) {
+            assertDeviceLocationAccess(auth, body.getLocationId().trim());
+        }
         DeviceMasterDto updated = deviceMasterService.update(deviceId, body, auth.getName());
         return ResponseEntity.ok(ApiResponse.success("Device updated.", updated));
     }

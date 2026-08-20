@@ -302,9 +302,10 @@ public class UserRepository {
     private static UserRole mapRoleCodeToUserRole(String code) {
         if (code == null) return UserRole.RECEPTIONIST;
         return switch (code) {
-            case "ADMIN"       -> UserRole.PRIMARY_ADMIN;
-            case "SUPERVISOR"  -> UserRole.REGIONAL_ADMIN;
-            default            -> UserRole.RECEPTIONIST;
+            case "ADMIN"      -> UserRole.PRIMARY_ADMIN;
+            case "SUPERVISOR" -> UserRole.REGIONAL_ADMIN;
+            case "DEPT_HEAD"  -> UserRole.DEPT_HEAD;
+            default           -> UserRole.RECEPTIONIST;
         };
     }
 
@@ -313,6 +314,18 @@ public class UserRepository {
         MapSqlParameterSource params = new MapSqlParameterSource("employeeId", employeeId);
         Integer count = namedParameterJdbcTemplate.queryForObject(sql, params, Integer.class);
         return count != null && count > 0;
+    }
+
+    /** Returns the department stored for a user (used by DEPT_HEAD login flow). */
+    public Optional<String> findUserDepartment(String employeeId) {
+        String sql = "SELECT department FROM usermanagement WHERE employeeid = :employeeId";
+        try {
+            String dept = namedParameterJdbcTemplate.queryForObject(
+                    sql, new MapSqlParameterSource("employeeId", employeeId), String.class);
+            return Optional.ofNullable(dept);
+        } catch (EmptyResultDataAccessException e) {
+            return Optional.empty();
+        }
     }
 
     public void insertUserManagement(String employeeId, String fullName, String workemail, String phone,
@@ -401,10 +414,14 @@ public class UserRepository {
      * @param limit      SQL LIMIT
      */
     public List<ManagedUserDto> findManagedUsersPaged(String search, String locationId,
-                                                      String createdByEmployerId, int offset, int limit) {
+                                                      String createdByEmployerId,
+                                                      Integer roleId, String accountStatus,
+                                                      int offset, int limit) {
         boolean hasSearch   = search     != null && !search.isBlank();
         boolean hasLocation = locationId != null && !locationId.isBlank();
         boolean hasCreator  = createdByEmployerId != null && !createdByEmployerId.isBlank();
+        boolean hasRole     = roleId != null && roleId > 0;
+        boolean hasStatus   = accountStatus != null && !accountStatus.isBlank();
         String like = hasSearch ? "%" + search.trim().toLowerCase() + "%" : null;
 
         StringBuilder sql = new StringBuilder("""
@@ -416,7 +433,11 @@ public class UserRepository {
                        um.status,
                        um.roleId,
                        um.createdBy,
-                       r.displayName AS roleName
+                       r.displayName AS roleName,
+                       um.workemail,
+                       um.phone,
+                       um.designation,
+                       um.department
                 FROM usermanagement um
                 JOIN  roles             r  ON um.roleId   = r.id
                 LEFT JOIN device_master   dm ON um.assignedDeviceId = dm.deviceId
@@ -441,6 +462,14 @@ public class UserRepository {
                     """);
             params.addValue("q", like);
         }
+        if (hasRole) {
+            sql.append(" AND um.roleId = :roleId");
+            params.addValue("roleId", roleId);
+        }
+        if (hasStatus) {
+            sql.append(" AND um.status = :accountStatus");
+            params.addValue("accountStatus", accountStatus.trim().toUpperCase());
+        }
 
         sql.append(" ORDER BY um.fullName\nLIMIT :limit OFFSET :offset");
         params.addValue("limit", limit).addValue("offset", offset);
@@ -459,14 +488,21 @@ public class UserRepository {
                 .roleId(rs.getInt("roleId"))
                 .roleName(rs.getString("roleName"))
                 .createdBy(rs.getString("createdBy"))
+                .workEmail(rs.getString("workemail"))
+                .phone(rs.getString("phone"))
+                .designation(rs.getString("designation"))
+                .department(rs.getString("department"))
                 .build();
     }
 
     /** Total count of managed users matching the same optional search and location. */
-    public long countManagedUsers(String search, String locationId, String createdByEmployerId) {
+    public long countManagedUsers(String search, String locationId, String createdByEmployerId,
+                                  Integer roleId, String accountStatus) {
         boolean hasSearch   = search     != null && !search.isBlank();
         boolean hasLocation = locationId != null && !locationId.isBlank();
         boolean hasCreator  = createdByEmployerId != null && !createdByEmployerId.isBlank();
+        boolean hasRole     = roleId != null && roleId > 0;
+        boolean hasStatus   = accountStatus != null && !accountStatus.isBlank();
         MapSqlParameterSource params = new MapSqlParameterSource();
         StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM usermanagement um WHERE 1=1 ");
         if (hasLocation) {
@@ -485,6 +521,14 @@ public class UserRepository {
                     )
                     """);
             params.addValue("q", "%" + search.trim().toLowerCase() + "%");
+        }
+        if (hasRole) {
+            sql.append(" AND um.roleId = :roleId");
+            params.addValue("roleId", roleId);
+        }
+        if (hasStatus) {
+            sql.append(" AND um.status = :accountStatus");
+            params.addValue("accountStatus", accountStatus.trim().toUpperCase());
         }
         Long count = namedParameterJdbcTemplate.queryForObject(sql.toString(), params, Long.class);
         return count == null ? 0L : count;
@@ -548,7 +592,11 @@ public class UserRepository {
                        um.status,
                        um.roleId,
                        um.createdBy,
-                       r.displayName AS roleName
+                       r.displayName AS roleName,
+                       um.workemail,
+                       um.phone,
+                       um.designation,
+                       um.department
                 FROM usermanagement um
                 JOIN  roles             r  ON um.roleId     = r.id
                 LEFT JOIN device_master   dm ON um.assignedDeviceId = dm.deviceId
@@ -556,7 +604,21 @@ public class UserRepository {
                 """;
         List<ManagedUserDto> results = namedParameterJdbcTemplate.query(
                 sql, new MapSqlParameterSource("employeeId", employeeId),
-                UserRepository::mapManagedUserDto
+                (rs, rowNum) -> ManagedUserDto.builder()
+                        .id(rs.getString("employeeid"))
+                        .name(rs.getString("fullName"))
+                        .location(rs.getString("location"))
+                        .assignedDeviceId(rs.getString("assignedDeviceId"))
+                        .assignedDeviceName(rs.getString("assignedDeviceName"))
+                        .status("ACTIVE".equalsIgnoreCase(rs.getString("status")))
+                        .roleId(rs.getInt("roleId"))
+                        .roleName(rs.getString("roleName"))
+                        .createdBy(rs.getString("createdBy"))
+                        .workEmail(rs.getString("workemail"))
+                        .phone(rs.getString("phone"))
+                        .designation(rs.getString("designation"))
+                        .department(rs.getString("department"))
+                        .build()
         );
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
     }
@@ -607,31 +669,40 @@ public class UserRepository {
     }
 
     /**
-     * Updates an existing usermanagement record (name, location FK, ip, mac, status, roleId).
+     * Updates an existing usermanagement record (name, location FK, ip, mac, status, roleId, profile fields).
      */
     public void updateUserManagement(String employeeId, String fullName, String locationCode,
                                      String locationName, String assignedDeviceId,
-                                     UserStatus status, int roleId, String modifiedBy) {
+                                     UserStatus status, int roleId, String modifiedBy,
+                                     String workEmail, String phone, String designation, String department) {
         String sql = """
                 UPDATE usermanagement
-                SET fullName     = :fullName,
-                    location     = :locationCode,
-                    locationName = :locationName,
+                SET fullName         = :fullName,
+                    location         = :locationCode,
+                    locationName     = :locationName,
                     assignedDeviceId = :assignedDeviceId,
-                    status       = :status,
-                    roleId       = :roleId,
-                    modifiedBy   = :modifiedBy
+                    status           = :status,
+                    roleId           = :roleId,
+                    workemail        = :workemail,
+                    phone            = :phone,
+                    designation      = :designation,
+                    department       = :department,
+                    modifiedBy       = :modifiedBy
                 WHERE employeeid = :employeeId
                 """;
         namedParameterJdbcTemplate.update(sql, new MapSqlParameterSource()
-                .addValue("employeeId",   employeeId)
-                .addValue("fullName",     fullName)
-                .addValue("locationCode", locationCode != null ? locationCode : "")
-                .addValue("locationName", locationName != null ? locationName : "")
+                .addValue("employeeId",     employeeId)
+                .addValue("fullName",       fullName)
+                .addValue("locationCode",   locationCode != null ? locationCode : "")
+                .addValue("locationName",   locationName != null ? locationName : "")
                 .addValue("assignedDeviceId", assignedDeviceId)
-                .addValue("status",       status.name())
-                .addValue("roleId",       roleId)
-                .addValue("modifiedBy",   actorId(modifiedBy))
+                .addValue("status",         status.name())
+                .addValue("roleId",         roleId)
+                .addValue("workemail",      workEmail != null ? workEmail : "")
+                .addValue("phone",          phone != null ? phone : "")
+                .addValue("designation",    designation != null ? designation : "Employee")
+                .addValue("department",     department != null ? department : "General")
+                .addValue("modifiedBy",     actorId(modifiedBy))
         );
     }
 

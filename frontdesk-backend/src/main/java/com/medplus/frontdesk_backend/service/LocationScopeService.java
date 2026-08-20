@@ -1,6 +1,8 @@
 package com.medplus.frontdesk_backend.service;
 
 import com.medplus.frontdesk_backend.repository.UserRepository;
+import com.medplus.frontdesk_backend.security.AuthorizationHelper;
+import com.medplus.frontdesk_backend.util.LegacyLocationResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -15,6 +17,7 @@ import java.util.List;
  *   <li>Primary admin with {@code allLocations=true} → {@code null} (no filter).</li>
  *   <li>Primary admin with explicit {@code locationId} → that location.</li>
  *   <li>Supervisor → only among assigned locations (never all sites).</li>
+ *   <li>Department Head → their profile location (like receptionist, but device-independent).</li>
  *   <li>Receptionist → operational kiosk location.</li>
  * </ul>
  */
@@ -24,6 +27,7 @@ public class LocationScopeService {
 
     private final OperationalLocationService operationalLocationService;
     private final UserRepository userRepository;
+    private final AuthorizationHelper authorizationHelper;
 
     /**
      * @return {@code null} when data should span all locations.
@@ -38,27 +42,40 @@ public class LocationScopeService {
                 return null;
             }
             if (StringUtils.hasText(locationIdParam)) {
-                return locationIdParam.trim();
+                return LegacyLocationResolver.resolve(locationIdParam.trim());
             }
-            return operationalLocationService.resolveForUser(callerEmployeeId, workstationMac);
+            return LegacyLocationResolver.resolve(
+                    operationalLocationService.resolveForUser(callerEmployeeId, workstationMac));
         }
 
         if (isRegionalAdmin(auth)) {
             List<String> allowed = userRepository.findLocationIdsByEmployeeId(callerEmployeeId);
             if (StringUtils.hasText(locationIdParam)) {
-                String requested = locationIdParam.trim();
-                boolean ok = allowed.stream().anyMatch(id -> id.equalsIgnoreCase(requested));
+                String requested = LegacyLocationResolver.resolve(locationIdParam.trim());
+                boolean ok = allowed.stream().anyMatch(id ->
+                        LegacyLocationResolver.resolve(id).equalsIgnoreCase(requested));
                 if (ok) {
                     return requested;
                 }
             }
             if (!allowed.isEmpty()) {
-                return allowed.get(0);
+                return LegacyLocationResolver.resolve(allowed.get(0));
             }
-            return operationalLocationService.resolveForUser(callerEmployeeId, workstationMac);
+            return LegacyLocationResolver.resolve(
+                    operationalLocationService.resolveForUser(callerEmployeeId, workstationMac));
         }
 
-        return operationalLocationService.resolveForUser(callerEmployeeId, workstationMac);
+        // DEPT_HEAD — no location constraint (same as PRIMARY_ADMIN, sees all data)
+        // Only apply an explicit locationIdParam if provided; otherwise span all locations
+        if (authorizationHelper.isDeptHead(auth)) {
+            if (StringUtils.hasText(locationIdParam)) {
+                return LegacyLocationResolver.resolve(locationIdParam.trim());
+            }
+            return null; // no filter — see all locations
+        }
+
+        return LegacyLocationResolver.resolve(
+                operationalLocationService.resolveForUser(callerEmployeeId, workstationMac));
     }
 
     private static boolean isPrimaryAdmin(Authentication auth) {

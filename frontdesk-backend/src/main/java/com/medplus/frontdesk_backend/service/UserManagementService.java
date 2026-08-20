@@ -72,18 +72,18 @@ public class UserManagementService {
      */
     public PagedResponseDto<ManagedUserDto> getManagedUsersPaged(String search, String locationId,
                                                                  int page, int size,
+                                                                 Integer roleId, String accountStatus,
                                                                  UserRole callerRole, String callerEmployeeId) {
         int    offset = page * size;
         String q      = (search != null && !search.isBlank()) ? search : null;
-        // Admin → all users. Supervisor → only accounts they created.
-        // Do not filter by session location (receptionists store location on the kiosk, not um.location).
         String creatorEmployerId = (callerRole == UserRole.REGIONAL_ADMIN && callerEmployeeId != null)
                 ? callerEmployeeId.trim() : null;
-        List<ManagedUserDto> rows  = userRepository.findManagedUsersPaged(q, null, creatorEmployerId, offset, size);
+        List<ManagedUserDto> rows  = userRepository.findManagedUsersPaged(
+                q, null, creatorEmployerId, roleId, accountStatus, offset, size);
         enrichRoleMappings(rows);
         rows.forEach(row -> userDeviceGrantRepository.findActiveByEmployee(row.getId())
                 .ifPresent(row::setActiveTempGrant));
-        long total = userRepository.countManagedUsers(q, null, creatorEmployerId);
+        long total = userRepository.countManagedUsers(q, null, creatorEmployerId, roleId, accountStatus);
         return PagedResponseDto.of(rows, page, size, total);
     }
 
@@ -237,6 +237,11 @@ public class UserManagementService {
                 callerEmployeeId, callerRole);
         ResolvedLocation primaryLoc = resolvePrimaryLocation(locs, assignedDeviceId);
 
+        String workEmail = StringUtils.hasText(dto.getWorkEmail()) ? dto.getWorkEmail().trim() : "";
+        String phone     = StringUtils.hasText(dto.getPhone())     ? dto.getPhone().trim()     : "";
+        String designation = StringUtils.hasText(dto.getDesignation()) ? dto.getDesignation().trim() : "Employee";
+        String department  = StringUtils.hasText(dto.getDepartment())  ? dto.getDepartment().trim()  : "General";
+
         userRepository.updateUserManagement(
                 employeeId,
                 dto.getName().trim(),
@@ -245,7 +250,11 @@ public class UserManagementService {
                 assignedDeviceId,
                 status,
                 primaryRoleId,
-                callerEmployeeId
+                callerEmployeeId,
+                workEmail,
+                phone,
+                designation,
+                department
         );
         userRepository.replaceUserRoles(employeeId, roleIds);
         userRepository.replaceUserLocations(employeeId,

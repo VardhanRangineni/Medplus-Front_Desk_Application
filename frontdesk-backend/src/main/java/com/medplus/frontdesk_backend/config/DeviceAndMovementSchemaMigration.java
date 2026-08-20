@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
+@Order(100)
 @RequiredArgsConstructor
 public class DeviceAndMovementSchemaMigration implements ApplicationRunner {
 
@@ -90,7 +92,7 @@ public class DeviceAndMovementSchemaMigration implements ApplicationRunner {
         jdbc.execute("""
                 CREATE TABLE `visitor_scan_events` (
                     `id`          BIGINT       NOT NULL AUTO_INCREMENT,
-                    `visitorId`   VARCHAR(20)  NOT NULL,
+                    `visitorId`   VARCHAR(32)  NOT NULL,
                     `locationId`  VARCHAR(20)  NOT NULL,
                     `deviceId`    VARCHAR(40)  NOT NULL,
                     `eventType`   ENUM('CHECK_IN','ZONE_SCAN','CHECK_OUT') NOT NULL,
@@ -107,16 +109,11 @@ public class DeviceAndMovementSchemaMigration implements ApplicationRunner {
     }
 
     private void addVisitorLogDeviceColumns() {
-        addColumnIfMissing("visitorlog", "checkInDeviceId",
-                "VARCHAR(40) DEFAULT NULL AFTER workstationMac");
-        addColumnIfMissing("visitorlog", "lastScanDeviceId",
-                "VARCHAR(40) DEFAULT NULL AFTER checkInDeviceId");
-        addColumnIfMissing("visitorlog", "lastScanAt",
-                "TIMESTAMP DEFAULT NULL AFTER lastScanDeviceId");
-        addColumnIfMissing("device_master", "ipAddress",
-                "VARCHAR(120) DEFAULT NULL AFTER macAddress");
-        addColumnIfMissing("usermanagement", "assignedDeviceId",
-                "VARCHAR(40) DEFAULT NULL AFTER roleId");
+        addColumnIfMissing("visitorlog", "checkInDeviceId", "VARCHAR(40) DEFAULT NULL");
+        addColumnIfMissing("visitorlog", "lastScanDeviceId", "VARCHAR(40) DEFAULT NULL");
+        addColumnIfMissing("visitorlog", "lastScanAt", "TIMESTAMP DEFAULT NULL");
+        addColumnIfMissing("device_master", "ipAddress", "VARCHAR(120) DEFAULT NULL");
+        addColumnIfMissing("usermanagement", "assignedDeviceId", "VARCHAR(40) DEFAULT NULL");
     }
 
     private boolean tableExists(String table) {

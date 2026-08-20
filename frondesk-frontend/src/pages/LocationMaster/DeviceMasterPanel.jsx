@@ -18,6 +18,7 @@ import {
   IconToggleLeft,
   IconX,
   IconMonitor,
+  IconEdit,
 } from '../../components/Icons/Icons';
 import {
   getDevices,
@@ -31,7 +32,7 @@ import { getActiveLocations } from '../../services/locationService';
 const DEFAULT_PAGE_SIZE = 10;
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 const FILTER_DEBOUNCE = 350;
-const COL_COUNT = 7;
+const COL_COUNT = 8;
 
 const EMPTY_FILTERS = {
   locationId: '',
@@ -74,6 +75,8 @@ function DeviceFormModal({ open, onClose, onSaved, locations, initial, lockedLoc
   const [saving, setSaving] = useState(false);
   // Single assigned site → lock field; multiple allowed sites → pick among them.
   const locationLocked = Boolean(lockedLocationId) && locations.length <= 1;
+  // Primary admin or multi-site supervisor may move device between locations on edit.
+  const canChangeLocation = !locationLocked;
 
   useEffect(() => {
     if (!open) {
@@ -108,7 +111,7 @@ function DeviceFormModal({ open, onClose, onSaved, locations, initial, lockedLoc
 
   const validate = () => {
     const errs = {};
-    if (!isEdit && !form.locationId) errs.locationId = 'Select a location';
+    if (!form.locationId) errs.locationId = 'Select a location';
     if (!form.displayName.trim()) errs.displayName = 'Display name is required';
     return errs;
   };
@@ -127,6 +130,9 @@ function DeviceFormModal({ open, onClose, onSaved, locations, initial, lockedLoc
         ipAddress: form.ipAddress.trim() || null,
       };
       if (isEdit) {
+        if (canChangeLocation) {
+          payload.locationId = form.locationId;
+        }
         await updateDevice(initial.deviceId, payload);
       } else {
         await createDevice({
@@ -148,6 +154,9 @@ function DeviceFormModal({ open, onClose, onSaved, locations, initial, lockedLoc
     label: `${l.locationId} — ${l.descriptiveName}`,
   }));
 
+  const locationLabel = locationOptions.find((o) => o.value === form.locationId)?.label
+    || form.locationId;
+
   return createPortal(
     <div className="umg-overlay" role="dialog" aria-modal="true" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="umg-modal lm-device-modal" onClick={(e) => e.stopPropagation()}>
@@ -160,33 +169,36 @@ function DeviceFormModal({ open, onClose, onSaved, locations, initial, lockedLoc
         <form className="umg-modal__body" onSubmit={handleSubmit}>
           {errors.submit && <p className="umg-field__error umg-field__error--banner">{errors.submit}</p>}
 
-          {!isEdit && (
-            <label className="umg-field">
-              <span className="umg-field__label">Location <span className="umg-req">*</span></span>
-              {locationLocked ? (
-                <input
-                  className="umg-input"
-                  value={locationOptions.find((o) => o.value === form.locationId)?.label || form.locationId}
-                  disabled
-                  readOnly
-                />
-              ) : (
-                <SearchSelect
-                  className="search-select--umg"
-                  value={form.locationId}
-                  options={locationOptions}
-                  placeholder="Select location…"
-                  onChange={(v) => set('locationId', v)}
-                  ariaLabel="Location"
-                  searchable
-                  searchInField
-                  searchPlaceholder="Search location…"
-                  minMenuWidth={320}
-                />
-              )}
-              {errors.locationId && <span className="umg-field__error">{errors.locationId}</span>}
-            </label>
-          )}
+          <label className="umg-field">
+            <span className="umg-field__label">Location <span className="umg-req">*</span></span>
+            {!canChangeLocation ? (
+              <input
+                className="umg-input"
+                value={locationLabel}
+                disabled
+                readOnly
+              />
+            ) : (
+              <SearchSelect
+                className="search-select--umg"
+                value={form.locationId}
+                options={locationOptions}
+                placeholder="Select location…"
+                onChange={(v) => set('locationId', v)}
+                ariaLabel="Location"
+                searchable
+                searchInField
+                searchPlaceholder="Search location…"
+                minMenuWidth={320}
+              />
+            )}
+            {isEdit && canChangeLocation && (
+              <span className="umg-field__hint">
+                Move device to another site — it will leave the previous location list.
+              </span>
+            )}
+            {errors.locationId && <span className="umg-field__error">{errors.locationId}</span>}
+          </label>
 
           <label className="umg-field">
             <span className="umg-field__label">Display name <span className="umg-req">*</span></span>
@@ -417,6 +429,7 @@ export default function DeviceMasterPanel({
                 <th className="lm-col-w--mac">MAC</th>
                 <th className="lm-col-w--ip">IP</th>
                 <th className="lm-col--status">Status</th>
+                <th className="lm-col--actions ci-col--actions">Actions</th>
               </tr>
               <tr className="ci-col-filters">
                 <th>
@@ -467,6 +480,7 @@ export default function DeviceMasterPanel({
                     ariaLabel="Filter by status"
                   />
                 </th>
+                <th className="lm-col--actions ci-col-filter-cell--empty" aria-hidden="true" />
               </tr>
             </thead>
             <tbody>
@@ -489,23 +503,32 @@ export default function DeviceMasterPanel({
                   </td>
                 </tr>
               ) : devices.map((d) => (
-                <tr
-                  key={d.deviceId}
-                  className="lm-device-row lm-device-row--clickable"
-                  onClick={() => { setEditDevice(d); setShowModal(true); }}
-                >
+                <tr key={d.deviceId} className="lm-device-row">
                   <td className="lm-table__id">{d.deviceId}</td>
                   <td>{d.displayName}</td>
                   <td className="lm-table__name--sub" title={d.locationName || ''}>{d.locationName}</td>
                   <td>{[d.floor, d.area].filter(Boolean).join(' · ') || '—'}</td>
                   <td className="lm-table__mono">{d.macAddress || '—'}</td>
                   <td className="lm-table__mono">{d.ipAddress || d.lastKnownIp || '—'}</td>
-                  <td className="lm-col--status" onClick={(e) => e.stopPropagation()}>
+                  <td className="lm-col--status">
                     <StatusToggle
                       active={d.active}
                       label={d.displayName}
                       onToggle={() => handleToggle(d.deviceId, d.active)}
                     />
+                  </td>
+                  <td className="lm-col--actions ci-col--actions">
+                    <div className="ci-actions">
+                      <button
+                        type="button"
+                        className="ci-action-btn ci-action-btn--edit"
+                        onClick={() => { setEditDevice(d); setShowModal(true); }}
+                        aria-label={`Edit ${d.displayName}`}
+                        title="Edit device"
+                      >
+                        <IconEdit size={14} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

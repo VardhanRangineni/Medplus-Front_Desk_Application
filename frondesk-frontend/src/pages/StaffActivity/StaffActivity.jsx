@@ -7,10 +7,15 @@ import PageSizeSelect from '../../components/Pagination/PageSizeSelect';
 import LottieLoader from '../../components/LottieLoader/LottieLoader';
 import EmptyState from '../../components/EmptyState/EmptyState';
 import SearchSelect from '../../components/SearchSelect/SearchSelect';
-import { IconRefreshCw, IconSearch, IconEye } from '../../components/Icons/Icons';
+import { IconRefreshCw, IconSearch, IconEye, IconDownload } from '../../components/Icons/Icons';
 import { getDepartments } from '../CheckInOut/checkInOutService';
 import ViewEntryModal from '../CheckInOut/ViewEntryModal/ViewEntryModal';
-import { getStaffActivityPage, hasAnyStaffFilter } from './staffActivityService';
+import {
+  getStaffActivityPage,
+  hasAnyStaffFilter,
+  fetchAllStaffActivityForExport,
+  exportStaffActivityExcel,
+} from './staffActivityService';
 
 const TAB_ALL = 'all';
 const TAB_CHECKED_IN = 'checked-in';
@@ -24,10 +29,12 @@ const COL_COUNT = 14;
 const EMPTY_COL_FILTERS = {
   staffQuery: '',
   visitorName: '',
+  contactQuery: '',
   entryType: '',
   department: '',
   personToMeet: '',
   status: '',
+  cardNumber: '',
   workstationMac: '',
 };
 
@@ -142,7 +149,16 @@ function StaffColumnFilterRow({ filters, departments, onChange }) {
           aria-label="Filter by visitor name"
         />
       </th>
-      <th className="sa-col-w--contact" aria-hidden="true" />
+      <th className="sa-col-w--contact">
+        <input
+          className="ci-col-filter"
+          type="text"
+          placeholder="Filter mobile / ID…"
+          value={filters.contactQuery}
+          onChange={(e) => set('contactQuery', e.target.value)}
+          aria-label="Filter by mobile or employee ID"
+        />
+      </th>
       <th className="sa-col-w--type">
         <SearchSelect
           compact
@@ -180,7 +196,16 @@ function StaffColumnFilterRow({ filters, departments, onChange }) {
         />
       </th>
       <th className="sa-col-w--location" aria-hidden="true" />
-      <th className="sa-col-w--card" aria-hidden="true" />
+      <th className="sa-col-w--card">
+        <input
+          className="ci-col-filter ci-col-filter--mono"
+          type="text"
+          placeholder="Filter card…"
+          value={filters.cardNumber}
+          onChange={(e) => set('cardNumber', e.target.value)}
+          aria-label="Filter by card number"
+        />
+      </th>
       <th className="sa-col-w--mac">
         <input
           className="ci-col-filter ci-col-filter--mono"
@@ -275,6 +300,7 @@ function StaffActivityRow({ row, onView }) {
 
 export default function StaffActivity({ session, locationScope }) {
   const locationId = locationScope?.locationId ?? null;
+  const allLocations = locationScope?.allLocations ?? false;
 
   const [range, setRange] = useState(defaultRangeToday);
   const [activeTab, setActiveTab] = useState(TAB_ALL);
@@ -290,6 +316,7 @@ export default function StaffActivity({ session, locationScope }) {
   const [totalElements, setTotalElements] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [viewEntry, setViewEntry] = useState(null);
+  const [exporting, setExporting] = useState(false);
 
   const debounceRef = useRef(null);
   const colFiltersRef = useRef(colFilters);
@@ -316,6 +343,7 @@ export default function StaffActivity({ session, locationScope }) {
         from: range.from,
         to: range.to,
         locationId,
+        allLocations,
         page: page - 1,
         size,
         filters,
@@ -332,7 +360,7 @@ export default function StaffActivity({ session, locationScope }) {
     } finally {
       setLoading(false);
     }
-  }, [range.from, range.to, locationId, pageSize]);
+  }, [range.from, range.to, locationId, allLocations, pageSize]);
 
   const runSearch = useCallback((page = 1) => {
     fetchPage(page, colFiltersRef.current, pageSize);
@@ -409,6 +437,29 @@ export default function StaffActivity({ session, locationScope }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range.from, range.to, locationId]);
 
+  const handleExport = useCallback(async () => {
+    if (exporting || !hasAnyStaffFilter(colFiltersRef.current) || totalElements === 0) return;
+    setExporting(true);
+    try {
+      const rows = await fetchAllStaffActivityForExport({
+        from: range.from,
+        to: range.to,
+        locationId,
+        allLocations,
+        filters: colFiltersRef.current,
+      });
+      if (!rows.length) {
+        window.alert('No rows match current filters to export.');
+        return;
+      }
+      await exportStaffActivityExcel(rows, range.from, range.to);
+    } catch (err) {
+      window.alert(err?.message || 'Export failed. Please try again.');
+    } finally {
+      setExporting(false);
+    }
+  }, [exporting, totalElements, range.from, range.to, locationId, allLocations]);
+
   const pageStart = totalElements === 0 ? 0 : (currentPage - 1) * pageSize + 1;
   const pageEnd = Math.min(currentPage * pageSize, totalElements);
   const filtersActive = hasAnyStaffFilter(colFilters);
@@ -476,6 +527,16 @@ export default function StaffActivity({ session, locationScope }) {
                 Clear
               </button>
             )}
+            <button
+              type="button"
+              className={`ci-icon-btn${exporting ? ' ci-icon-btn--busy' : ''}`}
+              onClick={handleExport}
+              disabled={exporting || loading || !filtersActive || totalElements === 0}
+              title="Export all matching rows to Excel (.xlsx)"
+            >
+              <IconDownload size={14} />
+              <span>{exporting ? 'Exporting…' : 'Export'}</span>
+            </button>
             <button
               type="button"
               className={`ci-icon-btn${refreshing ? ' ci-icon-btn--refreshing' : ''}`}

@@ -33,6 +33,12 @@ public class MedplusSmsClient {
     @Value("${medplus.sms.template}")
     private String smsTemplate;
 
+    @Value("${medplus.sms.host-notify-template:MVMS_QR}")
+    private String hostNotifyTemplate;
+
+    @Value("${medplus.sms.host-notify-include-name:false}")
+    private boolean hostNotifyIncludeName;
+
     public MedplusSmsClient(RestTemplate restTemplate,
                             ObjectMapper objectMapper,
                             @Value("${medplus.otp.token-url}") String tokenUrl,
@@ -48,13 +54,32 @@ public class MedplusSmsClient {
      * Enqueues an SMS with the visit-pass short URL. Returns true if accepted by the gateway queue.
      */
     public boolean sendVisitPassLink(String mobile, String shortUrl) {
+        return sendSms(mobile, smsTemplate, List.of(shortUrl), "visit-pass");
+    }
+
+    /**
+     * Host arrival SMS for Key Management.
+     * <p>
+     * Future template ({@code Dear {#alp#} ... View details: {#urg#}}) expects
+     * {@code smsParams = [hostName, shortUrl]}. Until that template is registered,
+     * set {@code medplus.sms.host-notify-include-name=false} and reuse a URL-only
+     * template (e.g. {@code MVMS_QR}) so only the short URL is sent.
+     */
+    public boolean sendHostArrivalNotify(String mobile, String hostDisplayName, String shortUrl) {
+        List<String> params = hostNotifyIncludeName
+                ? List.of(hostDisplayName != null ? hostDisplayName.trim() : "", shortUrl)
+                : List.of(shortUrl);
+        return sendSms(mobile, hostNotifyTemplate, params, "host-notify");
+    }
+
+    private boolean sendSms(String mobile, String template, List<String> smsParams, String purpose) {
         String digits = mobile != null ? mobile.replaceAll("\\D", "") : "";
         String bearer = oauth.getAccessToken();
 
         Map<String, Object> body = Map.of(
                 "mobile", digits,
-                "smsTemplate", smsTemplate,
-                "smsParams", List.of(shortUrl)
+                "smsTemplate", template,
+                "smsParams", smsParams
         );
 
         HttpHeaders headers = new HttpHeaders();
@@ -69,7 +94,7 @@ public class MedplusSmsClient {
                     String.class);
 
             if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
-                log.warn("[MedplusSMS] send non-2xx for mobile ...{}", last4(mobile));
+                log.warn("[MedplusSMS] {} send non-2xx for mobile ...{}", purpose, last4(mobile));
                 return false;
             }
 
@@ -85,13 +110,14 @@ public class MedplusSmsClient {
             String innerStatus = data.path("status").asText("");
             boolean ok = "SUCCESS".equalsIgnoreCase(innerStatus);
             if (!ok) {
-                log.warn("[MedplusSMS] enqueue failed for ...{}: {}", last4(mobile), data.path("message").asText(""));
+                log.warn("[MedplusSMS] {} enqueue failed for ...{}: {}",
+                        purpose, last4(mobile), data.path("message").asText(""));
             } else {
-                log.info("[MedplusSMS] Visit pass SMS enqueued for mobile ...{}", last4(mobile));
+                log.info("[MedplusSMS] {} SMS enqueued for mobile ...{}", purpose, last4(mobile));
             }
             return ok;
         } catch (Exception ex) {
-            log.error("[MedplusSMS] send error for ...{}: {}", last4(mobile), ex.getMessage());
+            log.error("[MedplusSMS] {} send error for ...{}: {}", purpose, last4(mobile), ex.getMessage());
             return false;
         }
     }

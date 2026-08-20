@@ -10,12 +10,11 @@ import com.medplus.frontdesk_backend.exception.InvalidCredentialsException;
 import com.medplus.frontdesk_backend.model.UserManagement;
 import com.medplus.frontdesk_backend.model.UserRole;
 import com.medplus.frontdesk_backend.model.UserStatus;
-import com.medplus.frontdesk_backend.model.UserRole;
-import com.medplus.frontdesk_backend.model.UserStatus;
 import com.medplus.frontdesk_backend.repository.TempDeviceGrantRepository;
 import com.medplus.frontdesk_backend.repository.UserDeviceGrantRepository;
 import com.medplus.frontdesk_backend.repository.UserRepository;
 import com.medplus.frontdesk_backend.security.JwtTokenProvider;
+import com.medplus.frontdesk_backend.util.LegacyLocationResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -75,7 +74,8 @@ public class AuthService {
                 ? user.getRoles()
                 : List.of(user.getRole() != null ? user.getRole() : UserRole.RECEPTIONIST);
         boolean hasElevatedRole = assignedRoles.contains(UserRole.PRIMARY_ADMIN)
-                || assignedRoles.contains(UserRole.REGIONAL_ADMIN);
+                || assignedRoles.contains(UserRole.REGIONAL_ADMIN)
+                || assignedRoles.contains(UserRole.DEPT_HEAD);
 
         DeviceMasterDto sessionDevice;
 
@@ -95,9 +95,19 @@ public class AuthService {
         UserRole primaryRole = user.getRole() != null ? user.getRole() : UserRole.RECEPTIONIST;
         List<String> roleNames = assignedRoles.stream().map(UserRole::name).distinct().toList();
 
-        String token = jwtTokenProvider.generateToken(user.getEmployeeid(), primaryRole.name());
+        // For DEPT_HEAD, look up department from usermanagement and put it in JWT
+        String userDepartment = null;
+        if (assignedRoles.contains(UserRole.DEPT_HEAD)) {
+            userDepartment = userRepository.findUserDepartment(user.getEmployeeid()).orElse(null);
+        }
 
-        List<String> assignedLocationIds = userRepository.findLocationIdsByEmployeeId(user.getEmployeeid());
+        String token = jwtTokenProvider.generateToken(user.getEmployeeid(), primaryRole.name(), userDepartment);
+
+        List<String> assignedLocationIds = userRepository.findLocationIdsByEmployeeId(user.getEmployeeid())
+                .stream()
+                .map(LegacyLocationResolver::resolve)
+                .distinct()
+                .toList();
         final String sessionLocationId;
         final String sessionLocationName;
         if (sessionDevice != null) {
@@ -141,11 +151,12 @@ public class AuthService {
                 .role(primaryRole.name())
                 .roles(roleNames)
                 .fullName(user.getFullName())
-                .locationId(sessionLocationId)
+                .locationId(LegacyLocationResolver.resolve(sessionLocationId))
                 .locationName(sessionLocationName)
                 .locationIds(assignedLocationIds)
                 .deviceId(sessionDevice != null ? sessionDevice.getDeviceId() : null)
                 .deviceName(sessionDevice != null ? sessionDevice.getDisplayName() : null)
+                .department(userDepartment)
                 .expiresIn(jwtExpirationMs / 1000)
                 .build();
     }

@@ -10,6 +10,7 @@ import com.medplus.frontdesk_backend.dto.ReportReceptionistEntryDto;
 import com.medplus.frontdesk_backend.dto.StaffActivityFilterDto;
 import com.medplus.frontdesk_backend.dto.ReportVisitTrendPointDto;
 import com.medplus.frontdesk_backend.repository.ReportRepository;
+import com.medplus.frontdesk_backend.security.AuthorizationHelper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -27,6 +28,7 @@ public class ReportService {
 
     private final ReportRepository reportRepository;
     private final LocationScopeService locationScopeService;
+    private final AuthorizationHelper authorizationHelper;
 
     public List<ReportDeptSummaryDto> getDeptSummary(
             String callerEmployeeId, Authentication auth, String workstationMac,
@@ -34,17 +36,20 @@ public class ReportService {
 
         String locationId = locationScopeService.resolveReadScope(
                 callerEmployeeId, workstationMac, auth, locationIdParam, allLocations);
+        String dept = resolveDepartmentFilter(null, auth);
         log.debug("dept-summary from={} to={} location={} caller={}", from, to, locationId, callerEmployeeId);
-        return reportRepository.findDeptSummary(from, to, locationId);
+        return reportRepository.findDeptSummary(from, to, locationId, dept);
     }
 
     public ReportRatioDto getVisitorRatio(
             String callerEmployeeId, Authentication auth, String workstationMac,
-            LocalDate from, LocalDate to, String locationIdParam, Boolean allLocations) {
+            LocalDate from, LocalDate to, String locationIdParam, Boolean allLocations,
+            String department) {
 
         String locationId = locationScopeService.resolveReadScope(
                 callerEmployeeId, workstationMac, auth, locationIdParam, allLocations);
-        return reportRepository.findVisitorRatio(from, to, locationId);
+        String dept = resolveDepartmentFilter(department, auth);
+        return reportRepository.findVisitorRatio(from, to, locationId, dept);
     }
 
     public List<ReportAvgDurationDto> getAvgDuration(
@@ -53,7 +58,8 @@ public class ReportService {
 
         String locationId = locationScopeService.resolveReadScope(
                 callerEmployeeId, workstationMac, auth, locationIdParam, allLocations);
-        return reportRepository.findAvgDuration(from, to, locationId);
+        String dept = resolveDepartmentFilter(null, auth);
+        return reportRepository.findAvgDuration(from, to, locationId, dept);
     }
 
     public List<ReportFrequentVisitorDto> getFrequentVisitors(
@@ -62,25 +68,29 @@ public class ReportService {
 
         String locationId = locationScopeService.resolveReadScope(
                 callerEmployeeId, workstationMac, auth, locationIdParam, allLocations);
-        return reportRepository.findFrequentVisitors(from, to, locationId, minVisits);
+        String dept = resolveDepartmentFilter(null, auth);
+        return reportRepository.findFrequentVisitors(from, to, locationId, minVisits, dept);
     }
 
     public List<ReportVisitTrendPointDto> getVisitTrend(
             String callerEmployeeId, Authentication auth, String workstationMac,
-            LocalDate from, LocalDate to, String locationIdParam, Boolean allLocations) {
+            LocalDate from, LocalDate to, String locationIdParam, Boolean allLocations,
+            String department) {
 
         String locationId = locationScopeService.resolveReadScope(
                 callerEmployeeId, workstationMac, auth, locationIdParam, allLocations);
-        return reportRepository.findVisitTrendByHour(from, to, locationId);
+        String dept = resolveDepartmentFilter(department, auth);
+        return reportRepository.findVisitTrendByHour(from, to, locationId, dept);
     }
 
     public ReportActiveCountDto getActiveVisitorsNow(
             String callerEmployeeId, Authentication auth, String workstationMac,
-            String locationIdParam, Boolean allLocations) {
+            String locationIdParam, Boolean allLocations, String department) {
 
         String locationId = locationScopeService.resolveReadScope(
                 callerEmployeeId, workstationMac, auth, locationIdParam, allLocations);
-        return new ReportActiveCountDto(reportRepository.findActiveVisitorsNow(locationId));
+        String dept = resolveDepartmentFilter(department, auth);
+        return new ReportActiveCountDto(reportRepository.findActiveVisitorsNow(locationId, dept));
     }
 
     public PagedResponseDto<ReportReceptionistEntryDto> getStaffActivity(
@@ -109,6 +119,18 @@ public class ReportService {
                 from, to, locationId, supervisorScope, filters, offset, size);
 
         return PagedResponseDto.of(rows, page, size, total);
+    }
+
+    private String resolveDepartmentFilter(String deptFromUi, Authentication auth) {
+        // DEPT_HEAD: auto-scoped to their own department
+        if (authorizationHelper.isDeptHead(auth)) {
+            String callerDept = authorizationHelper.getUserDepartment(auth.getName());
+            if (org.springframework.util.StringUtils.hasText(callerDept)) {
+                return callerDept;
+            }
+            log.warn("DEPT_HEAD {} has no department — skipping department filter", auth.getName());
+        }
+        return deptFromUi;
     }
 
     private boolean isAdmin(Authentication auth) {

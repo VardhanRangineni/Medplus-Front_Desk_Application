@@ -54,11 +54,12 @@ public class ReportController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String locationId,
             @RequestParam(required = false) Boolean allLocations,
+            @RequestParam(required = false) String department,
             @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
             Authentication auth) {
 
         ReportRatioDto data = reportService.getVisitorRatio(
-                auth.getName(), auth, workstationMac, from, to, locationId, allLocations);
+                auth.getName(), auth, workstationMac, from, to, locationId, allLocations, department);
         return ResponseEntity.ok(ApiResponse.success("Visitor ratio retrieved.", data));
     }
 
@@ -97,11 +98,12 @@ public class ReportController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String locationId,
             @RequestParam(required = false) Boolean allLocations,
+            @RequestParam(required = false) String department,
             @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
             Authentication auth) {
 
         List<ReportVisitTrendPointDto> data = reportService.getVisitTrend(
-                auth.getName(), auth, workstationMac, from, to, locationId, allLocations);
+                auth.getName(), auth, workstationMac, from, to, locationId, allLocations, department);
         return ResponseEntity.ok(ApiResponse.success("Visit trend retrieved.", data));
     }
 
@@ -109,11 +111,12 @@ public class ReportController {
     public ResponseEntity<ApiResponse<ReportActiveCountDto>> getActiveNow(
             @RequestParam(required = false) String locationId,
             @RequestParam(required = false) Boolean allLocations,
+            @RequestParam(required = false) String department,
             @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
             Authentication auth) {
 
         ReportActiveCountDto data = reportService.getActiveVisitorsNow(
-                auth.getName(), auth, workstationMac, locationId, allLocations);
+                auth.getName(), auth, workstationMac, locationId, allLocations, department);
         return ResponseEntity.ok(ApiResponse.success("Active visitors retrieved.", data));
     }
 
@@ -121,10 +124,12 @@ public class ReportController {
     public ResponseEntity<ApiResponse<PagedResponseDto<ReportReceptionistEntryDto>>> getStaffActivity(
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String visitorName,
+            @RequestParam(required = false) String contactQuery,
             @RequestParam(required = false) String entryType,
             @RequestParam(required = false) String department,
             @RequestParam(required = false) String personToMeet,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String cardNumber,
             @RequestParam(required = false) String workstationMac,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
@@ -138,10 +143,12 @@ public class ReportController {
         StaffActivityFilterDto filters = StaffActivityFilterDto.builder()
                 .staffQuery(q)
                 .visitorName(visitorName)
+                .contactQuery(contactQuery)
                 .entryType(entryType)
                 .department(department)
                 .personToMeet(personToMeet)
                 .status(status)
+                .cardNumber(cardNumber)
                 .workstationMac(workstationMac)
                 .build();
 

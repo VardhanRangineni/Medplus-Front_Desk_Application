@@ -31,7 +31,8 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class VisitorScanService {
 
-    private static final Pattern VISITOR_ID_PATTERN = Pattern.compile("^MED-V-\\d{4}$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern VISITOR_ID_PATTERN =
+            Pattern.compile("^MED-(?:GV|V)-\\d{4,12}$", Pattern.CASE_INSENSITIVE);
 
     private final VisitorRepository visitorRepository;
     private final VisitorScanEventRepository scanEventRepository;
@@ -63,7 +64,8 @@ public class VisitorScanService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Visitor is already checked out.");
         }
-        if (visitor.getStatus() != VisitStatus.CHECKED_IN) {
+        if (visitor.getStatus() != VisitStatus.CHECKED_IN
+                && visitor.getStatus() != VisitStatus.APPROVED) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Visitor is not currently checked in.");
         }

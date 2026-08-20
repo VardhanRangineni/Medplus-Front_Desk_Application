@@ -2,6 +2,8 @@ package com.medplus.frontdesk_backend.controller;
 
 import com.medplus.frontdesk_backend.dto.ApiResponse;
 import com.medplus.frontdesk_backend.dto.EmployeeLookupResponseDto;
+import com.medplus.frontdesk_backend.dto.GroupVisitorRequestDto;
+import com.medplus.frontdesk_backend.dto.GroupVisitorResponseDto;
 import com.medplus.frontdesk_backend.dto.PagedResponseDto;
 import com.medplus.frontdesk_backend.dto.PersonToMeetDto;
 import com.medplus.frontdesk_backend.dto.StatusCountsDto;
@@ -75,6 +77,24 @@ public class VisitorController {
                 .body(ApiResponse.success("Check-in successful.", created));
     }
 
+    // ── POST /api/visitors/group ──────────────────────────────────────────────
+
+    /**
+     * Creates a group visit: one MED-GROUP-#### and N MED-GV-#### member rows.
+     */
+    @PostMapping("/group")
+    public ResponseEntity<ApiResponse<GroupVisitorResponseDto>> checkInGroup(
+            @Valid @RequestBody GroupVisitorRequestDto request,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
+            Authentication auth) {
+
+        String caller = auth.getName();
+        GroupVisitorResponseDto created = visitorService.checkInGroup(request, caller, workstationMac);
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Group check-in successful.", created));
+    }
+
     // ── POST /api/visitors/scan ───────────────────────────────────────────────
 
     /**
@@ -142,6 +162,11 @@ public class VisitorController {
             @RequestParam(required = false) String department,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String createdBy,
+            @RequestParam(required = false) String entryType,
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) String contactQuery,
+            @RequestParam(required = false) String personToMeet,
+            @RequestParam(required = false) String cardNumber,
             @RequestParam(defaultValue = "0")  int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
@@ -149,7 +174,8 @@ public class VisitorController {
 
         PagedResponseDto<VisitorResponseDto> result =
                 visitorService.getEntries(auth.getName(), from, to, locationId, allLocations, department, status,
-                        createdBy, page, size, workstationMac, auth);
+                        createdBy, entryType, name, contactQuery, personToMeet, cardNumber,
+                        page, size, workstationMac, auth);
         return ResponseEntity.ok(ApiResponse.success("Entries retrieved successfully.", result));
     }
 
@@ -228,6 +254,11 @@ public class VisitorController {
             @RequestParam(required = false) String department,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String createdBy,
+            @RequestParam(required = false) String entryType,
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) String contactQuery,
+            @RequestParam(required = false) String personToMeet,
+            @RequestParam(required = false) String cardNumber,
             @RequestParam(defaultValue = "0")  int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
@@ -235,7 +266,8 @@ public class VisitorController {
 
         PagedResponseDto<VisitorResponseDto> results =
                 visitorService.searchEntries(auth.getName(), from, to, q, locationId, allLocations, department, status,
-                        createdBy, page, size, workstationMac, auth);
+                        createdBy, entryType, name, contactQuery, personToMeet, cardNumber,
+                        page, size, workstationMac, auth);
         return ResponseEntity.ok(ApiResponse.success("Search results.", results));
     }
 

@@ -61,6 +61,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/health").permitAll()
                         .requestMatchers("/register.html").permitAll()
                         .requestMatchers("/api/pre-register/public/**").permitAll()
+                        .requestMatchers("/api/key-management/public/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .authenticationProvider(authenticationProvider())

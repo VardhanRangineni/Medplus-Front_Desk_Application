@@ -4,6 +4,7 @@ import './LocationSelector.css';
 import LottieLoader from '../LottieLoader/LottieLoader';
 import { IconMapPin, IconChevronDown, IconSearch, IconX } from '../Icons/Icons';
 import { getActiveLocations } from '../../services/locationService';
+import { resolveLocationId } from '../../services/locationScope';
 
 /**
  * LocationSelector — searchable location filter dropdown (primary admin only).
@@ -49,8 +50,8 @@ export default function LocationSelector({
     ? allowedLocationIds.map((id) => String(id).trim().toLowerCase()).filter(Boolean).sort().join('|')
     : '';
   const restrictedIds = restrictedKey ? restrictedKey.split('|') : null;
-  const canPick = isPrimaryAdmin || (restrictedIds && restrictedIds.length > 0);
-  const showAllOption = allowAll && isPrimaryAdmin && !restrictedIds;
+  const canPick = isPrimaryAdmin || allowAll || (restrictedIds && restrictedIds.length > 0);
+  const showAllOption = allowAll && !restrictedIds;
 
   // Fetch locations when dropdown opens
   useEffect(() => {
@@ -150,9 +151,11 @@ export default function LocationSelector({
     );
   }
 
+  const resolvedValue = value ? resolveLocationId(value) : value;
+
   // ── Derive trigger label ──────────────────────────────────────────────────
-  const selectedName = value
-    ? (locations.find((l) => l.code === value)?.name ?? session?.locationName ?? value)
+  const selectedName = resolvedValue
+    ? (locations.find((l) => l.code === resolvedValue)?.name ?? session?.locationName ?? resolvedValue)
     : (showAllOption ? 'All Locations' : (session?.locationName ?? 'Select location'));
 
   function select(id) {
@@ -219,9 +222,9 @@ export default function LocationSelector({
           <button
             key={loc.code}
             type="button"
-            className={`loc-opt${value === loc.code ? ' loc-opt--active' : ''}`}
+            className={`loc-opt${resolvedValue === loc.code ? ' loc-opt--active' : ''}`}
             role="option"
-            aria-selected={value === loc.code}
+            aria-selected={resolvedValue === loc.code}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => select(loc.code)}
           >

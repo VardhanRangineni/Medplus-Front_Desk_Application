@@ -5,6 +5,10 @@
 -- =============================================================================
 
 -- ── legacy tables (remove if present from older installs) ────────────────────
+-- Old schema: usermanagement.fk_usermgmt_employeeid → usermaster. Disable FK
+-- checks so usermaster can drop; InnoDB removes orphaned FK on referenced table drop.
+
+SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS `visitormember`;
 DROP TABLE IF EXISTS `appointmentslog`;
@@ -14,6 +18,8 @@ DROP TABLE IF EXISTS `zimbra_sessions`;
 DROP TABLE IF EXISTS `usermaster`;
 DROP TABLE IF EXISTS `locationmaster`;
 DROP TABLE IF EXISTS `locations`;
+
+SET FOREIGN_KEY_CHECKS = 1;
 
 -- ── roles ────────────────────────────────────────────────────────────────────
 
@@ -29,7 +35,8 @@ CREATE TABLE IF NOT EXISTS `roles` (
 INSERT IGNORE INTO `roles` (id, code, displayName, description) VALUES
 (1, 'ADMIN',        'Admin',        'Full system access — manage all users and locations'),
 (2, 'SUPERVISOR',   'Supervisor',   'Location-level manager — manage receptionists at their location'),
-(3, 'RECEPTIONIST', 'Receptionist', 'MVMS operator — visitor check-in and check-out');
+(3, 'RECEPTIONIST', 'Receptionist', 'MVMS operator — visitor check-in and check-out'),
+(4, 'DEPT_HEAD',    'Department Head', 'Department-level access — see only their department visits, reports, and check-ins');
 
 -- ── usermanagement ─────────────────────────────────────────────────────────
 
@@ -107,15 +114,17 @@ CREATE TABLE IF NOT EXISTS `user_temp_device_grants` (
 -- ── visitorlog ─────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS `visitorlog` (
-    `visitorId`      VARCHAR(20)                        NOT NULL,
+    `visitorId`      VARCHAR(32)                        NOT NULL,
     `visitType`      ENUM('INDIVIDUAL','GROUP')         NOT NULL,
+    `groupId`        VARCHAR(32)                        DEFAULT NULL COMMENT 'MED-GROUP-#### shared by group members',
     `entryType`      ENUM('VISITOR','EMPLOYEE')         NOT NULL,
     `name`           VARCHAR(150)                       NOT NULL,
     `mobile`         VARCHAR(20)                        DEFAULT NULL,
     `empId`          VARCHAR(100)                       DEFAULT NULL,
-    `status`         ENUM('CHECKED_IN','CHECKED_OUT')   NOT NULL DEFAULT 'CHECKED_IN',
+    `status`         ENUM('PENDING_APPROVAL','APPROVED','CHECKED_IN','REJECTED','CHECKED_OUT') NOT NULL DEFAULT 'CHECKED_IN',
     `personToMeet`   VARCHAR(100)                       NOT NULL,
     `personName`     VARCHAR(150)                       NOT NULL,
+    `personToMeetPhone` VARCHAR(20)                     DEFAULT NULL COMMENT 'Host mobile snapshot for Key Management SMS',
     `department`     VARCHAR(120)                       NOT NULL,
     `locationId`     VARCHAR(50)                        NOT NULL COMMENT 'Site code',
     `cardNumber`     INT                                DEFAULT NULL,
@@ -124,6 +133,9 @@ CREATE TABLE IF NOT EXISTS `visitorlog` (
     `imageUrl`       VARCHAR(500)                       DEFAULT NULL,
     `checkInTime`    TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `checkOutTime`   TIMESTAMP                          DEFAULT NULL,
+    `approvedAt`     TIMESTAMP                          DEFAULT NULL,
+    `rejectedAt`     TIMESTAMP                          DEFAULT NULL,
+    `rejectionRemarks` VARCHAR(500)                     DEFAULT NULL,
     `reasonForVisit` TEXT                               DEFAULT NULL,
     `companyName`    VARCHAR(200)                       DEFAULT NULL,
     `createdBy`      VARCHAR(100)                       NOT NULL,
@@ -131,7 +143,8 @@ CREATE TABLE IF NOT EXISTS `visitorlog` (
     `modifiedBy`     VARCHAR(100)                       DEFAULT NULL,
     `modifiedAt`     TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`visitorId`),
-    KEY `idx_vlog_location_date` (`locationId`, `checkInTime`)
+    KEY `idx_vlog_location_date` (`locationId`, `checkInTime`),
+    KEY `idx_vlog_groupId` (`groupId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ── pre-registration ───────────────────────────────────────────────────────
@@ -267,7 +280,7 @@ CREATE TABLE IF NOT EXISTS `preregistrations` (
     `locationId`     VARCHAR(50)  DEFAULT NULL,
     `status`         ENUM('PENDING','CHECKED_IN') NOT NULL DEFAULT 'PENDING',
     `createdAt`      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `visitorId`          VARCHAR(20)  DEFAULT NULL,
+    `visitorId`          VARCHAR(32)  DEFAULT NULL,
     `visitCardImageUrl`  VARCHAR(500) DEFAULT NULL,
     `visitCardShortUrl`  VARCHAR(200) DEFAULT NULL,
     `visitCardSentAt`    TIMESTAMP    DEFAULT NULL,
@@ -323,7 +336,7 @@ CREATE TABLE IF NOT EXISTS `user_device_grants` (
 
 CREATE TABLE IF NOT EXISTS `visitor_scan_events` (
     `id`          BIGINT       NOT NULL AUTO_INCREMENT,
-    `visitorId`   VARCHAR(20)  NOT NULL,
+    `visitorId`   VARCHAR(32)  NOT NULL,
     `locationId`  VARCHAR(20)  NOT NULL,
     `deviceId`    VARCHAR(40)  NOT NULL,
     `eventType`   ENUM('CHECK_IN','ZONE_SCAN','CHECK_OUT') NOT NULL,
@@ -335,4 +348,22 @@ CREATE TABLE IF NOT EXISTS `visitor_scan_events` (
     KEY `idx_vse_visitor` (`visitorId`, `scannedAt`),
     KEY `idx_vse_location_time` (`locationId`, `scannedAt`),
     KEY `idx_vse_device_time` (`deviceId`, `scannedAt`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ── Key Management contacts (approver phone numbers) ────────────────────────
+
+CREATE TABLE IF NOT EXISTS `key_management_contacts` (
+    `id`           BIGINT       NOT NULL AUTO_INCREMENT,
+    `mobile`       VARCHAR(10)  NOT NULL,
+    `displayName`  VARCHAR(150) DEFAULT NULL,
+    `portal_token` CHAR(36)     NOT NULL,
+    `status`       ENUM('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+    `createdBy`    VARCHAR(100) NOT NULL,
+    `modifiedBy`   VARCHAR(100) DEFAULT NULL,
+    `createdAt`    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `modifiedAt`   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_km_mobile` (`mobile`),
+    UNIQUE KEY `uk_km_portal_token` (`portal_token`),
+    KEY `idx_km_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

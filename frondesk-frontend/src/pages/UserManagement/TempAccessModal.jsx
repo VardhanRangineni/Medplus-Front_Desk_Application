@@ -191,7 +191,10 @@ export default function TempAccessModal({ user, onClose, onSuccess }) {
                     placeholder={devices.length ? 'Select kiosk…' : 'No devices registered'}
                     onChange={setDeviceId}
                     ariaLabel="Select kiosk"
-                    minMenuWidth={280}
+                    searchable
+                    searchInField
+                    searchPlaceholder="Search kiosk…"
+                    minMenuWidth={320}
                   />
                   {devices.length === 0 && (
                     <span className="umg-field__hint">
@@ -204,11 +207,13 @@ export default function TempAccessModal({ user, onClose, onSuccess }) {
                   <div className="umg-temp-desk">
                     <div className="umg-temp-desk__label">Selected kiosk</div>
                     <div className="umg-temp-desk__user">
-                      <IconMonitor size={14} />
-                      {selectedDevice.displayName}
-                      {selectedDevice.macAddress && (
-                        <span className="mono"> · {selectedDevice.macAddress}</span>
-                      )}
+                      <IconMonitor size={16} />
+                      <span>
+                        {selectedDevice.displayName}
+                        {selectedDevice.macAddress && (
+                          <span className="mono"> · {selectedDevice.macAddress}</span>
+                        )}
+                      </span>
                     </div>
                     <p className="umg-temp-desk__hint umg-temp-desk__hint--ok">
                       {user.name} can sign in at this kiosk until the grant expires.

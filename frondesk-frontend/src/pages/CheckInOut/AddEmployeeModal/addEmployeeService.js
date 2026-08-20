@@ -74,6 +74,7 @@ export async function updateEmployeeEntry(id, data) {
     entryType:        'EMPLOYEE',
     name:             data.name,
     empId:            data.empId,
+    mobile:           data.mobile || null,
     personToMeetId:   data.personToMeet,
     cardNumber:       data.cardNumber ? parseInt(data.cardNumber, 10) : null,
     reasonForVisit:   data.reasonForVisit || null,
@@ -94,14 +95,40 @@ export async function updateEmployeeEntry(id, data) {
 export async function createEmployeeEntry(data) {
   const payload = {
     entryType:        'EMPLOYEE',
+    visitType:        data.visitType || 'INDIVIDUAL',
     name:             data.name,
-    mobile:           null,
+    mobile:           data.mobile || null,
     empId:            data.empId,
     personToMeetId:   data.personToMeet,
-    employeeDepartment: data.employeeDepartment || data.department || null,
     reasonForVisit:   data.reasonForVisit || null,
   };
 
   const entry = await api('POST', '/api/visitors', payload);
-  return { success: true, type: 'EMPLOYEE', entryId: entry.id, ...entry };
+  return { success: true, type: 'EMPLOYEE', entryId: entry.id, groupId: entry.groupId ?? null, ...entry };
+}
+
+/**
+ * Creates a group employee check-in (MED-GROUP + MED-GV members).
+ * Endpoint: POST /api/visitors/group
+ */
+export async function createGroupEmployeeEntries(groupData) {
+  const payload = {
+    entryType:      'EMPLOYEE',
+    personToMeetId: groupData.personToMeet,
+    reasonForVisit: groupData.reasonForVisit || null,
+    members: (groupData.members || []).map((m) => ({
+      name: m.name,
+      empId: m.empId,
+      mobile: m.mobile || null,
+    })),
+  };
+
+  const result = await api('POST', '/api/visitors/group', payload);
+  return {
+    success: true,
+    type: 'EMPLOYEE',
+    groupId: result.groupId,
+    members: result.members || [],
+    entryId: result.members?.[0]?.id ?? null,
+  };
 }

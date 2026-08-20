@@ -8,6 +8,14 @@ import MobileOtpVerify from './components/MobileOtpVerify';
 import SuccessScreen from './components/SuccessScreen';
 import VerifyBox, { VerifySpinner } from './components/VerifyBox';
 import { PRESET_REASONS } from './constants/visitReasons';
+import {
+  HRMS_MIN_ID_LENGTH,
+  LOOKUP_DEBOUNCE_MS,
+  MOBILE_LOOKUP_LENGTH,
+  cancelDebouncedLookup,
+  isLookupStale,
+  scheduleDebouncedLookup,
+} from './utils/lookupDebounce';
 import './App.css';
 
 const ENTRY_VISITOR = 'VISITOR';
@@ -43,12 +51,14 @@ export default function App() {
 
   const empTimerRef = useRef(null);
   const ptmTimerRef = useRef(null);
+  const empLookupGen = useRef(0);
+  const ptmLookupGen = useRef(0);
 
   const isVisitor = entryType === ENTRY_VISITOR;
 
   useEffect(() => () => {
-    if (empTimerRef.current) clearTimeout(empTimerRef.current);
-    if (ptmTimerRef.current) clearTimeout(ptmTimerRef.current);
+    cancelDebouncedLookup(empLookupGen, empTimerRef);
+    cancelDebouncedLookup(ptmLookupGen, ptmTimerRef);
   }, []);
 
   function selectType(type) {
@@ -66,17 +76,18 @@ export default function App() {
       setCompanyToggled(false);
       setCompany('');
     }
-    if (type === ENTRY_EMPLOYEE && empId.trim()) {
-      runEmpVerify(empId.trim());
+    if (type === ENTRY_EMPLOYEE && empId.trim().length >= HRMS_MIN_ID_LENGTH) {
+      scheduleEmpVerify(empId.trim());
     }
   }
 
-  async function runEmpVerify(id) {
+  async function runEmpVerify(id, generation) {
     setEmpVerifyState('checking');
     setEmpVerified(false);
     setVerifiedEmployeeName(null);
     try {
       const result = await verifyEmployee(id);
+      if (generation != null && isLookupStale(generation, empLookupGen)) return;
       if (result.found) {
         setEmpVerified(true);
         setVerifiedEmployeeName(result.data.name || null);
@@ -85,29 +96,36 @@ export default function App() {
         setEmpVerifyState('err');
       }
     } catch {
+      if (generation != null && isLookupStale(generation, empLookupGen)) return;
       setEmpVerifyState('err');
     }
+  }
+
+  function scheduleEmpVerify(id) {
+    setEmpVerifyState(null);
+    const generation = scheduleDebouncedLookup(empLookupGen, empTimerRef, () => runEmpVerify(id, generation), LOOKUP_DEBOUNCE_MS);
   }
 
   function handleEmpIdChange(value) {
     setEmpId(value);
     setEmpVerified(false);
     setVerifiedEmployeeName(null);
-    if (empTimerRef.current) clearTimeout(empTimerRef.current);
     const raw = value.trim();
-    if (!raw || isVisitor) {
+    if (!raw || isVisitor || raw.length < HRMS_MIN_ID_LENGTH) {
+      cancelDebouncedLookup(empLookupGen, empTimerRef);
       setEmpVerifyState(null);
       return;
     }
-    empTimerRef.current = setTimeout(() => runEmpVerify(raw), 450);
+    scheduleEmpVerify(raw);
   }
 
-  async function runPtmVerify(phone) {
+  async function runPtmVerify(phone, generation) {
     setPtmVerifyState('checking');
     setPtmVerified(false);
     setVerifiedPtm(null);
     try {
       const result = await verifyPersonToMeet(phone);
+      if (generation != null && isLookupStale(generation, ptmLookupGen)) return;
       if (result.found) {
         setPtmVerified(true);
         setVerifiedPtm({
@@ -120,21 +138,27 @@ export default function App() {
         setPtmVerifyState('err');
       }
     } catch {
+      if (generation != null && isLookupStale(generation, ptmLookupGen)) return;
       setPtmVerifyState('err');
     }
   }
 
+  function schedulePtmVerify(phone) {
+    setPtmVerifyState(null);
+    const generation = scheduleDebouncedLookup(ptmLookupGen, ptmTimerRef, () => runPtmVerify(phone, generation), LOOKUP_DEBOUNCE_MS);
+  }
+
   function handlePtmChange(value) {
-    const digits = value.replace(/\D/g, '').slice(0, 10);
+    const digits = value.replace(/\D/g, '').slice(0, MOBILE_LOOKUP_LENGTH);
     setPtmMobile(digits);
     setPtmVerified(false);
     setVerifiedPtm(null);
-    if (ptmTimerRef.current) clearTimeout(ptmTimerRef.current);
-    if (digits.length < 10) {
+    if (digits.length < MOBILE_LOOKUP_LENGTH) {
+      cancelDebouncedLookup(ptmLookupGen, ptmTimerRef);
       setPtmVerifyState(null);
       return;
     }
-    ptmTimerRef.current = setTimeout(() => runPtmVerify(digits), 450);
+    schedulePtmVerify(digits);
   }
 
   function toggleCompany() {
@@ -176,7 +200,7 @@ export default function App() {
     }
     if (!isVisitor && !empVerified) {
       setBanner('Please wait for HRMS verification, or enter a valid Employee ID / HRMS ID.');
-      if (empId.trim()) runEmpVerify(empId.trim());
+      if (empId.trim()) runEmpVerify(empId.trim(), null);
       return;
     }
     if (isVisitor && aadhaarDigits.length > 0 && aadhaarDigits.length !== 12) {
@@ -189,7 +213,7 @@ export default function App() {
     }
     if (!ptmVerified || !verifiedPtm?.employeeId) {
       setBanner('Please wait for HRMS verification of the person to meet, or check the mobile number.');
-      if (ptmMobile.length >= 10) runPtmVerify(ptmMobile);
+      if (ptmMobile.length >= MOBILE_LOOKUP_LENGTH) runPtmVerify(ptmMobile, null);
       return;
     }
     if (!reason.trim()) {

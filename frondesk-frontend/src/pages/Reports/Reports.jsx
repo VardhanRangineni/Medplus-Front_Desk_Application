@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell,
 } from 'recharts';
 import './Reports.css';
 import {
@@ -21,8 +22,15 @@ import {
   getVisitorRatio,
   getVisitTrend,
   getActiveNow,
+  getFrequentVisitors,
 } from './reportsService';
+import { exportReportsExcel, exportReportsPdf } from './reportsExportService';
+import { isDeptHead } from '../../services/locationScope';
 
+const ENTRY_COLORS = {
+  VISITOR: '#C2181D',
+  EMPLOYEE: '#2563eb',
+};
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function toISODate(d) {
@@ -145,18 +153,75 @@ function formatDurationTrendSubtitle(trend, compareLabel, hasVisits) {
   return `${Math.abs(trend)}% ${dir} than ${period}`;
 }
 
-function exportDeptCsv(rows, from, to) {
-  const header = 'Department,Total Visits,Avg Duration (min)\n';
-  const body = rows.map((r) =>
-    `"${r.department.replace(/"/g, '""')}",${r.visitCount},${Math.round(r.avgDurationMinutes)}`,
-  ).join('\n');
-  const blob = new Blob([header + body], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `department-summary_${from}_${to}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+function ExportReportModal({ open, onClose, onConfirm, exporting }) {
+  const [format, setFormat] = useState('excel');
+
+  useEffect(() => {
+    if (open) setFormat('excel');
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="rpt-export-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="rpt-export-title"
+      onClick={(e) => { if (e.target === e.currentTarget && !exporting) onClose(); }}
+    >
+      <div className="rpt-export-dialog">
+        <h3 id="rpt-export-title" className="rpt-export-dialog__title">Export Report</h3>
+        <p className="rpt-export-dialog__sub">Choose format for this period and filters.</p>
+
+        <div className="rpt-export-options">
+          <label className={`rpt-export-option${format === 'excel' ? ' rpt-export-option--active' : ''}`}>
+            <input
+              type="radio"
+              name="rpt-export-format"
+              value="excel"
+              checked={format === 'excel'}
+              onChange={() => setFormat('excel')}
+              disabled={exporting}
+            />
+            <span className="rpt-export-option__body">
+              <strong>Excel (.xlsx)</strong>
+              <span>Detailed tables — summary, departments, visit trend, frequent visitors, full visitor log.</span>
+            </span>
+          </label>
+
+          <label className={`rpt-export-option${format === 'pdf' ? ' rpt-export-option--active' : ''}`}>
+            <input
+              type="radio"
+              name="rpt-export-format"
+              value="pdf"
+              checked={format === 'pdf'}
+              onChange={() => setFormat('pdf')}
+              disabled={exporting}
+            />
+            <span className="rpt-export-option__body">
+              <strong>PDF (.pdf)</strong>
+              <span>Dashboard summary with KPIs, bar charts, visit trend graph, and department table.</span>
+            </span>
+          </label>
+        </div>
+
+        <div className="rpt-export-dialog__actions">
+          <button type="button" className="rpt-export-dialog__cancel" onClick={onClose} disabled={exporting}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="rpt-export-dialog__confirm"
+            onClick={() => onConfirm(format)}
+            disabled={exporting}
+          >
+            {exporting ? 'Exporting…' : 'Export'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── UI pieces ────────────────────────────────────────────────────────────────
@@ -266,6 +331,107 @@ function VisitTrendChart({ data }) {
   );
 }
 
+function EntryTypeDonut({ visitorCount, employeeCount }) {
+  const v = Number(visitorCount) || 0;
+  const e = Number(employeeCount) || 0;
+  const total = v + e;
+  if (total === 0) {
+    return <div className="rpt-empty">No visitor / employee entries for this period.</div>;
+  }
+
+  const data = [
+    { name: 'Visitors', key: 'VISITOR', value: v },
+    { name: 'Employees', key: 'EMPLOYEE', value: e },
+  ].filter((d) => d.value > 0);
+
+  return (
+    <div className="rpt-donut">
+      <div className="rpt-donut__chart">
+        <ResponsiveContainer width="100%" height={200}>
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius={52}
+              outerRadius={78}
+              paddingAngle={2}
+              stroke="#fff"
+              strokeWidth={2}
+            >
+              {data.map((d) => (
+                <Cell key={d.key} fill={ENTRY_COLORS[d.key]} />
+              ))}
+            </Pie>
+            <Tooltip
+              formatter={(val, name) => [`${val} (${Math.round((val / total) * 100)}%)`, name]}
+              contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="rpt-donut__center" aria-hidden>
+          <span className="rpt-donut__total">{total.toLocaleString('en-IN')}</span>
+          <span className="rpt-donut__total-label">Total</span>
+        </div>
+      </div>
+      <div className="rpt-donut__stats">
+        <span><i style={{ background: ENTRY_COLORS.VISITOR }} /> Visitors {v.toLocaleString('en-IN')}</span>
+        <span><i style={{ background: ENTRY_COLORS.EMPLOYEE }} /> Employees {e.toLocaleString('en-IN')}</span>
+      </div>
+    </div>
+  );
+}
+
+function formatLastVisit(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString('en-IN', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: true,
+  });
+}
+
+function RepeatedVisitsList({ rows }) {
+  if (!rows?.length) {
+    return <div className="rpt-empty">No repeated visits in this period (2+ check-ins).</div>;
+  }
+  return (
+    <ul className="rpt-repeat">
+      {rows.slice(0, 10).map((row, idx) => {
+        const isEmp = row.entryType === 'EMPLOYEE';
+        const contact = isEmp ? (row.empId || '—') : (row.mobile || '—');
+        return (
+          <li key={`${row.entryType}-${row.name}-${contact}-${idx}`} className="rpt-repeat__row">
+            <span className="rpt-repeat__rank">{idx + 1}</span>
+            <div className="rpt-repeat__body">
+              <div className="rpt-repeat__top">
+                <span className="rpt-repeat__name" title={row.name}>{row.name || '—'}</span>
+                <span className={`rpt-repeat__type rpt-repeat__type--${isEmp ? 'emp' : 'vis'}`}>
+                  {isEmp ? 'Employee' : 'Visitor'}
+                </span>
+              </div>
+              <div className="rpt-repeat__meta">
+                <span>{isEmp ? `Emp ID ${contact}` : contact}</span>
+                {row.departments && <span title={row.departments}>{row.departments}</span>}
+              </div>
+              <div className="rpt-repeat__foot">
+                Last visit {formatLastVisit(row.lastVisit)}
+              </div>
+            </div>
+            <span className="rpt-repeat__count">
+              <strong>{row.visitCount}</strong>
+              <small>visits</small>
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function PanelCard({ title, filter, children }) {
   return (
     <div className="rpt-panel">
@@ -310,7 +476,11 @@ export default function Reports({ session, locationScope }) {
   const [range, setRange] = useState(defaultRangeToday);
   const locationId = locationScope?.locationId ?? null;
   const allLocations = locationScope?.allLocations ?? false;
-  const [deptFilter, setDeptFilter] = useState('');
+  const isDeptHeadRole = isDeptHead(session);
+  const lockedDepartment = isDeptHeadRole ? (session?.department ?? null) : null;
+  const [deptFilter, setDeptFilter] = useState(
+    () => isDeptHead(session) ? (session?.department ?? '') : ''
+  );
   const [showAllDepts, setShowAllDepts] = useState(false);
 
   const [deptData, setDeptData] = useState([]);
@@ -321,23 +491,27 @@ export default function Reports({ session, locationScope }) {
   const [prevRatio, setPrevRatio] = useState({ totalCount: 0 });
   const [trendData, setTrendData] = useState([]);
   const [activeNow, setActiveNow] = useState(0);
+  const [frequentVisits, setFrequentVisits] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
-  const fetchAll = useCallback(async (from, to) => {
+  const fetchAll = useCallback(async (from, to, department = '') => {
     setLoading(true);
     const prev = prevPeriodRange(from, to);
     try {
       const [
-        dept, prevDept, duration, prevDur, ratio, prevRat, trend, active,
+        dept, prevDept, duration, prevDur, ratio, prevRat, trend, active, frequent,
       ] = await Promise.all([
         getDeptSummary(from, to, locationId, allLocations),
         getDeptSummary(prev.from, prev.to, locationId, allLocations),
         getAvgDuration(from, to, locationId, allLocations),
         getAvgDuration(prev.from, prev.to, locationId, allLocations),
-        getVisitorRatio(from, to, locationId, allLocations),
-        getVisitorRatio(prev.from, prev.to, locationId, allLocations),
-        getVisitTrend(from, to, locationId, allLocations),
-        getActiveNow(locationId, allLocations),
+        getVisitorRatio(from, to, locationId, allLocations, department),
+        getVisitorRatio(prev.from, prev.to, locationId, allLocations, department),
+        getVisitTrend(from, to, locationId, allLocations, department),
+        getActiveNow(locationId, allLocations, department),
+        getFrequentVisitors(from, to, 2, locationId, allLocations),
       ]);
       setDeptData(dept);
       setPrevDeptData(prevDept);
@@ -347,6 +521,7 @@ export default function Reports({ session, locationScope }) {
       setPrevRatio(prevRat);
       setTrendData(trend);
       setActiveNow(active);
+      setFrequentVisits(frequent);
     } catch (err) {
       console.error('Reports load error:', err);
     } finally {
@@ -355,8 +530,8 @@ export default function Reports({ session, locationScope }) {
   }, [locationId, allLocations]);
 
   useEffect(() => {
-    fetchAll(range.from, range.to);
-  }, [range, locationId, allLocations, fetchAll]);
+    fetchAll(range.from, range.to, deptFilter);
+  }, [range, locationId, allLocations, deptFilter, fetchAll]);
 
   const filteredDept = useMemo(() => {
     if (!deptFilter) return deptData;
@@ -372,11 +547,30 @@ export default function Reports({ session, locationScope }) {
     }));
   }, [filteredDept, durationData]);
 
-  const peakDept = deptData[0];
-  const leastDept = deptData.length ? deptData[deptData.length - 1] : null;
-  const avgMin = weightedAvgDuration(durationData);
-  const prevAvgMin = weightedAvgDuration(prevDurationData);
-  const durationVisitCount = durationVisitTotal(durationData);
+  const scopedDurationData = useMemo(() => {
+    if (!deptFilter) return durationData;
+    return durationData.filter((d) => d.department === deptFilter);
+  }, [durationData, deptFilter]);
+
+  const scopedPrevDurationData = useMemo(() => {
+    if (!deptFilter) return prevDurationData;
+    return prevDurationData.filter((d) => d.department === deptFilter);
+  }, [prevDurationData, deptFilter]);
+
+  const scopedPrevDeptData = useMemo(() => {
+    if (!deptFilter) return prevDeptData;
+    return prevDeptData.filter((d) => d.department === deptFilter);
+  }, [prevDeptData, deptFilter]);
+
+  const peakDept = deptFilter
+    ? filteredDept[0]
+    : deptData[0];
+  const leastDept = deptFilter
+    ? filteredDept[0]
+    : (deptData.length ? deptData[deptData.length - 1] : null);
+  const avgMin = weightedAvgDuration(scopedDurationData);
+  const prevAvgMin = weightedAvgDuration(scopedPrevDurationData);
+  const durationVisitCount = durationVisitTotal(scopedDurationData);
   const totalVisits = ratioData.totalCount ?? 0;
   const visitsTrend = pctChange(totalVisits, prevRatio.totalCount);
   const durationTrend = durationVisitCount === 0
@@ -406,8 +600,8 @@ export default function Reports({ session, locationScope }) {
   [durationByDept]);
 
   const tableRows = useMemo(() => {
-    const prevMap = new Map(prevDeptData.map((d) => [d.department, d.visitCount]));
-    const durMap = new Map(durationData.map((d) => [d.department, d.avgDurationMinutes]));
+    const prevMap = new Map(scopedPrevDeptData.map((d) => [d.department, d.visitCount]));
+    const durMap = new Map(scopedDurationData.map((d) => [d.department, d.avgDurationMinutes]));
     return filteredDept.map((d) => {
       const prevVisits = prevMap.get(d.department) ?? 0;
       const trend = pctChange(d.visitCount, prevVisits);
@@ -420,28 +614,73 @@ export default function Reports({ session, locationScope }) {
         isNew: trend == null,
       };
     });
-  }, [filteredDept, prevDeptData, durationData]);
+  }, [filteredDept, scopedPrevDeptData, scopedDurationData]);
 
   const rangeLabel = formatRangeLabel(range.from, range.to);
   const compareLabel = comparisonLabel(range.from, range.to);
   const rangeDays = rangeDayCount(range.from, range.to);
+
+  const exportSnapshot = useMemo(() => ({
+    range,
+    rangeLabel,
+    compareLabel,
+    deptFilter,
+    totalVisits,
+    avgMin,
+    durationVisitCount,
+    visitsTrend,
+    durationTrend,
+    peakDept,
+    leastDept,
+    activeNow,
+    ratioData,
+    tableRows,
+    trendData,
+    deptBarItems,
+    durationBarItems,
+    durationByDept,
+    frequentVisits,
+  }), [
+    range, rangeLabel, compareLabel, deptFilter, totalVisits, avgMin, durationVisitCount,
+    visitsTrend, durationTrend, peakDept, leastDept, activeNow, ratioData, tableRows,
+    trendData, deptBarItems, durationBarItems, durationByDept, frequentVisits,
+  ]);
+
+  const handleExportConfirm = useCallback(async (format) => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const scope = { locationId, allLocations };
+      const result = format === 'pdf'
+        ? await exportReportsPdf(exportSnapshot)
+        : await exportReportsExcel(exportSnapshot, scope);
+      if (result?.saved) setExportOpen(false);
+    } catch (err) {
+      window.alert(err?.message || 'Export failed. Please try again.');
+    } finally {
+      setExporting(false);
+    }
+  }, [exporting, exportSnapshot, locationId, allLocations]);
 
   const insightsSubtitle = rangeDays === 1 && range.from === toISODate(new Date())
     ? "Key insights from today's data"
     : `Key insights for ${rangeLabel}`;
 
   const insights = useMemo(() => {
-    const sortedDepts = [...deptData].sort((a, b) => b.visitCount - a.visitCount);
+    const sortedDepts = [...filteredDept].sort((a, b) => b.visitCount - a.visitCount);
     const top = sortedDepts[0];
     const second = sortedDepts[1];
     const peakRange = computePeakTimeRange(trendData);
     const hasDuration = durationVisitCount > 0;
+    const deptScopeLabel = deptFilter ? ` for ${deptFilter}` : '';
 
     const items = [];
 
     if (top && top.visitCount > 0) {
-      let leadDesc = 'Leading department for this period.';
-      if (second && second.visitCount > 0 && top.visitCount > second.visitCount) {
+      let leadDesc = deptFilter
+        ? 'Selected department in this period.'
+        : 'Leading department for this period.';
+      if (!deptFilter && second && second.visitCount > 0 && top.visitCount > second.visitCount) {
         const leadPct = Math.round(((top.visitCount - second.visitCount) / second.visitCount) * 1000) / 10;
         leadDesc = `${leadPct}% more than the second highest department`;
       }
@@ -449,7 +688,9 @@ export default function Reports({ session, locationScope }) {
         id: 'traffic',
         color: 'green',
         icon: <IconTrendingUp size={18} />,
-        title: `${top.department} has the highest traffic with ${top.visitCount.toLocaleString('en-IN')} visit${top.visitCount !== 1 ? 's' : ''}`,
+        title: deptFilter
+          ? `${top.department} has ${top.visitCount.toLocaleString('en-IN')} visit${top.visitCount !== 1 ? 's' : ''}${deptScopeLabel}`
+          : `${top.department} has the highest traffic with ${top.visitCount.toLocaleString('en-IN')} visit${top.visitCount !== 1 ? 's' : ''}`,
         description: leadDesc,
       });
     }
@@ -472,7 +713,7 @@ export default function Reports({ session, locationScope }) {
         title: `Peak time is between ${peakRange}`,
         description: 'Plan your resources accordingly',
       });
-    } else if (leastDept && leastDept.department !== top?.department) {
+    } else if (!deptFilter && leastDept && leastDept.department !== top?.department) {
       items.push({
         id: 'quiet',
         color: 'purple',
@@ -502,7 +743,8 @@ export default function Reports({ session, locationScope }) {
 
     return items;
   }, [
-    deptData,
+    filteredDept,
+    deptFilter,
     trendData,
     avgMin,
     durationVisitCount,
@@ -550,31 +792,40 @@ export default function Reports({ session, locationScope }) {
         </div>
         <div className="rpt-filter-field rpt-filter-field--dept">
           <span className="rpt-filter-field__label">Department</span>
-          <SearchSelect
-            value={deptFilter}
-            onChange={setDeptFilter}
-            options={deptFilterOptions}
-            placeholder="All Departments"
-            searchable
-            searchPlaceholder="Search department…"
-            emptyMessage="No departments found"
-            ariaLabel="Filter by department"
-          />
+          {lockedDepartment ? (
+            <span className="rpt-dept-badge--locked" title="Department locked for your role">
+              {lockedDepartment}
+            </span>
+          ) : (
+            <SearchSelect
+              value={deptFilter}
+              onChange={setDeptFilter}
+              options={deptFilterOptions}
+              placeholder="All Departments"
+              searchable
+              searchPlaceholder="Search department…"
+              emptyMessage="No departments found"
+              ariaLabel="Filter by department"
+            />
+          )}
         </div>
         <button
           type="button"
           className="rpt-export-btn"
-          onClick={() => exportDeptCsv(tableRows.map((r) => ({
-            department: r.department,
-            visitCount: r.visits,
-            avgDurationMinutes: r.avgMin,
-          })), range.from, range.to)}
-          disabled={loading || !tableRows.length}
+          onClick={() => setExportOpen(true)}
+          disabled={loading || exporting}
         >
           <IconDownload size={14} />
-          Export
+          {exporting ? 'Exporting…' : 'Export'}
         </button>
       </section>
+
+      <ExportReportModal
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        onConfirm={handleExportConfirm}
+        exporting={exporting}
+      />
 
       {loading ? (
         <AppPageLoader label="Loading analytics…" />
@@ -602,23 +853,25 @@ export default function Reports({ session, locationScope }) {
             <KpiCard
               icon={<IconBarChart size={18} />}
               iconClass="green"
-              label="Peak Department"
+              label={deptFilter ? 'Department' : 'Peak Department'}
               value={peakDept?.department ?? '—'}
               sub={peakDept ? `${peakDept.visitCount} visits` : undefined}
             />
             <KpiCard
               icon={<IconMapPin size={18} />}
               iconClass="orange"
-              label="Least Busy Department"
-              value={leastDept?.department ?? '—'}
-              sub={leastDept ? `${leastDept.visitCount} visit${leastDept.visitCount !== 1 ? 's' : ''}` : undefined}
+              label={deptFilter ? 'Department Visits' : 'Least Busy Department'}
+              value={deptFilter ? (peakDept?.department ?? '—') : (leastDept?.department ?? '—')}
+              sub={deptFilter
+                ? (peakDept ? `${peakDept.visitCount} visit${peakDept.visitCount !== 1 ? 's' : ''}` : undefined)
+                : (leastDept ? `${leastDept.visitCount} visit${leastDept.visitCount !== 1 ? 's' : ''}` : undefined)}
             />
             <KpiCard
               icon={<IconUsers size={18} />}
               iconClass="purple"
               label="Active Visitors Now"
               value={String(activeNow)}
-              sub="Across all departments"
+              sub={deptFilter ? `In ${deptFilter}` : 'Across all departments'}
             />
           </section>
 
@@ -642,6 +895,25 @@ export default function Reports({ session, locationScope }) {
               filter={<span className="rpt-chip">By Hour</span>}
             >
               <VisitTrendChart data={trendData} />
+            </PanelCard>
+          </section>
+
+          <section className="rpt-charts-row rpt-charts-row--pair">
+            <PanelCard
+              title="Visitor vs Employee"
+              filter={<span className="rpt-chip">Entry type</span>}
+            >
+              <EntryTypeDonut
+                visitorCount={ratioData.visitorCount}
+                employeeCount={ratioData.employeeCount}
+              />
+            </PanelCard>
+
+            <PanelCard
+              title="Most Repeated Visits"
+              filter={<span className="rpt-chip">2+ visits</span>}
+            >
+              <RepeatedVisitsList rows={frequentVisits} />
             </PanelCard>
           </section>
 

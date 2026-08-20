@@ -129,9 +129,11 @@ export async function searchUsers(q = '') {
  * @param {string} [options.search]   optional search term
  * @returns {Promise<{ content: ManagedUser[], totalElements: number, totalPages: number, page: number }>}
  */
-export async function getManagedUsers({ page = 0, size = 20, search = '' } = {}) {
+export async function getManagedUsers({ page = 0, size = 20, search = '', roleId = null, status = null } = {}) {
   const params = new URLSearchParams({ page: String(page), size: String(size) });
   if (search.trim()) params.set('q', search.trim());
+  if (roleId) params.set('roleId', String(roleId));
+  if (status?.trim()) params.set('status', status.trim());
   return request('GET', `/api/managed-users?${params}`);
 }
 

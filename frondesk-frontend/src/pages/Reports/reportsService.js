@@ -13,10 +13,17 @@ async function api(path) {
   return result.body?.data ?? result.body;
 }
 
-function buildParams(from, to, locationId, allLocations = false) {
+function buildParams(from, to, locationId, allLocations = false, department = '') {
   const p = new URLSearchParams({ from, to });
   buildLocationScopeParams(locationId, allLocations).forEach((v, k) => p.set(k, v));
+  if (department?.trim()) p.set('department', department.trim());
   return p.toString();
+}
+
+function buildScopeParams(locationId, allLocations = false, department = '') {
+  const p = buildLocationScopeParams(locationId, allLocations);
+  if (department?.trim()) p.set('department', department.trim());
+  return p;
 }
 
 export async function getDeptSummary(from, to, locationId = null, allLocations = false) {
@@ -24,8 +31,8 @@ export async function getDeptSummary(from, to, locationId = null, allLocations =
   return Array.isArray(data) ? data : [];
 }
 
-export async function getVisitorRatio(from, to, locationId = null, allLocations = false) {
-  const data = await api(`/api/reports/visitor-ratio?${buildParams(from, to, locationId, allLocations)}`);
+export async function getVisitorRatio(from, to, locationId = null, allLocations = false, department = '') {
+  const data = await api(`/api/reports/visitor-ratio?${buildParams(from, to, locationId, allLocations, department)}`);
   return {
     visitorCount:  data?.visitorCount  ?? 0,
     employeeCount: data?.employeeCount ?? 0,
@@ -45,13 +52,13 @@ export async function getFrequentVisitors(from, to, minVisits = 2, locationId = 
   return Array.isArray(data) ? data : [];
 }
 
-export async function getVisitTrend(from, to, locationId = null, allLocations = false) {
-  const data = await api(`/api/reports/visit-trend?${buildParams(from, to, locationId, allLocations)}`);
+export async function getVisitTrend(from, to, locationId = null, allLocations = false, department = '') {
+  const data = await api(`/api/reports/visit-trend?${buildParams(from, to, locationId, allLocations, department)}`);
   return Array.isArray(data) ? data : [];
 }
 
-export async function getActiveNow(locationId = null, allLocations = false) {
-  const params = buildLocationScopeParams(locationId, allLocations);
+export async function getActiveNow(locationId = null, allLocations = false, department = '') {
+  const params = buildScopeParams(locationId, allLocations, department);
   const qs = params.toString();
   const data = await api(`/api/reports/active-now${qs ? `?${qs}` : ''}`);
   return data?.activeCount ?? data?.count ?? 0;

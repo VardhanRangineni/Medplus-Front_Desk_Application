@@ -2,16 +2,19 @@ package com.medplus.frontdesk_backend.service;
 
 import com.medplus.frontdesk_backend.dto.DeviceMasterDto;
 import com.medplus.frontdesk_backend.dto.EmployeeLookupResponseDto;
+import com.medplus.frontdesk_backend.dto.GroupVisitorMemberDto;
+import com.medplus.frontdesk_backend.dto.GroupVisitorRequestDto;
+import com.medplus.frontdesk_backend.dto.GroupVisitorResponseDto;
 import com.medplus.frontdesk_backend.dto.PagedResponseDto;
 import com.medplus.frontdesk_backend.dto.PersonToMeetDto;
 import com.medplus.frontdesk_backend.dto.StatusCountsDto;
 import com.medplus.frontdesk_backend.dto.UserLookupDto;
+import com.medplus.frontdesk_backend.dto.VisitorListFilterDto;
 import com.medplus.frontdesk_backend.dto.VisitorMovementEventDto;
 import com.medplus.frontdesk_backend.dto.VisitorRequestDto;
 import com.medplus.frontdesk_backend.dto.VisitorResponseDto;
 import com.medplus.frontdesk_backend.model.EntryType;
 import com.medplus.frontdesk_backend.model.GovtIdType;
-import com.medplus.frontdesk_backend.model.UserManagement;
 import com.medplus.frontdesk_backend.model.UserRole;
 import com.medplus.frontdesk_backend.model.VisitStatus;
 import com.medplus.frontdesk_backend.model.VisitType;
@@ -20,6 +23,7 @@ import com.medplus.frontdesk_backend.repository.DeviceMasterRepository;
 import com.medplus.frontdesk_backend.repository.UserRepository;
 import com.medplus.frontdesk_backend.repository.VisitorRepository;
 import com.medplus.frontdesk_backend.security.AuthorizationHelper;
+import com.medplus.frontdesk_backend.util.LegacyLocationResolver;
 import com.medplus.frontdesk_backend.util.WorkstationMacUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,10 +33,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
+import org.springframework.dao.DuplicateKeyException;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -53,6 +61,7 @@ public class VisitorService {
     private final VisitorScanService visitorScanService;
     private final DeviceMasterRepository deviceMasterRepository;
     private final AuthorizationHelper authorizationHelper;
+    private final HostNotifyService hostNotifyService;
 
     public VisitorService(VisitorRepository visitorRepository, UserRepository userRepository,
                           HrmsService hrmsService, VisitPassService visitPassService,
@@ -60,7 +69,8 @@ public class VisitorService {
                           LocationScopeService locationScopeService,
                           VisitorScanService visitorScanService,
                           DeviceMasterRepository deviceMasterRepository,
-                          AuthorizationHelper authorizationHelper) {
+                          AuthorizationHelper authorizationHelper,
+                          HostNotifyService hostNotifyService) {
         this.visitorRepository = visitorRepository;
         this.userRepository = userRepository;
         this.hrmsService = hrmsService;
@@ -70,6 +80,7 @@ public class VisitorService {
         this.visitorScanService = visitorScanService;
         this.deviceMasterRepository = deviceMasterRepository;
         this.authorizationHelper = authorizationHelper;
+        this.hostNotifyService = hostNotifyService;
     }
 
     // ── Create ────────────────────────────────────────────────────────────────
@@ -87,6 +98,11 @@ public class VisitorService {
      * @param existingPreregToken when set (QR check-in from website self-registration),
      *                            skip desk visit-pass SMS — visitor already has the QR.
      */
+    @Retryable(
+        retryFor = { DuplicateKeyException.class },
+        maxAttempts = 3,
+        backoff = @Backoff(delay = 100, multiplier = 2.0)
+    )
     @Transactional
     public VisitorResponseDto checkIn(VisitorRequestDto req, String createdBy, String workstationMac,
                                       String existingPreregToken) {
@@ -98,10 +114,27 @@ public class VisitorService {
         EntryType entryType = parseEntryType(req.getEntryType());
         PersonToMeetDto person = resolvePersonToMeet(req.getPersonToMeetId());
 
-        String entryDepartment = entryType == EntryType.EMPLOYEE
-                && req.getEmployeeDepartment() != null && !req.getEmployeeDepartment().isBlank()
-                ? req.getEmployeeDepartment().trim()
-                : person.getDepartment();
+        // Always store the person-to-meet (host) department — for both visitors and employees.
+        String entryDepartment = person.getDepartment();
+
+        String mobile = req.getMobile() != null ? req.getMobile().trim() : null;
+        String empId = req.getEmpId() != null ? req.getEmpId().trim() : null;
+        // Keep a contact number on employee check-ins for the view/record trail.
+        if (entryType == EntryType.EMPLOYEE && !hasText(mobile) && hasText(empId)) {
+            mobile = hrmsService.lookupByEmployeeId(empId)
+                    .map(UserLookupDto::getPhone)
+                    .map(phone -> {
+                        String normalized = HostNotifyService.normalizeMobile(phone);
+                        if (normalized != null) return normalized;
+                        if (phone == null) return null;
+                        String digits = phone.replaceAll("\\D", "");
+                        return digits.isBlank() ? null : digits;
+                    })
+                    .orElse(null);
+        } else if (hasText(mobile)) {
+            String normalized = HostNotifyService.normalizeMobile(mobile);
+            mobile = normalized != null ? normalized : mobile.replaceAll("\\D", "");
+        }
 
         // Prefer operator's assigned kiosk (desk identity), not only PC MAC.
         var deviceOpt = operationalLocationService.resolveDeskDevice(createdBy, workstationMac);
@@ -112,36 +145,39 @@ public class VisitorService {
         String checkInDeviceId = deviceOpt.map(com.medplus.frontdesk_backend.dto.DeviceMasterDto::getDeviceId)
                 .orElse(null);
 
-        // Generate visitor ID — always INDIVIDUAL now
-        int seq = visitorRepository.nextVisitorSequence(VisitType.INDIVIDUAL);
-        String visitorId = String.format("MED-V-%04d", seq);
+        VisitType visitType = parseVisitTypeForSingle(req.getVisitType());
 
         // Guard: block duplicate active check-ins for the same person at the same location
         visitorRepository.findActiveCheckin(
                 req.getEntryType(),
-                req.getEmpId() != null ? req.getEmpId().trim() : null,
+                empId,
                 req.getName() != null  ? req.getName().trim()  : null,
-                req.getMobile() != null ? req.getMobile().trim() : null,
+                mobile,
                 locationId
         ).ifPresent(existingId -> {
             String who = entryType == EntryType.EMPLOYEE
-                    ? "Employee " + req.getEmpId()
+                    ? "Employee " + empId
                     : req.getName();
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     who + " is already checked in (entry " + existingId + "). " +
                     "Please check out the existing entry before checking in again.");
         });
 
+        String hostPhone = HostNotifyService.normalizeMobile(person.getPhone());
+        boolean needsHostApproval = hostNotifyService.isKeyManagementHost(hostPhone);
+
         Visitor visitor = Visitor.builder()
-                .visitorId(visitorId)
-                .visitType(VisitType.INDIVIDUAL)
+                .visitorId(null)
+                .visitType(visitType)
+                .groupId(null)
                 .entryType(entryType)
                 .name(req.getName().trim())
-                .mobile(req.getMobile() != null ? req.getMobile().trim() : null)
-                .empId(req.getEmpId() != null ? req.getEmpId().trim() : null)
-                .status(VisitStatus.CHECKED_IN)
+                .mobile(mobile)
+                .empId(empId)
+                .status(needsHostApproval ? VisitStatus.PENDING_APPROVAL : VisitStatus.CHECKED_IN)
                 .personToMeet(person.getId())
                 .personName(person.getName())
+                .personToMeetPhone(hostPhone)
                 .department(entryDepartment)
                 .locationId(locationId)
                 .cardNumber(req.getCardNumber())
@@ -162,8 +198,13 @@ public class VisitorService {
         String preregTokenForScan = hasText(existingPreregToken) ? existingPreregToken.trim() : null;
         deviceOpt.ifPresent(device -> visitorScanService.recordCheckInScan(
                 visitor, device, createdBy, workstationMac, preregTokenForScan));
-        log.info("Check-in created: {} ({}) card={} by {}",
-                 visitorId, req.getName(), req.getCardNumber(), createdBy);
+        log.info("Check-in created: {} ({}) card={} by {} status={}",
+                 visitor.getVisitorId(), req.getName(), req.getCardNumber(), createdBy, visitor.getStatus());
+
+        // Key Management host SMS (after commit) when person-to-meet mobile is registered.
+        if (needsHostApproval) {
+            hostNotifyService.notifyIfKeyManagementHost(hostPhone, person.getName());
+        }
 
         VisitorResponseDto response = toResponses(List.of(visitor)).get(0);
 
@@ -183,8 +224,197 @@ public class VisitorService {
         return response;
     }
 
+    /**
+     * Creates a group visit: one MED-GROUP-#### and N MED-GV-#### member rows.
+     * Host approval SMS is sent once for the whole group.
+     */
+    @Retryable(
+        retryFor = { DuplicateKeyException.class },
+        maxAttempts = 3,
+        backoff = @Backoff(delay = 100, multiplier = 2.0)
+    )
+    @Transactional
+    public GroupVisitorResponseDto checkInGroup(GroupVisitorRequestDto req, String createdBy,
+                                                String workstationMac) {
+        authorizationHelper.requireCheckInPermission();
+
+        if (req.getMembers() == null || req.getMembers().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "At least one group member is required.");
+        }
+        if (req.getReasonForVisit() == null || req.getReasonForVisit().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Reason for visit is required.");
+        }
+        if (req.getPersonToMeetId() == null || req.getPersonToMeetId().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Person to meet is required.");
+        }
+        if ("__OTHER__".equals(req.getPersonToMeetId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Person to meet must be verified via HRMS mobile lookup.");
+        }
+
+        EntryType entryType = parseEntryType(req.getEntryType());
+        PersonToMeetDto person = resolvePersonToMeet(req.getPersonToMeetId());
+        String entryDepartment = person.getDepartment();
+
+        var deviceOpt = operationalLocationService.resolveDeskDevice(createdBy, workstationMac);
+        String locationId = deviceOpt
+                .map(com.medplus.frontdesk_backend.dto.DeviceMasterDto::getLocationId)
+                .filter(id -> id != null && !id.isBlank())
+                .orElseGet(() -> operationalLocationService.resolveForUser(createdBy, workstationMac));
+        String checkInDeviceId = deviceOpt.map(com.medplus.frontdesk_backend.dto.DeviceMasterDto::getDeviceId)
+                .orElse(null);
+
+        String hostPhone = HostNotifyService.normalizeMobile(person.getPhone());
+        boolean needsHostApproval = hostNotifyService.isKeyManagementHost(hostPhone);
+        VisitStatus status = needsHostApproval ? VisitStatus.PENDING_APPROVAL : VisitStatus.CHECKED_IN;
+        LocalDateTime now = LocalDateTime.now();
+        String companyName = req.getCompanyName() != null && !req.getCompanyName().isBlank()
+                ? req.getCompanyName().trim() : null;
+        GovtIdType govtIdType = parseGovtIdType(req.getGovtIdType());
+        String govtIdNumber = req.getGovtIdNumber() != null ? req.getGovtIdNumber().trim() : null;
+        String workstation = WorkstationMacUtil.toStoredValue(workstationMac);
+
+        String groupId = String.format("MED-GROUP-%04d", visitorRepository.nextGroupSequence());
+        List<Visitor> created = new ArrayList<>();
+
+        for (GroupVisitorMemberDto member : req.getMembers()) {
+            if (member == null || !hasText(member.getName())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Each group member requires a name.");
+            }
+            String name = member.getName().trim();
+            String empId = hasText(member.getEmpId()) ? member.getEmpId().trim() : null;
+            String mobile = member.getMobile() != null ? member.getMobile().trim() : null;
+
+            if (entryType == EntryType.EMPLOYEE) {
+                if (!hasText(empId)) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "Each employee group member requires an employee ID.");
+                }
+                if (!hasText(mobile)) {
+                    mobile = hrmsService.lookupByEmployeeId(empId)
+                            .map(UserLookupDto::getPhone)
+                            .map(phone -> {
+                                String normalized = HostNotifyService.normalizeMobile(phone);
+                                if (normalized != null) return normalized;
+                                if (phone == null) return null;
+                                String digits = phone.replaceAll("\\D", "");
+                                return digits.isBlank() ? null : digits;
+                            })
+                            .orElse(null);
+                } else {
+                    String normalized = HostNotifyService.normalizeMobile(mobile);
+                    mobile = normalized != null ? normalized : mobile.replaceAll("\\D", "");
+                }
+            } else {
+                if (!hasText(mobile)) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "Each visitor group member requires a mobile number.");
+                }
+                String normalized = HostNotifyService.normalizeMobile(mobile);
+                mobile = normalized != null ? normalized : mobile.replaceAll("\\D", "");
+                empId = null;
+            }
+
+            final String memberEmpId = empId;
+            final String memberMobile = mobile;
+            final String memberName = name;
+            String entryTypeName = entryType.name();
+            visitorRepository.findActiveCheckin(
+                    entryTypeName, memberEmpId, memberName, memberMobile, locationId
+            ).ifPresent(existingId -> {
+                String who = entryType == EntryType.EMPLOYEE ? "Employee " + memberEmpId : memberName;
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        who + " is already checked in (entry " + existingId + "). " +
+                        "Please check out the existing entry before checking in again.");
+            });
+
+            Integer memberCard = member.getCardNumber() != null
+                    ? member.getCardNumber()
+                    : req.getCardNumber();
+            Visitor visitor = Visitor.builder()
+                    .visitorId(null)
+                    .visitType(VisitType.GROUP)
+                    .groupId(groupId)
+                    .entryType(entryType)
+                    .name(memberName)
+                    .mobile(memberMobile)
+                    .empId(memberEmpId)
+                    .status(status)
+                    .personToMeet(person.getId())
+                    .personName(person.getName())
+                    .personToMeetPhone(hostPhone)
+                    .department(entryDepartment)
+                    .locationId(locationId)
+                    .cardNumber(memberCard)
+                    .govtIdType(govtIdType)
+                    .govtIdNumber(govtIdNumber)
+                    .checkInTime(now)
+                    .reasonForVisit(req.getReasonForVisit())
+                    .companyName(companyName)
+                    .createdBy(createdBy)
+                    .workstationMac(workstation)
+                    .checkInDeviceId(checkInDeviceId)
+                    .lastScanDeviceId(checkInDeviceId)
+                    .lastScanAt(checkInDeviceId != null ? now : null)
+                    .build();
+
+            visitorRepository.insertVisitor(visitor);
+            deviceOpt.ifPresent(device -> visitorScanService.recordCheckInScan(
+                    visitor, device, createdBy, workstationMac, null));
+            created.add(visitor);
+            log.info("Group check-in member: {} group={} ({}) by {}",
+                    visitor.getVisitorId(), groupId, name, createdBy);
+        }
+
+        // One host SMS for the whole group.
+        if (needsHostApproval) {
+            hostNotifyService.notifyIfKeyManagementHost(hostPhone, person.getName());
+        }
+
+        List<VisitorResponseDto> memberDtos = toResponses(created);
+        for (int i = 0; i < created.size(); i++) {
+            Visitor visitor = created.get(i);
+            VisitorResponseDto dto = memberDtos.get(i);
+            if (visitPassService.isEligible(visitor)) {
+                String passToken = visitPassService.initiateDeskWalkInPass(visitor);
+                dto.setVisitPassToken(passToken);
+                dto.setVisitPassSmsStatus("PENDING");
+                dto.setVisitPassMessage("Visit pass is being sent to the visitor's mobile.");
+            } else {
+                dto.setVisitPassSmsStatus("SKIPPED");
+            }
+        }
+
+        return GroupVisitorResponseDto.builder()
+                .groupId(groupId)
+                .members(memberDtos)
+                .build();
+    }
+
     private static boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    /** Single-entry check-in only supports INDIVIDUAL (use /group for GROUP). */
+    private static VisitType parseVisitTypeForSingle(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return VisitType.INDIVIDUAL;
+        }
+        try {
+            VisitType type = VisitType.valueOf(raw.trim().toUpperCase());
+            if (type == VisitType.GROUP) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Use POST /api/visitors/group for group visits.");
+            }
+            return type;
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Invalid visitType '" + raw + "'. Must be INDIVIDUAL or GROUP.");
+        }
     }
 
     // ── Read ──────────────────────────────────────────────────────────────────
@@ -238,19 +468,27 @@ public class VisitorService {
                                                            String department,
                                                            String status,
                                                            String createdByParam,
+                                                           String entryType,
+                                                           String name,
+                                                           String contactQuery,
+                                                           String personToMeet,
+                                                           String cardNumber,
                                                            int page, int size,
                                                            String workstationMac,
                                                            Authentication auth) {
-        String dept       = blankToNull(department);
+        String dept       = resolveDepartmentFilter(blankToNull(department), auth);
         String dbStatus   = labelToDbStatus(status);
         String createdBy  = resolveCreatedByFilter(callerEmployeeId, createdByParam, auth);
         int    offset     = page * size;
+        VisitorListFilterDto columnFilters = VisitorListFilterDto.of(
+                entryType, name, contactQuery, personToMeet, cardNumber);
 
         String locationId = locationScopeService.resolveReadScope(
                 callerEmployeeId, workstationMac, auth, locationIdParam, allLocations);
         List<Visitor> rows  = visitorRepository.findPaged(
-                locationId, from, to, dept, dbStatus, createdBy, offset, size);
-        long total = visitorRepository.countFiltered(locationId, from, to, dept, dbStatus, createdBy);
+                locationId, from, to, dept, dbStatus, createdBy, columnFilters, offset, size);
+        long total = visitorRepository.countFiltered(
+                locationId, from, to, dept, dbStatus, createdBy, columnFilters);
         return PagedResponseDto.of(toResponses(rows), page, size, total);
     }
 
@@ -267,24 +505,33 @@ public class VisitorService {
                                                               String department,
                                                               String status,
                                                               String createdByParam,
+                                                              String entryType,
+                                                              String name,
+                                                              String contactQuery,
+                                                              String personToMeet,
+                                                              String cardNumber,
                                                               int page, int size,
                                                               String workstationMac,
                                                               Authentication auth) {
         if (query == null || query.isBlank()) {
             return getEntries(callerEmployeeId, from, to, locationIdParam, allLocations, department, status,
-                    createdByParam, page, size, workstationMac, auth);
+                    createdByParam, entryType, name, contactQuery, personToMeet, cardNumber,
+                    page, size, workstationMac, auth);
         }
 
-        String dept      = blankToNull(department);
+        String dept      = resolveDepartmentFilter(blankToNull(department), auth);
         String dbStatus  = labelToDbStatus(status);
         String createdBy = resolveCreatedByFilter(callerEmployeeId, createdByParam, auth);
         int    offset    = page * size;
+        VisitorListFilterDto columnFilters = VisitorListFilterDto.of(
+                entryType, name, contactQuery, personToMeet, cardNumber);
 
         String locationId = locationScopeService.resolveReadScope(
                 callerEmployeeId, workstationMac, auth, locationIdParam, allLocations);
         List<Visitor> rows = visitorRepository.searchPaged(
-                locationId, from, to, query, dept, dbStatus, createdBy, offset, size);
-        long total = visitorRepository.countSearch(locationId, from, to, query, dept, dbStatus, createdBy);
+                locationId, from, to, query, dept, dbStatus, createdBy, columnFilters, offset, size);
+        long total = visitorRepository.countSearch(
+                locationId, from, to, query, dept, dbStatus, createdBy, columnFilters);
         return PagedResponseDto.of(toResponses(rows), page, size, total);
     }
 
@@ -314,10 +561,17 @@ public class VisitorService {
                                                      Authentication auth) {
         String locationId = locationScopeService.resolveReadScope(
                 callerEmployeeId, workstationMac, auth, locationIdParam, allLocations);
+        String dept = resolveDepartmentFilter(null, auth);
         if (locationId == null) {
-            return toResponses(visitorRepository.findRecentAll(20));
+            return toResponses(
+                    dept != null
+                            ? visitorRepository.findRecentByDepartment(dept, 20)
+                            : visitorRepository.findRecentAll(20));
         }
-        return toResponses(visitorRepository.findRecent(locationId, 20));
+        return toResponses(
+                dept != null
+                        ? visitorRepository.findRecentByLocationAndDepartment(locationId, dept, 20)
+                        : visitorRepository.findRecent(locationId, 20));
     }
 
     /**
@@ -344,12 +598,13 @@ public class VisitorService {
                             String locationIdParam, Boolean allLocations, String department,
                             String workstationMac, Authentication auth) {
         LocalDate exportDate = date != null ? date : LocalDate.now();
-        String    dept       = (department != null && !department.isBlank()) ? department : null;
+        String    dept       = resolveDepartmentFilter(
+                (department != null && !department.isBlank()) ? department : null, auth);
 
         String locationId = locationScopeService.resolveReadScope(
                 callerEmployeeId, workstationMac, auth, locationIdParam, allLocations);
         List<Visitor> rows = visitorRepository.findPaged(
-                locationId, exportDate, exportDate, dept, null, null, 0, Integer.MAX_VALUE);
+                locationId, exportDate, exportDate, dept, null, null, null, 0, Integer.MAX_VALUE);
 
         List<VisitorResponseDto> entries = toResponses(rows);
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm");
@@ -400,17 +655,25 @@ public class VisitorService {
         Visitor existing = visitorRepository.findById(visitorId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Visitor entry not found: " + visitorId));
-        assertCanMutateEntry(existing, callerEmployeeId, workstationMac, auth);
+        assertCanEditEntry(existing, callerEmployeeId, workstationMac, auth);
 
         validateVisitRequest(req);
 
         PersonToMeetDto person = resolvePersonToMeet(req.getPersonToMeetId());
 
         existing.setName(req.getName().trim());
-        existing.setMobile(req.getMobile() != null ? req.getMobile().trim() : null);
+        String updateMobile = req.getMobile() != null ? req.getMobile().trim() : null;
+        if (hasText(updateMobile)) {
+            String normalized = HostNotifyService.normalizeMobile(updateMobile);
+            existing.setMobile(normalized != null ? normalized : updateMobile.replaceAll("\\D", ""));
+        } else if (existing.getEntryType() != EntryType.EMPLOYEE) {
+            existing.setMobile(null);
+        }
+        // Employee edits without mobile keep the stored contact number.
         existing.setEmpId(req.getEmpId() != null ? req.getEmpId().trim() : null);
         existing.setPersonToMeet(person.getId());
         existing.setPersonName(person.getName());
+        existing.setPersonToMeetPhone(HostNotifyService.normalizeMobile(person.getPhone()));
         existing.setDepartment(person.getDepartment());
         existing.setCardNumber(req.getCardNumber());
         existing.setGovtIdType(parseGovtIdType(req.getGovtIdType()));
@@ -418,7 +681,8 @@ public class VisitorService {
         existing.setReasonForVisit(req.getReasonForVisit());
         existing.setCompanyName(req.getCompanyName() != null && !req.getCompanyName().isBlank()
                 ? req.getCompanyName().trim() : null);
-        existing.setCreatedBy(callerEmployeeId);
+        // Preserve original creator; audit the editor separately.
+        existing.setModifiedBy(callerEmployeeId);
 
         visitorRepository.updateVisitor(existing);
         log.info("Entry updated: {} by {}", visitorId, callerEmployeeId);
@@ -444,6 +708,14 @@ public class VisitorService {
         if (existing.getStatus() == VisitStatus.CHECKED_OUT) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Entry is already checked out: " + visitorId);
+        }
+        if (existing.getStatus() == VisitStatus.REJECTED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Rejected entries cannot be checked out: " + visitorId);
+        }
+        if (!existing.getStatus().isOnSite()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Only on-site entries can be checked out: " + visitorId);
         }
 
         LocalDateTime now = LocalDateTime.now();
@@ -571,6 +843,24 @@ public class VisitorService {
     }
 
     /**
+     * DEPT_HEAD: automatically scoped to their own department (from usermanagement).
+     * Even if the frontend sends a different department, it is ignored.
+     * For all other roles: use the filter value as-is (may be null = no filter).
+     */
+    private String resolveDepartmentFilter(String deptFromUi, Authentication auth) {
+        if (authorizationHelper.isDeptHead(auth)) {
+            String callerEmpId = auth.getName();
+            String callerDept = authorizationHelper.getUserDepartment(callerEmpId);
+            if (StringUtils.hasText(callerDept)) {
+                return callerDept;
+            }
+            // Fallback: if department not configured in usermanagement, no filter.
+            log.warn("DEPT_HEAD {} has no department in usermanagement — skipping department filter", callerEmpId);
+        }
+        return deptFromUi;
+    }
+
+    /**
      * Resolves createdBy filter for list/search:
      * - Receptionist may only filter to their own employee ID.
      * - Admins may filter to any staff ID (or omit for all).
@@ -600,9 +890,10 @@ public class VisitorService {
     private static String labelToDbStatus(String label) {
         if (label == null) return null;
         return switch (label.toLowerCase()) {
-            case "checked-in"  -> "CHECKED_IN";
+            case "checked-in", "pending-approval", "approved" -> "CHECKED_IN";
             case "checked-out" -> "CHECKED_OUT";
-            default            -> null;
+            case "rejected" -> "REJECTED";
+            default -> null;
         };
     }
 
@@ -612,42 +903,63 @@ public class VisitorService {
     }
 
     /**
-     * Mutation access rules for visitor entries:
-     * - PRIMARY_ADMIN: can mutate any entry.
-     * - REGIONAL_ADMIN: can mutate own entries OR entries created by receptionists they created.
-     * - RECEPTIONIST: entries they created, or entries checked in on this workstation (shift handoff).
+     * Edit access: checked-in only, plus same location rules as checkout.
+     */
+    private void assertCanEditEntry(Visitor existing, String callerEmployeeId,
+                                    String callerWorkstationMac, Authentication auth) {
+        if (!existing.getStatus().isOnSite()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Only on-site (pending or checked-in) entries can be edited.");
+        }
+        assertCanMutateEntry(existing, callerEmployeeId, callerWorkstationMac, auth);
+    }
+
+    /**
+     * Mutation access (checkout + edit location gate):
+     * PRIMARY_ADMIN may act on any entry.
+     * REGIONAL_ADMIN may act on entries at their assigned locations.
+     * DEPT_HEAD is view-only — no mutation allowed.
+     * Others (RECEPTIONIST) must match the entry location (operational / kiosk location).
      */
     private void assertCanMutateEntry(Visitor existing, String callerEmployeeId,
                                       String callerWorkstationMac, Authentication auth) {
         if (auth == null) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied.");
         }
-        String entryCreator = existing.getCreatedBy();
-        if (entryCreator == null || entryCreator.isBlank()) {
-            if (hasRole(auth, "ROLE_PRIMARY_ADMIN")) return;
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Action blocked. Entry has no creator mapping.");
-        }
-
-        if (hasRole(auth, "ROLE_PRIMARY_ADMIN")) return;
-
-        if (hasRole(auth, "ROLE_REGIONAL_ADMIN")) {
-            if (entryCreator.equalsIgnoreCase(callerEmployeeId)) return;
-            UserManagement creator = userRepository.findByEmployeeId(entryCreator).orElse(null);
-            String creatorAdmin = creator != null ? creator.getCreatedBy() : null;
-            if (creatorAdmin != null && creatorAdmin.equalsIgnoreCase(callerEmployeeId)) return;
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Access denied. You can only act on entries by users you created.");
-        }
-
-        if (entryCreator.equalsIgnoreCase(callerEmployeeId)) {
+        if (hasRole(auth, "ROLE_PRIMARY_ADMIN")) {
             return;
         }
-        if (WorkstationMacUtil.matches(existing.getWorkstationMac(), callerWorkstationMac)) {
+
+        // DEPT_HEAD is view-only — cannot check out or edit entries
+        if (authorizationHelper.isDeptHead(auth)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Department heads have view-only access and cannot modify entries.");
+        }
+
+        String entryLocation = LegacyLocationResolver.resolve(existing.getLocationId());
+        if (!StringUtils.hasText(entryLocation)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Access denied. Entry has no location mapping.");
+        }
+
+        if (hasRole(auth, "ROLE_REGIONAL_ADMIN")) {
+            List<String> allowed = userRepository.findLocationIdsByEmployeeId(callerEmployeeId);
+            boolean ok = allowed.stream().anyMatch(id ->
+                    entryLocation.equalsIgnoreCase(LegacyLocationResolver.resolve(id)));
+            if (ok) {
+                return;
+            }
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Access denied. You can only check out entries at your assigned locations.");
+        }
+
+        String callerLocation = LegacyLocationResolver.resolve(
+                operationalLocationService.resolveForUser(callerEmployeeId, callerWorkstationMac));
+        if (entryLocation.equalsIgnoreCase(callerLocation)) {
             return;
         }
         throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                "Access denied. You can only act on entries from your desk or that you created.");
+                "Access denied. You can only check out entries at your location.");
     }
 
     private static boolean hasRole(Authentication auth, String role) {
@@ -738,9 +1050,13 @@ public class VisitorService {
                 .govtIdType(v.getGovtIdType() != null ? v.getGovtIdType().name() : null)
                 .govtIdNumber(v.getGovtIdNumber())
                 .visitType(v.getVisitType() != null ? v.getVisitType().name() : null)
+                .groupId(v.getGroupId())
                 .checkIn(v.getCheckInTime())
                 .checkOut(v.getCheckOutTime())
                 .reasonForVisit(v.getReasonForVisit())
+                .approvedAt(v.getApprovedAt())
+                .rejectedAt(v.getRejectedAt())
+                .rejectionRemarks(v.getRejectionRemarks())
                 .companyName(v.getCompanyName())
                 .createdBy(v.getCreatedBy())
                 .workstationMac(v.getWorkstationMac())

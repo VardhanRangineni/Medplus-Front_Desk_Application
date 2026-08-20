@@ -28,5 +28,7 @@ public class LoginResponseDto {
     private List<String> locationIds;
     private String deviceId;
     private String deviceName;
+    /** Department of the user — meaningful for DEPT_HEAD role to scope queries. */
+    private String department;
     private long expiresIn;
 }

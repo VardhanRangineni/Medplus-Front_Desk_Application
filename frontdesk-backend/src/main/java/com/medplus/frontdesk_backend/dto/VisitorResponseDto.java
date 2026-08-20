@@ -54,9 +54,21 @@ public class VisitorResponseDto {
     /** e.g. "INDIVIDUAL", "GROUP" */
     private String visitType;
 
+    /** Shared MED-GROUP-#### for group members; null for individual. */
+    private String groupId;
+
     private LocalDateTime checkIn;
     private LocalDateTime checkOut;
     private String        reasonForVisit;
+
+    /** Host approved the pending visit (Key Management). */
+    private LocalDateTime approvedAt;
+
+    /** Host rejected the pending visit (Key Management). */
+    private LocalDateTime rejectedAt;
+
+    /** Host rejection note when status is rejected. */
+    private String        rejectionRemarks;
 
     /** Company or organisation the visitor is representing — null if not applicable. */
     private String        companyName;

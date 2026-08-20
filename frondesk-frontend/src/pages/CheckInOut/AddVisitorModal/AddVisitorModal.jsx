@@ -7,21 +7,20 @@ import {
   IconMail,
   IconCreditCard,
   IconBuilding,
+  IconPlus,
+  IconTrash,
 } from '../../../components/Icons/Icons';
 import {
   sendOtp,
   verifyOtp,
   createVisitorEntry,
-  updateVisitorEntry,
+  createGroupVisitorEntries,
 } from './addVisitorService';
 import PersonToMeetMobileLookup from '../PersonToMeetMobileLookup';
 import { PRESET_REASONS } from '../../../constants/visitReasons';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-const AADHAAR_REGEX       = /^\d{12}$/;
-const OTP_RESEND_SECONDS  = 30;
-
-// ─── Shared primitives ────────────────────────────────────────────────────────
+const AADHAAR_REGEX = /^\d{12}$/;
+const OTP_RESEND_SECONDS = 30;
 
 function Field({ label, required, children, error }) {
   return (
@@ -47,32 +46,52 @@ function InputWithIcon({ icon, inputRef, ...props }) {
   );
 }
 
-// ─── Step 0 — OTP verification ────────────────────────────────────────────────
-//
-// Props:
-//   mobile          – current mobile string (controlled by parent)
-//   onMobileChange  – setter for mobile
-//   verified        – boolean from parent (survives step navigation)
-//   onVerified      – called with (mobile) when OTP is confirmed
-//   onChangeNumber  – called when user wants to re-enter mobile (resets verified)
-//
-function StepOtp({ mobile, onMobileChange, verified, onVerified, onChangeNumber }) {
-  const [otpSent,      setOtpSent]      = useState(false);
-  const [otp,          setOtp]          = useState('');
-  const [sending,      setSending]      = useState(false);
-  const [verifying,    setVerifying]    = useState(false);
-  const [otpError,     setOtpError]     = useState('');
-  const [sendError,    setSendError]    = useState('');
-  const [countdown,    setCountdown]    = useState(0);
+function VisitModeToggle({ isGroup, onChange, disabled }) {
+  return (
+    <div className="avm-mode-toggle">
+      <div className="avm-mode-seg" role="group" aria-label="Visit type">
+        <button
+          type="button"
+          className={`avm-mode-seg__btn${!isGroup ? ' avm-mode-seg__btn--active' : ''}`}
+          aria-pressed={!isGroup}
+          disabled={disabled}
+          onClick={() => onChange(false)}
+        >
+          Individual
+        </button>
+        <button
+          type="button"
+          className={`avm-mode-seg__btn${isGroup ? ' avm-mode-seg__btn--active' : ''}`}
+          aria-pressed={isGroup}
+          disabled={disabled}
+          onClick={() => onChange(true)}
+        >
+          Group Visit
+        </button>
+      </div>
+      <p className="avm-mode-toggle__hint">
+        {isGroup
+          ? 'Add multiple visitors. Each mobile must be OTP-verified. Shared details apply to all.'
+          : 'Single visitor. Name and mobile verified first, then visit details.'}
+      </p>
+    </div>
+  );
+}
+
+function useOtpControls(mobile, verified, onVerified) {
+  const [otpSent, setOtpSent] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [sending, setSending] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [otpError, setOtpError] = useState('');
+  const [sendError, setSendError] = useState('');
+  const [countdown, setCountdown] = useState(0);
   const [sentToMobile, setSentToMobile] = useState('');
-
   const otpInputRef = useRef(null);
-  const timerRef    = useRef(null);
+  const timerRef = useRef(null);
 
-  // Cleanup timer on unmount
   useEffect(() => () => { if (timerRef.current) clearInterval(timerRef.current); }, []);
 
-  // If the mobile changes after OTP was sent (but not yet verified), reset the OTP step
   useEffect(() => {
     if (mobile !== sentToMobile && otpSent) {
       setOtpSent(false);
@@ -96,7 +115,7 @@ function StepOtp({ mobile, onMobileChange, verified, onVerified, onChangeNumber 
   }
 
   async function handleSendOtp() {
-    if (mobile.length < 10 || sending) return;
+    if (mobile.length < 10 || sending || verified) return;
     setSending(true);
     setSendError('');
     setOtpError('');
@@ -118,13 +137,8 @@ function StepOtp({ mobile, onMobileChange, verified, onVerified, onChangeNumber 
     }
   }
 
-  async function handleResend() {
-    if (countdown > 0 || sending) return;
-    await handleSendOtp();
-  }
-
   async function handleVerify() {
-    if (otp.length !== 5 || verifying) return;
+    if (otp.length !== 5 || verifying || verified) return;
     setVerifying(true);
     setOtpError('');
     try {
@@ -132,7 +146,7 @@ function StepOtp({ mobile, onMobileChange, verified, onVerified, onChangeNumber 
       if (res.verified) {
         if (timerRef.current) clearInterval(timerRef.current);
         setCountdown(0);
-        onVerified(mobile);
+        onVerified?.(mobile);
       } else {
         setOtpError(res.message || 'Invalid OTP. Please try again.');
       }
@@ -143,22 +157,30 @@ function StepOtp({ mobile, onMobileChange, verified, onVerified, onChangeNumber 
     }
   }
 
+  function resetOtpUi() {
+    setOtpSent(false);
+    setOtp('');
+    setOtpError('');
+    setSendError('');
+    setCountdown(0);
+    setSentToMobile('');
+    if (timerRef.current) clearInterval(timerRef.current);
+  }
+
+  return {
+    otpSent, otp, setOtp, sending, verifying, otpError, setOtpError,
+    sendError, countdown, otpInputRef,
+    handleSendOtp, handleVerify, resetOtpUi,
+  };
+}
+
+function MobileOtpBlock({
+  mobile, onMobileChange, verified, onVerified, onChangeNumber, disabled,
+}) {
+  const otp = useOtpControls(mobile, verified, onVerified);
+
   return (
-    <div className="avm-step">
-
-      {/* Intro block */}
-      <div className="avm-otp-intro">
-        <div className="avm-otp-intro__icon">
-          <IconPhone size={26} />
-        </div>
-        <p className="avm-otp-intro__title">Verify Visitor's Mobile</p>
-        <p className="avm-otp-intro__sub">
-          Enter the visitor's mobile number. An OTP will be sent to confirm identity
-          before proceeding to fill the details.
-        </p>
-      </div>
-
-      {/* Mobile input row */}
+    <>
       <Field label="Mobile Number" required>
         <div className="avm-side-by-side">
           <InputWithIcon
@@ -168,113 +190,214 @@ function StepOtp({ mobile, onMobileChange, verified, onVerified, onChangeNumber 
             placeholder="10-digit mobile number"
             value={mobile}
             maxLength={10}
-            disabled={verified}
+            disabled={verified || disabled}
             onChange={(e) => onMobileChange(e.target.value.replace(/\D/g, '').slice(0, 10))}
           />
           {!verified && (
             <button
               type="button"
-              className={`avm-otp-btn${otpSent && countdown > 0 ? ' avm-otp-btn--waiting' : ''}`}
-              onClick={otpSent ? handleResend : handleSendOtp}
-              disabled={mobile.length < 10 || sending || (otpSent && countdown > 0)}
+              className={`avm-otp-btn${otp.otpSent && otp.countdown > 0 ? ' avm-otp-btn--waiting' : ''}`}
+              onClick={otp.otpSent && otp.countdown === 0 ? otp.handleSendOtp : otp.handleSendOtp}
+              disabled={mobile.length < 10 || otp.sending || (otp.otpSent && otp.countdown > 0) || disabled}
             >
-              {sending
+              {otp.sending
                 ? 'Sending…'
-                : otpSent
-                  ? (countdown > 0 ? `Resend (${countdown}s)` : 'Resend OTP')
+                : otp.otpSent
+                  ? (otp.countdown > 0 ? `Resend (${otp.countdown}s)` : 'Resend OTP')
                   : 'Send OTP'}
             </button>
           )}
         </div>
       </Field>
 
-      {/* Send error banner — shown prominently when OTP dispatch fails */}
-      {sendError && (
+      {otp.sendError && (
         <div className="avm-send-error-banner" role="alert">
-          <span className="avm-send-error-banner__icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <circle cx="8" cy="8" r="8" fill="#b91c1c" />
-              <rect x="7.2" y="4" width="1.6" height="5.2" rx="0.8" fill="#fff" />
-              <rect x="7.2" y="10.4" width="1.6" height="1.6" rx="0.8" fill="#fff" />
-            </svg>
-          </span>
-          {sendError}
+          {otp.sendError}
         </div>
       )}
 
-      {/* OTP input row — shown only after OTP is sent and not yet verified */}
-      {otpSent && !verified && (
+      {otp.otpSent && !verified && (
         <Field label="One-Time Password">
           <div className="avm-side-by-side">
             <input
-              ref={otpInputRef}
+              ref={otp.otpInputRef}
               className="avm-input avm-input--otp"
               type="text"
               inputMode="numeric"
               placeholder="_ _ _ _ _"
-              value={otp}
+              value={otp.otp}
               maxLength={5}
               autoComplete="one-time-code"
-              onChange={(e) => { setOtpError(''); setOtp(e.target.value.replace(/\D/g, '').slice(0, 5)); }}
-              onKeyDown={(e) => { if (e.key === 'Enter' && otp.length === 5) handleVerify(); }}
+              disabled={disabled}
+              onChange={(e) => {
+                otp.setOtpError('');
+                otp.setOtp(e.target.value.replace(/\D/g, '').slice(0, 5));
+              }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && otp.otp.length === 5) otp.handleVerify(); }}
             />
             <button
               type="button"
               className="avm-otp-btn"
-              onClick={handleVerify}
-              disabled={otp.length !== 5 || verifying}
+              onClick={otp.handleVerify}
+              disabled={otp.otp.length !== 5 || otp.verifying || disabled}
             >
-              {verifying ? 'Verifying…' : 'Verify OTP'}
+              {otp.verifying ? 'Verifying…' : 'Verify OTP'}
             </button>
           </div>
-          {otpError && <p className="avm-error" style={{ marginTop: 4 }}>{otpError}</p>}
+          {otp.otpError && <p className="avm-error" style={{ marginTop: 4 }}>{otp.otpError}</p>}
         </Field>
       )}
 
-      {/* Verified banner */}
       {verified && (
         <div className="avm-verified">
           <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
             <circle cx="11" cy="11" r="11" fill="#28883d" />
             <path d="M6 11.5L9.5 15L16 8" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: 13, color: '#28883d' }}>Mobile Verified</div>
-            <div style={{ fontSize: 11.5, color: '#3da85a', marginTop: 1 }}>
-              +91 {mobile} · Proceed to fill visitor details.
-            </div>
+          <div className="avm-verified__text">
+            <div className="avm-verified__title">Mobile Verified</div>
+            <div className="avm-verified__sub">+91 {mobile}</div>
           </div>
-          <button type="button" className="avm-btn-link" onClick={onChangeNumber}>
-            Change
+          {onChangeNumber && (
+            <button
+              type="button"
+              className="avm-btn-link avm-verified__change"
+              onClick={() => { otp.resetOtpUi(); onChangeNumber(); }}
+              disabled={disabled}
+            >
+              Change
+            </button>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+function StepIdentity({
+  isGroup,
+  fullName, onFullNameChange,
+  mobile, onMobileChange, verified, onVerified, onChangeNumber,
+  cardNumber, onCardNumberChange,
+  members, onMemberChange, onAddMember, onRemoveMember,
+}) {
+  return (
+    <div className="avm-step">
+      <div className="avm-otp-intro">
+        <div className="avm-otp-intro__icon">
+          <IconPhone size={26} />
+        </div>
+        <p className="avm-otp-intro__title">
+          {isGroup ? 'Add Group Visitors' : "Verify Visitor's Mobile"}
+        </p>
+        <p className="avm-otp-intro__sub">
+          {isGroup
+            ? 'Enter name, mobile, and card for each visitor. OTP must be verified for every number before continuing.'
+            : 'Enter the visitor name, mobile, and card number. An OTP will be sent to confirm identity.'}
+        </p>
+      </div>
+
+      {!isGroup && (
+        <>
+          <Field label="Full Name" required>
+            <InputWithIcon
+              icon={<IconUser size={14} />}
+              type="text"
+              placeholder="John Doe"
+              value={fullName}
+              onChange={(e) => onFullNameChange(e.target.value)}
+              disabled={verified}
+            />
+          </Field>
+          <MobileOtpBlock
+            mobile={mobile}
+            onMobileChange={onMobileChange}
+            verified={verified}
+            onVerified={onVerified}
+            onChangeNumber={onChangeNumber}
+          />
+          <Field label="Visitor ID Card Number" required>
+            <InputWithIcon
+              icon={<IconCreditCard size={14} />}
+              type="text"
+              inputMode="numeric"
+              placeholder="Enter printed card number"
+              value={cardNumber}
+              onChange={(e) => onCardNumberChange(e.target.value.replace(/\D/g, ''))}
+            />
+          </Field>
+        </>
+      )}
+
+      {isGroup && (
+        <div className="avm-member-list">
+          {members.map((m, idx) => (
+            <div key={m.key} className="avm-member-card">
+              <div className="avm-member-card__head">
+                <span className="avm-member-card__title">Visitor {idx + 1}</span>
+                {members.length > 1 && (
+                  <button
+                    type="button"
+                    className="avm-member-card__remove"
+                    onClick={() => onRemoveMember(m.key)}
+                    aria-label={`Remove visitor ${idx + 1}`}
+                    disabled={m.verified}
+                    title="Remove"
+                  >
+                    <IconTrash size={14} />
+                  </button>
+                )}
+              </div>
+              <Field label="Full Name" required>
+                <InputWithIcon
+                  icon={<IconUser size={14} />}
+                  type="text"
+                  placeholder="John Doe"
+                  value={m.fullName}
+                  disabled={m.verified}
+                  onChange={(e) => onMemberChange(m.key, { fullName: e.target.value })}
+                />
+              </Field>
+              <MobileOtpBlock
+                mobile={m.mobile}
+                onMobileChange={(v) => onMemberChange(m.key, { mobile: v, verified: false })}
+                verified={m.verified}
+                onVerified={() => onMemberChange(m.key, { verified: true })}
+                onChangeNumber={() => onMemberChange(m.key, { verified: false, mobile: '' })}
+              />
+              <Field label="Visitor ID Card Number" required>
+                <InputWithIcon
+                  icon={<IconCreditCard size={14} />}
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="Enter printed card number"
+                  value={m.cardNumber}
+                  onChange={(e) => onMemberChange(m.key, {
+                    cardNumber: e.target.value.replace(/\D/g, ''),
+                  })}
+                />
+              </Field>
+            </div>
+          ))}
+          <button type="button" className="avm-add-member" onClick={onAddMember}>
+            <IconPlus size={14} />
+            Add visitor
           </button>
         </div>
       )}
-
     </div>
   );
 }
 
-// ─── Step 1 — Visitor details ──────────────────────────────────────────────────
 function StepDetails({ state, dispatch }) {
   const {
-    fullName, email, govtIdNumber,
-    personToMeet, personToMeetCustom, reasonForVisit, cardNumber,
+    email, govtIdNumber,
+    personToMeet, personToMeetCustom, reasonForVisit,
     representsCompany, companyName,
   } = state;
 
   return (
     <div className="avm-step">
-
-      <Field label="Full Name" required>
-        <InputWithIcon
-          icon={<IconUser size={14} />}
-          type="text"
-          placeholder="John Doe"
-          value={fullName}
-          onChange={(e) => dispatch({ type: 'SET_FIELD', field: 'fullName', value: e.target.value })}
-        />
-      </Field>
-
       <Field label="Email (Optional)">
         <InputWithIcon
           icon={<IconMail size={14} />}
@@ -308,7 +431,6 @@ function StepDetails({ state, dispatch }) {
         onChange={(updates) => dispatch({ type: 'SET_PERSON_TO_MEET_BULK', ...updates })}
       />
 
-      {/* ── Company representation ─────────────────────────────────────── */}
       <Field label="Representing a Company?">
         <div className="avm-toggle-row">
           <label className="avm-toggle-label" htmlFor="avm-company-toggle">
@@ -362,114 +484,139 @@ function StepDetails({ state, dispatch }) {
           }
         />
       </Field>
-
-      <Field label="Visitor ID Card Number" required>
-        <InputWithIcon
-          icon={<IconCreditCard size={14} />}
-          type="text"
-          inputMode="numeric"
-          placeholder="Enter printed card number"
-          value={cardNumber}
-          onChange={(e) =>
-            dispatch({ type: 'SET_FIELD', field: 'cardNumber', value: e.target.value })
-          }
-        />
-      </Field>
-
     </div>
   );
 }
 
-// ─── Step definitions ─────────────────────────────────────────────────────────
 const STEPS = [
-  { label: 'Verify Mobile' },
+  { label: 'Identity' },
   { label: 'Visitor Details' },
 ];
 
-// ─── Initial detail-form state ────────────────────────────────────────────────
 const initialDetails = {
-  fullName:           '',
-  email:              '',
-  govtIdNumber:       '',
-  personToMeet:       '',
+  email: '',
+  govtIdNumber: '',
+  personToMeet: '',
   personToMeetCustom: '',
-  hostDepartment:     '',
-  reasonForVisit:     '',
-  cardNumber:         '',
-  representsCompany:  false,
-  companyName:        '',
+  hostDepartment: '',
+  reasonForVisit: '',
+  representsCompany: false,
+  companyName: '',
 };
 
-// ─── Main component ───────────────────────────────────────────────────────────
+let memberKeySeq = 1;
+function newMember() {
+  return { key: `m-${memberKeySeq++}`, fullName: '', mobile: '', cardNumber: '', verified: false };
+}
+
 export default function AddVisitorModal({ onClose, onSuccess }) {
-
-  // ── Wizard state ─────────────────────────────────────────────────────────
-  const [step,           setStep]          = useState(0);          // 0 = OTP, 1 = Details
-  const [mobile,         setMobile]        = useState('');
+  const [isGroup, setIsGroup] = useState(false);
+  const [step, setStep] = useState(0);
+  const [fullName, setFullName] = useState('');
+  const [mobile, setMobile] = useState('');
   const [mobileVerified, setMobileVerified] = useState(false);
-
-  // ── Detail-form state ─────────────────────────────────────────────────────
-  const [details,          setDetails]         = useState(initialDetails);
-  const [submitting,       setSubmitting]       = useState(false);
-  const [submitError,      setSubmitError]      = useState('');
+  const [cardNumber, setCardNumber] = useState('');
+  const [members, setMembers] = useState([newMember()]);
+  const [details, setDetails] = useState(initialDetails);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; });
 
-  // Escape key handler
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, []);
 
-  // ── Detail-form dispatcher ────────────────────────────────────────────────
   function dispatch(action) {
     switch (action.type) {
       case 'SET_FIELD':
         setDetails((s) => ({ ...s, [action.field]: action.value }));
         break;
-
       case 'SET_PERSON_TO_MEET_BULK': {
         const { type: _t, ...updates } = action;
         setDetails((s) => ({ ...s, ...updates }));
         break;
       }
-
       default:
         break;
     }
   }
 
-  // ── Form validity for step 1 ──────────────────────────────────────────────
-  const detailsValid = details.fullName.trim() !== ''
-    && details.personToMeet.trim() !== ''
+  function handleModeChange(nextIsGroup) {
+    if (nextIsGroup === isGroup) return;
+    setIsGroup(nextIsGroup);
+    setStep(0);
+    setSubmitError('');
+    setFullName('');
+    setMobile('');
+    setMobileVerified(false);
+    setCardNumber('');
+    setMembers([newMember()]);
+    setDetails(initialDetails);
+  }
+
+  function handleMemberChange(key, patch) {
+    setMembers((list) => list.map((m) => (m.key === key ? { ...m, ...patch } : m)));
+  }
+
+  const step0Valid = isGroup
+    ? members.length >= 1
+      && members.every((m) =>
+        m.fullName.trim()
+        && m.mobile.length === 10
+        && m.verified
+        && String(m.cardNumber || '').trim() !== '')
+    : fullName.trim() !== ''
+      && mobileVerified
+      && cardNumber.trim() !== '';
+
+  const detailsValid = details.personToMeet.trim() !== ''
     && details.reasonForVisit.trim() !== ''
-    && details.cardNumber.trim() !== ''
     && (details.govtIdNumber === '' || AADHAAR_REGEX.test(details.govtIdNumber));
 
-  // ── Submit ────────────────────────────────────────────────────────────────
   async function handleSubmit() {
     setSubmitting(true);
     setSubmitError('');
     try {
-      const payload = {
-        mobile,
-        fullName:           details.fullName,
-        email:              details.email,
-        govtIdType:         details.govtIdNumber ? 'AADHAAR' : '',
-        govtIdNumber:       details.govtIdNumber,
-        personToMeet:       details.personToMeet,
+      const shared = {
+        email: details.email,
+        govtIdType: details.govtIdNumber ? 'AADHAAR' : '',
+        govtIdNumber: details.govtIdNumber,
+        personToMeet: details.personToMeet,
         personToMeetCustom: details.personToMeetCustom,
-        hostDepartment:     details.hostDepartment,
-        reasonForVisit:     details.reasonForVisit,
-        cardNumber:         details.cardNumber,
-        companyName:        details.representsCompany ? details.companyName.trim() : '',
+        hostDepartment: details.hostDepartment,
+        reasonForVisit: details.reasonForVisit,
+        companyName: details.representsCompany ? details.companyName.trim() : '',
       };
-      const result = await createVisitorEntry(payload);
-      if (result.success) {
-        onSuccess?.(result);
-        onClose();
+
+      if (isGroup) {
+        const result = await createGroupVisitorEntries({
+          ...shared,
+          members: members.map((m) => ({
+            fullName: m.fullName.trim(),
+            mobile: m.mobile,
+            cardNumber: m.cardNumber,
+          })),
+        });
+        if (result.success) {
+          onSuccess?.(result);
+          onClose();
+        }
+      } else {
+        const result = await createVisitorEntry({
+          ...shared,
+          visitType: 'INDIVIDUAL',
+          mobile,
+          fullName: fullName.trim(),
+          cardNumber,
+        });
+        if (result.success) {
+          onSuccess?.(result);
+          onClose();
+        }
       }
     } catch (err) {
       setSubmitError(err?.message || 'Failed to create entry. Please try again.');
@@ -484,7 +631,6 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
 
   const progressPct = ((step + 1) / STEPS.length) * 100;
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div
       className="avm-overlay"
@@ -493,32 +639,47 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
       aria-labelledby="avm-title"
       onClick={handleOverlayClick}
     >
-      <div className="avm-dialog">
-
-        {/* ── Header ─────────────────────────────────────────────────── */}
+      <div className="avm-dialog avm-dialog--visitor">
         <div className="avm-header">
           <div>
-            <h2 className="avm-title" id="avm-title">Add New Visitor</h2>
+            <h2 className="avm-title" id="avm-title">
+              {isGroup ? 'Add Group Visit' : 'Add New Visitor'}
+            </h2>
           </div>
           <button className="avm-close" onClick={onClose} aria-label="Close">
             <IconX size={16} />
           </button>
         </div>
 
-        {/* ── Progress bar ────────────────────────────────────────────── */}
+        <div className="avm-body-top">
+          <VisitModeToggle
+            isGroup={isGroup}
+            onChange={handleModeChange}
+            disabled={submitting || step > 0}
+          />
+        </div>
+
         <div className="avm-progress" aria-hidden="true">
           <div className="avm-progress__fill" style={{ width: `${progressPct}%` }} />
         </div>
 
-        {/* ── Scrollable body ────────────────────────────────────────── */}
         <div className="avm-body">
           {step === 0 && (
-            <StepOtp
+            <StepIdentity
+              isGroup={isGroup}
+              fullName={fullName}
+              onFullNameChange={setFullName}
               mobile={mobile}
               onMobileChange={setMobile}
               verified={mobileVerified}
               onVerified={(m) => { setMobileVerified(true); setMobile(m); }}
               onChangeNumber={() => { setMobileVerified(false); setMobile(''); }}
+              cardNumber={cardNumber}
+              onCardNumberChange={setCardNumber}
+              members={members}
+              onMemberChange={handleMemberChange}
+              onAddMember={() => setMembers((list) => [...list, newMember()])}
+              onRemoveMember={(key) => setMembers((list) => list.filter((m) => m.key !== key))}
             />
           )}
 
@@ -527,7 +688,6 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
           )}
         </div>
 
-        {/* ── Footer ─────────────────────────────────────────────────── */}
         <div className="avm-footer">
           {step > 0 && (
             <button
@@ -547,7 +707,7 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
             <button
               className="avm-btn avm-btn--next"
               onClick={() => setStep(1)}
-              disabled={!mobileVerified}
+              disabled={!step0Valid}
             >
               Next →
             </button>
@@ -559,11 +719,10 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
               onClick={handleSubmit}
               disabled={!detailsValid || submitting}
             >
-              {submitting ? 'Adding…' : 'Add and Check-in'}
+              {submitting ? 'Adding…' : (isGroup ? 'Add Group and Check-in' : 'Add and Check-in')}
             </button>
           )}
         </div>
-
       </div>
     </div>
   );

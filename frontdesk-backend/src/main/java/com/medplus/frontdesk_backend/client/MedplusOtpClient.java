@@ -20,11 +20,15 @@ import org.springframework.web.client.RestTemplate;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Optional;
+import com.medplus.frontdesk_backend.model.OtpToken;
+import com.medplus.frontdesk_backend.repository.OtpTokenRepository;
 
 /**
  * MedplusOtpClient — sends and verifies visitor mobile OTPs via the MedPlus
@@ -83,15 +87,18 @@ public class MedplusOtpClient {
     @Value("${medplus.otp.requested-by}")
     private String requestedBy;
 
+    @Value("${medplus.otp.ttl-minutes:10}")
+    private int ttlMinutes;
+
     private volatile String cachedToken;
     private volatile Instant tokenExpiresAt = Instant.EPOCH;
 
-    /** Stores the exact token used to send each OTP so verify uses the same one. */
-    private final ConcurrentHashMap<String, String> pendingOtpTokens = new ConcurrentHashMap<>();
+    private final OtpTokenRepository otpTokenRepository;
 
-    public MedplusOtpClient(RestTemplate restTemplate, ObjectMapper objectMapper) {
+    public MedplusOtpClient(RestTemplate restTemplate, ObjectMapper objectMapper, OtpTokenRepository otpTokenRepository) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
+        this.otpTokenRepository = otpTokenRepository;
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -124,7 +131,14 @@ public class MedplusOtpClient {
             log.debug("[OTP] sendOtp raw response for ...{}: {}", last4(mobile), response.getBody());
             String outerStatus = root.path("status").asText();
             if ("SUCCESS".equalsIgnoreCase(outerStatus)) {
-                pendingOtpTokens.put(mobile, token);
+                LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Kolkata"));
+                OtpToken otpToken = OtpToken.builder()
+                        .mobileNumber(mobile)
+                        .token(token)
+                        .createdAt(now)
+                        .expiresAt(now.plusMinutes(ttlMinutes))
+                        .build();
+                otpTokenRepository.save(otpToken);
                 log.info("[OTP] OTP dispatched to mobile ...{}", last4(mobile));
                 return new OtpSendResponseDto(true, "OTP sent successfully.");
             }
@@ -151,7 +165,13 @@ public class MedplusOtpClient {
 
     public OtpVerifyResponseDto verifyOtp(String mobile, String otp) {
         try {
-            String token = pendingOtpTokens.getOrDefault(mobile, obtainAccessToken());
+            Optional<OtpToken> stored = otpTokenRepository.findByMobileNumber(mobile);
+            String token;
+            if (stored.isPresent() && stored.get().getExpiresAt().isAfter(LocalDateTime.now(ZoneId.of("Asia/Kolkata")))) {
+                token = stored.get().getToken();
+            } else {
+                token = obtainAccessToken();
+            }
 
             Map<String, Object> body = new HashMap<>();
             body.put("otp", otp.trim());
@@ -176,7 +196,7 @@ public class MedplusOtpClient {
 
             String dataStatus = extractDataStatus(root);
             if ("SUCCESS".equalsIgnoreCase(dataStatus)) {
-                pendingOtpTokens.remove(mobile);
+                otpTokenRepository.deleteByMobileNumber(mobile);
                 log.info("[OTP] OTP verified for mobile ...{}", last4(mobile));
                 return new OtpVerifyResponseDto(true, "Mobile number verified successfully.");
             }

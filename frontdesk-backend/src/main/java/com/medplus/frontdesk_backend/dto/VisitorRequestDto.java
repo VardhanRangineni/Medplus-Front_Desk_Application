@@ -52,6 +52,6 @@ public class VisitorRequestDto {
      */
     private String companyName;
 
-    /** Checking-in employee's HRMS department (EMPLOYEE entries only). */
+    /** Deprecated — department is always taken from person-to-meet. Kept for API compatibility. */
     private String employeeDepartment;
 }

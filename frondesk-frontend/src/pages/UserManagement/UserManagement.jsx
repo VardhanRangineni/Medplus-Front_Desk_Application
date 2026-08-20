@@ -100,30 +100,15 @@ function isReceptionistRole(roleId) {
   return normalizeRoleId(roleId) === 3;
 }
 
-function columnFiltersToServer(filters) {
-  return filters.id.trim() || filters.name.trim() || '';
+function columnFiltersToServer(filters, tab) {
+  return {
+    search: filters.id.trim() || filters.name.trim() || '',
+    roleId: filters.role ? Number(filters.role) : null,
+    status: tab === TAB_ACTIVE ? 'ACTIVE' : tab === TAB_INACTIVE ? 'INACTIVE' : null,
+  };
 }
 
-function matchesColumnFilters(user, filters, tab) {
-  if (tab === TAB_ACTIVE && !user.status) return false;
-  if (tab === TAB_INACTIVE && user.status) return false;
-  if (filters.id.trim()) {
-    const q = filters.id.trim().toLowerCase();
-    if (!user.id?.toLowerCase().includes(q)) return false;
-  }
-  if (filters.name.trim()) {
-    const q = filters.name.trim().toLowerCase();
-    if (!user.name?.toLowerCase().includes(q)) return false;
-  }
-  if (filters.role && String(user.roleId) !== filters.role) return false;
-  return true;
-}
-
-function hasClientOnlyColumnFilters(filters, tab) {
-  if (tab !== TAB_ALL) return true;
-  const filled = [filters.id, filters.name].filter((s) => s.trim());
-  return Boolean(filters.role || filled.length > 1);
-}
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function UserColumnFilterRow({ filters, roles, onChange }) {
   const set = (key, value) => onChange({ ...filters, [key]: value });
@@ -265,6 +250,10 @@ function UserModal({ user, roles, onClose, onSave, saving, saveError }) {
     location:   user.location   ?? '',
     locationIds: normalizeLocationIds(user.locationIds, user.location),
     assignedDeviceId: user.assignedDeviceId ?? '',
+    designation:  user.designation  ?? '',
+    department:   user.department   ?? '',
+    phone:        user.phone        ?? '',
+    workEmail:    user.workEmail    ?? '',
     status:     user.status     ?? true,
     password:   '',
     roleIds:    normalizeRoleIds(user.roleIds, user.roleId),
@@ -656,6 +645,56 @@ function UserModal({ user, roles, onClose, onSave, saving, saveError }) {
               )}
           </div>
 
+          {/* ── HRMS profile fields (auto-filled, editable) ────────────── */}
+          <div className="umg-field-row">
+            <div className="umg-field">
+              <span className="umg-field__label">Department</span>
+              <input
+                className="umg-input"
+                value={form.department}
+                onChange={(e) => set('department', e.target.value)}
+                placeholder="e.g. Operations"
+                autoComplete="off"
+              />
+            </div>
+
+            <div className="umg-field">
+              <span className="umg-field__label">Designation</span>
+              <input
+                className="umg-input"
+                value={form.designation}
+                onChange={(e) => set('designation', e.target.value)}
+                placeholder="e.g. Store Manager"
+                autoComplete="off"
+              />
+            </div>
+          </div>
+
+          <div className="umg-field-row">
+            <div className="umg-field">
+              <span className="umg-field__label">Phone</span>
+              <input
+                className="umg-input"
+                value={form.phone}
+                onChange={(e) => set('phone', e.target.value)}
+                placeholder="10-digit mobile"
+                autoComplete="off"
+              />
+            </div>
+
+            <div className="umg-field">
+              <span className="umg-field__label">Work Email</span>
+              <input
+                className="umg-input"
+                type="email"
+                value={form.workEmail}
+                onChange={(e) => set('workEmail', e.target.value)}
+                placeholder="employee@medplus.com"
+                autoComplete="off"
+              />
+            </div>
+          </div>
+
           {/* ── Role assignment (multi-select) ─────────────────────────── */}
           <div className="umg-field">
             <span className="umg-field__label">Roles</span>
@@ -841,16 +880,19 @@ export default function UserManagement() {
 
   const columnFilterTimerRef = useRef(null);
 
-  const fetchPage = useCallback(async (page, filters, size, isInitial = false) => {
+  const fetchPage = useCallback(async (page, filters, size, tab, isInitial = false) => {
     if (isInitial) setInitLoading(true);
     else           setPageLoading(true);
     setError('');
 
     try {
+      const apiFilters = columnFiltersToServer(filters, tab);
       const data = await getManagedUsers({
         page: page - 1,
         size,
-        search: columnFiltersToServer(filters),
+        search: apiFilters.search,
+        roleId: apiFilters.roleId,
+        status: apiFilters.status,
       });
       setUsers(data?.content ?? []);
       setTotalElements(data?.totalElements ?? 0);
@@ -865,7 +907,7 @@ export default function UserManagement() {
   }, []);
 
   useEffect(() => {
-    fetchPage(1, EMPTY_COLUMN_FILTERS, DEFAULT_PAGE_SIZE, true);
+    fetchPage(1, EMPTY_COLUMN_FILTERS, DEFAULT_PAGE_SIZE, TAB_ALL, true);
     getRoles().then(setRoles).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -875,34 +917,35 @@ export default function UserManagement() {
     setCurrentPage(1);
     clearTimeout(columnFilterTimerRef.current);
     columnFilterTimerRef.current = setTimeout(() => {
-      fetchPage(1, next, pageSize);
+      fetchPage(1, next, pageSize, activeTab);
     }, FILTER_DEBOUNCE);
-  }, [fetchPage, pageSize]);
+  }, [fetchPage, pageSize, activeTab]);
 
   const handleTabChange = useCallback((tab) => {
     setActiveTab(tab);
     setCurrentPage(1);
-  }, []);
+    fetchPage(1, columnFilters, pageSize, tab);
+  }, [columnFilters, pageSize, fetchPage]);
 
   const handlePageChange = useCallback((page) => {
-    fetchPage(page, columnFilters, pageSize);
-  }, [columnFilters, pageSize, fetchPage]);
+    fetchPage(page, columnFilters, pageSize, activeTab);
+  }, [columnFilters, pageSize, activeTab, fetchPage]);
 
   const handlePageSizeChange = useCallback((next) => {
     setPageSize(next);
     setCurrentPage(1);
-    fetchPage(1, columnFilters, next);
-  }, [columnFilters, fetchPage]);
+    fetchPage(1, columnFilters, next, activeTab);
+  }, [columnFilters, activeTab, fetchPage]);
 
   const handleRefresh = useCallback(async () => {
     if (refreshing || pageLoading) return;
     setRefreshing(true);
     try {
-      await fetchPage(currentPage, columnFilters, pageSize);
+      await fetchPage(currentPage, columnFilters, pageSize, activeTab);
     } finally {
       setRefreshing(false);
     }
-  }, [refreshing, pageLoading, currentPage, columnFilters, pageSize, fetchPage]);
+  }, [refreshing, pageLoading, currentPage, columnFilters, pageSize, activeTab, fetchPage]);
 
   // ── Save (add / edit) ────────────────────────────────────────────────────────
   const handleSave = useCallback(async (form) => {
@@ -924,7 +967,7 @@ export default function UserManagement() {
       if (modal === 'add') {
         await createManagedUser(payload);
         setModal(null);
-        fetchPage(1, columnFilters, pageSize);
+        fetchPage(1, columnFilters, pageSize, activeTab);
       } else {
         const updated = await updateManagedUser(form.id, payload);
         // Update in-place on current page without a full reload
@@ -981,19 +1024,15 @@ export default function UserManagement() {
     )));
   }, [tempAccessUser]);
 
-  const displayUsers = users.filter((u) => matchesColumnFilters(u, columnFilters, activeTab));
-  const clientFilterActive = hasClientOnlyColumnFilters(columnFilters, activeTab);
-  const hasServerSearch = Boolean(columnFiltersToServer(columnFilters));
   const pageStart = (currentPage - 1) * pageSize;
-  const pageEnd = Math.min(pageStart + displayUsers.length, pageStart + pageSize);
-  const visibleCount = clientFilterActive || activeTab !== TAB_ALL
-    ? displayUsers.length
-    : totalElements;
+  const pageEnd = Math.min(pageStart + users.length, totalElements);
 
-  const emptyTitle = hasServerSearch || clientFilterActive || activeTab !== TAB_ALL
-    ? 'No users found'
-    : 'No users yet';
-  const emptyDescription = hasServerSearch || clientFilterActive || activeTab !== TAB_ALL
+  const hasFilters = Boolean(columnFiltersToServer(columnFilters, activeTab).search)
+    || Boolean(columnFilters.role)
+    || activeTab !== TAB_ALL;
+
+  const emptyTitle = hasFilters ? 'No users found' : 'No users yet';
+  const emptyDescription = hasFilters
     ? 'Try adjusting your column filters or status tab.'
     : 'Add front-desk accounts. Staff sign in at registered kiosks — location is set by the device.';
 
@@ -1102,7 +1141,7 @@ export default function UserManagement() {
                     <LottieLoader size="md" ariaLabel="Loading users" />
                   </td>
                 </tr>
-              ) : displayUsers.length === 0 ? (
+              ) : users.length === 0 ? (
                 <tr>
                   <td colSpan={COL_COUNT} className="fd-empty-cell">
                     <EmptyState
@@ -1111,7 +1150,7 @@ export default function UserManagement() {
                       title={emptyTitle}
                       description={emptyDescription}
                       action={
-                        !hasServerSearch && activeTab === TAB_ALL && !clientFilterActive
+                        !hasFilters
                           ? { label: 'Add User', onClick: () => setModal('add'), icon: <IconPlus size={14} /> }
                           : undefined
                       }
@@ -1119,7 +1158,7 @@ export default function UserManagement() {
                   </td>
                 </tr>
               ) : (
-                displayUsers.map((user) => (
+                users.map((user) => (
                   <UserRow
                     key={user.id}
                     user={user}
@@ -1136,13 +1175,8 @@ export default function UserManagement() {
 
         <div className="ci-card-footer">
           <p className="ci-card-footer__info">
-            {visibleCount === 0 ? (
+            {totalElements === 0 ? (
               <>Showing <strong>0</strong> of <strong>0</strong> users</>
-            ) : clientFilterActive || activeTab !== TAB_ALL ? (
-              <>
-                Showing&nbsp;<strong>{displayUsers.length}</strong>
-                &nbsp;on this page (filters applied)
-              </>
             ) : (
               <>
                 Showing&nbsp;

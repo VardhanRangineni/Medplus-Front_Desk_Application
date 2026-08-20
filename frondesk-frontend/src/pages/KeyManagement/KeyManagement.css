@@ -1,0 +1,108 @@
+/* Key Management — equal columns + edit/remove actions */
+
+.km-intro {
+  margin: 4px 0 0;
+  font-size: 0.875rem;
+  color: var(--text-muted, #6b7280);
+  line-height: 1.4;
+}
+
+/* Override CheckInOut .ci-table min-width: 1480px */
+.km-table {
+  min-width: 0 !important;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.km-table th,
+.km-table td {
+  width: 33.333%;
+  vertical-align: middle;
+}
+
+.km-col--actions {
+  text-align: center;
+}
+
+.km-col--actions .ci-actions {
+  justify-content: center;
+}
+
+.km-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.km-action-btn--remove {
+  background: rgba(194, 24, 29, 0.08);
+  border-color: rgba(194, 24, 29, 0.22);
+  color: #C2181D;
+}
+
+.km-action-btn--remove:hover {
+  background: rgba(194, 24, 29, 0.16);
+}
+
+.km-action-btn--regen {
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.22);
+  color: #1d4ed8;
+}
+
+.km-action-btn--regen:hover {
+  background: rgba(37, 99, 235, 0.16);
+}
+
+.km-token-modal {
+  width: 440px;
+  max-width: calc(100vw - 32px);
+}
+
+.km-confirm-text {
+  margin: 0 0 1rem;
+  line-height: 1.5;
+  color: var(--text-primary, #1f2937);
+}
+
+.km-form-modal,
+.km-remove-modal {
+  width: 420px;
+}
+
+.km-hrms-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 8px;
+  padding: 12px 14px;
+  border: 1px solid rgba(194, 24, 29, 0.18);
+  border-radius: 12px;
+  background: rgba(194, 24, 29, 0.04);
+}
+
+.km-hrms-card__avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  border: 1px solid rgba(194, 24, 29, 0.2);
+  color: #C2181D;
+  flex-shrink: 0;
+}
+
+.km-hrms-card__name {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.km-hrms-card__meta {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  color: #6b7280;
+}

@@ -12,14 +12,16 @@
  *   PUT    /api/visitors/:id
  */
 
+import * as XLSX from 'xlsx';
 import { formatApiFailure } from '../../services/userFacingErrors';
 import { buildLocationScopeParams } from '../../services/locationScope';
+import { saveBinaryFile } from '../../utils/fileDownload';
 
 // ─── Types (JSDoc) ────────────────────────────────────────────────────────────
 
 /**
  * @typedef {'VISITOR'|'EMPLOYEE'} EntryType
- * @typedef {'checked-in'|'checked-out'} EntryStatus
+ * @typedef {'checked-in'|'checked-out'|'pending-approval'|'approved'|'rejected'} EntryStatus
  *
  * @typedef {Object} Entry
  * @property {string}      id             - e.g. "MED-V-0001"
@@ -105,9 +107,13 @@ function fmtDate(date) {
 export async function getEntries({
   page       = 0,
   size       = 20,
-  search     = '',
   status     = null,
   department = null,
+  entryType  = null,
+  name       = null,
+  contactQuery = null,
+  personToMeet = null,
+  cardNumber = null,
   from       = null,
   to         = null,
   locationId = null,
@@ -117,19 +123,19 @@ export async function getEntries({
   const params = new URLSearchParams();
   params.set('page', String(page));
   params.set('size', String(size));
-  if (status)     params.set('status',     status);
-  if (department) params.set('department', department);
-  if (from)       params.set('from',       from);
-  if (to)         params.set('to',         to);
-  if (createdBy)  params.set('createdBy',  createdBy);
+  if (status)       params.set('status',       status);
+  if (department)   params.set('department',   department);
+  if (entryType)    params.set('entryType',    entryType);
+  if (name)         params.set('name',         name);
+  if (contactQuery) params.set('contactQuery', contactQuery);
+  if (personToMeet) params.set('personToMeet', personToMeet);
+  if (cardNumber)   params.set('cardNumber',   cardNumber);
+  if (from)         params.set('from',         from);
+  if (to)           params.set('to',           to);
+  if (createdBy)    params.set('createdBy',    createdBy);
   buildLocationScopeParams(locationId, allLocations).forEach((v, k) => params.set(k, v));
 
-  const trimmed = search.trim();
-  const endpoint = trimmed
-    ? `/api/visitors/search?q=${encodeURIComponent(trimmed)}&${params}`
-    : `/api/visitors?${params}`;
-
-  const data = await api('GET', endpoint);
+  const data = await api('GET', `/api/visitors?${params}`);
 
   const content = Array.isArray(data?.content) ? data.content : [];
   return {
@@ -153,9 +159,13 @@ const EXPORT_MAX_ROWS = 100_000;
  * @returns {Promise<Entry[]>}
  */
 export async function fetchAllEntriesForExport({
-  search     = '',
   status     = null,
   department = null,
+  entryType  = null,
+  name       = null,
+  contactQuery = null,
+  personToMeet = null,
+  cardNumber = null,
   from       = null,
   to         = null,
   locationId = null,
@@ -166,12 +176,16 @@ export async function fetchAllEntriesForExport({
   let page = 0;
 
   while (accumulated.length < EXPORT_MAX_ROWS) {
-    const { entries, totalElements } = await getEntries({
+    const { entries, totalElements, totalPages } = await getEntries({
       page,
       size: EXPORT_FETCH_SIZE,
-      search,
       status,
       department,
+      entryType,
+      name,
+      contactQuery,
+      personToMeet,
+      cardNumber,
       from,
       to,
       locationId,
@@ -182,6 +196,7 @@ export async function fetchAllEntriesForExport({
     accumulated.push(...entries);
     if (accumulated.length >= totalElements) break;
     page += 1;
+    if (page >= totalPages) break;
   }
   return accumulated;
 }
@@ -198,17 +213,45 @@ export async function fetchAllEntriesForExport({
  * @param {string|null} [opts.createdBy]   Filter by staff who created entries
  * @returns {Promise<StatusCounts>}
  */
-export async function getStatusCounts({ from, to, locationId, allLocations = false, createdBy } = {}) {
-  const base = { page: 0, size: 1, from, to, locationId, allLocations, createdBy };
-  const [allData, inData, outData] = await Promise.all([
+export async function getStatusCounts({
+  from,
+  to,
+  locationId,
+  allLocations = false,
+  createdBy,
+  entryType  = null,
+  name       = null,
+  contactQuery = null,
+  personToMeet = null,
+  cardNumber = null,
+  department = null,
+} = {}) {
+  const base = {
+    page: 0,
+    size: 1,
+    from,
+    to,
+    locationId,
+    allLocations,
+    createdBy,
+    entryType,
+    name,
+    contactQuery,
+    personToMeet,
+    cardNumber,
+    department,
+  };
+  const [allData, inData, outData, rejectedData] = await Promise.all([
     getEntries(base),
     getEntries({ ...base, status: 'checked-in'  }),
     getEntries({ ...base, status: 'checked-out' }),
+    getEntries({ ...base, status: 'rejected' }),
   ]);
   return {
     total:      allData.totalElements,
     checkedIn:  inData.totalElements,
     checkedOut: outData.totalElements,
+    rejected:   rejectedData.totalElements,
   };
 }
 
@@ -292,7 +335,6 @@ export async function updateEntry(id, payload) {
  * @param {string}  [filename] - Defaults to "visitors_YYYY-MM-DD.xlsx".
  */
 export async function exportToExcel(entries, filename) {
-  const XLSX = await import('xlsx');
   const today   = new Date().toISOString().split('T')[0];
   const outFile = filename ?? `visitors_${today}.xlsx`;
 
@@ -308,7 +350,10 @@ export async function exportToExcel(entries, filename) {
     e.name,
     e.type === 'EMPLOYEE' ? (e.empId ?? '') : (e.mobile ?? ''),
     e.department ?? '',
-    e.status === 'checked-in' ? 'Checked-in' : 'Checked-out',
+    e.status === 'pending-approval' ? 'Pending'
+      : e.status === 'approved' ? 'Approved'
+      : e.status === 'rejected' ? 'Rejected'
+      : e.status === 'checked-in' ? 'Checked-in' : 'Checked-out',
     e.personToMeet ?? '',
     e.card != null ? String(e.card) : '',
     fmtDate(e.checkIn),
@@ -339,7 +384,26 @@ export async function exportToExcel(entries, filename) {
   ws['!freeze'] = { xSplit: 0, ySplit: 1 };
 
   XLSX.utils.book_append_sheet(wb, ws, 'Visitor Log');
-  XLSX.writeFile(wb, outFile);
+  const bytes = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const result = await saveBinaryFile(bytes, outFile, [
+    { name: 'Excel Workbook', extensions: ['xlsx'] },
+  ]);
+  if (!result.saved && !result.canceled) {
+    throw new Error('Export was not saved.');
+  }
+  return result;
+}
+
+/** Maps column filters to backend query params (all server-side). */
+export function columnFiltersToApiParams(filters) {
+  return {
+    entryType:    filters.type?.trim() || null,
+    name:         filters.name?.trim() || null,
+    contactQuery: filters.contact?.trim() || null,
+    department:   filters.department?.trim() || null,
+    personToMeet: filters.personToMeet?.trim() || null,
+    cardNumber:   filters.card?.trim() || null,
+  };
 }
 
 // ─── Pre-registration ─────────────────────────────────────────────────────────

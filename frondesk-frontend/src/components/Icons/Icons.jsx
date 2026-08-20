@@ -237,6 +237,15 @@ export const IconPhone = ({ size = 16, className }) => (
   </svg>
 );
 
+export const IconTrash = ({ size = 16, className }) => (
+  <svg {...iconProps(size)} className={className}>
+    <polyline points="3 6 5 6 21 6" />
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    <line x1="10" y1="11" x2="10" y2="17" />
+    <line x1="14" y1="11" x2="14" y2="17" />
+  </svg>
+);
+
 export const IconMail = ({ size = 16, className }) => (
   <svg {...iconProps(size)} className={className}>
     <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />

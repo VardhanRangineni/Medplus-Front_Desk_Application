@@ -116,10 +116,11 @@ public class DeviceMasterRepository {
                         .addValue("actor", actor));
     }
 
-    public void update(String deviceId, String displayName, String floor, String area,
+    public void update(String deviceId, String locationId, String displayName, String floor, String area,
                        String macAddress, String ipAddress, String actor) {
         jdbc.update("""
                 UPDATE device_master SET
+                    locationId = :locationId,
                     displayName = :displayName,
                     floor = :floor,
                     area = :area,
@@ -130,6 +131,7 @@ public class DeviceMasterRepository {
                 """,
                 new MapSqlParameterSource()
                         .addValue("deviceId", deviceId)
+                        .addValue("locationId", locationId)
                         .addValue("displayName", displayName)
                         .addValue("floor", floor)
                         .addValue("area", area)
@@ -162,21 +164,29 @@ public class DeviceMasterRepository {
                         .addValue("ip", ip.trim()));
     }
 
-    public boolean macUsedByOtherDevice(String mac, String excludeDeviceId) {
+    /**
+     * Another ACTIVE device already owns this MAC (inactive duplicates are allowed for transfer/re-add).
+     */
+    public Optional<DeviceMasterDto> findActiveByMacExcluding(String mac, String excludeDeviceId) {
         String normalized = WorkstationMacUtil.normalize(mac);
         if (normalized.isEmpty()) {
-            return false;
+            return Optional.empty();
         }
         var params = new MapSqlParameterSource()
                 .addValue("mac", normalized)
                 .addValue("exclude", excludeDeviceId != null ? excludeDeviceId : "");
-        String sql = """
-                SELECT COUNT(*) FROM device_master
-                WHERE REPLACE(REPLACE(UPPER(IFNULL(macAddress,'')), ':', ''), '-', '') = :mac
-                  AND (:exclude = '' OR deviceId <> :exclude)
-                """;
-        Long count = jdbc.queryForObject(sql, params, Long.class);
-        return count != null && count > 0;
+        String sql = DEVICE_SELECT
+                + " WHERE d.status = 'ACTIVE'"
+                + " AND REPLACE(REPLACE(UPPER(IFNULL(d.macAddress,'')), ':', ''), '-', '') = :mac"
+                + " AND (:exclude = '' OR d.deviceId <> :exclude)"
+                + " LIMIT 1";
+        List<DeviceMasterDto> rows = jdbc.query(sql, params, this::mapDevice);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    /** @deprecated prefer {@link #findActiveByMacExcluding} — kept for any leftover callers */
+    public boolean macUsedByOtherDevice(String mac, String excludeDeviceId) {
+        return findActiveByMacExcluding(mac, excludeDeviceId).isPresent();
     }
 
     public boolean locationExists(String locationId) {

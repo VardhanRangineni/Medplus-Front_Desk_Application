@@ -6,6 +6,7 @@ import com.medplus.frontdesk_backend.model.UserRole;
 import com.medplus.frontdesk_backend.repository.TempDeviceGrantRepository;
 import com.medplus.frontdesk_backend.repository.UserDeviceGrantRepository;
 import com.medplus.frontdesk_backend.repository.UserRepository;
+import com.medplus.frontdesk_backend.util.LegacyLocationResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -99,7 +100,7 @@ public class OperationalLocationService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "This kiosk is inactive. Contact your administrator.");
         }
-        return device.getLocationId();
+        return LegacyLocationResolver.resolve(device.getLocationId());
     }
 
     private Optional<DeviceMasterDto> resolveMacDevice(String workstationMac) {
@@ -146,6 +147,6 @@ public class OperationalLocationService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "User has no assigned location.");
         }
-        return location.trim();
+        return LegacyLocationResolver.resolve(location.trim());
     }
 }

@@ -1,0 +1,26 @@
+directories:
+  output: dist-installer
+  buildResources: build
+appId: com.medplus.mvms
+productName: MedPlus Visitor Management System
+executableName: MedPlusMVMS
+copyright: Copyright © MedPlus
+win:
+  target:
+    - nsis
+  icon: src/Assets/images/icon.ico
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  installerIcon: src/Assets/images/icon.ico
+  uninstallerIcon: src/Assets/images/icon.ico
+  installerHeaderIcon: src/Assets/images/icon.ico
+  license: build/license.txt
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: MedPlus MVMS
+  deleteAppDataOnUninstall: false
+files: []
+electronVersion: 41.10.0

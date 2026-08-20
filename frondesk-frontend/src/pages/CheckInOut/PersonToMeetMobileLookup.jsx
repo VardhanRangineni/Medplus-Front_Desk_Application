@@ -1,8 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { IconPhone, IconUser } from '../../components/Icons/Icons';
 import { lookupPersonToMeetByMobile } from './AddVisitorModal/addVisitorService';
-
-const LOOKUP_DEBOUNCE_MS = 600;
+import {
+  LOOKUP_DEBOUNCE_MS,
+  MOBILE_LOOKUP_LENGTH,
+  cancelDebouncedLookup,
+  isLookupStale,
+  scheduleDebouncedLookup,
+} from '../../utils/lookupDebounce';
 
 function Field({ label, required, children, error }) {
   return (
@@ -21,6 +26,7 @@ function Field({ label, required, children, error }) {
 
 /**
  * Person-to-meet lookup by mobile number (HRMS only — no manual name fallback).
+ * API fires only after user stops typing a full 10-digit number.
  */
 export default function PersonToMeetMobileLookup({
   personToMeet,
@@ -33,8 +39,9 @@ export default function PersonToMeetMobileLookup({
   const [error, setError] = useState('');
   const [resolved, setResolved] = useState(null);
   const timerRef = useRef(null);
+  const generationRef = useRef(0);
 
-  useEffect(() => () => clearTimeout(timerRef.current), []);
+  useEffect(() => () => cancelDebouncedLookup(generationRef, timerRef), []);
 
   function applyResolved(person) {
     setResolved(person);
@@ -47,40 +54,45 @@ export default function PersonToMeetMobileLookup({
   }
 
   function triggerLookup(digits) {
-    clearTimeout(timerRef.current);
     setError('');
-    if (digits.length < 10) return;
+    if (digits.length < MOBILE_LOOKUP_LENGTH) {
+      cancelDebouncedLookup(generationRef, timerRef);
+      return;
+    }
 
-    timerRef.current = setTimeout(async () => {
+    const generation = scheduleDebouncedLookup(generationRef, timerRef, async () => {
       setLoading(true);
       try {
         const person = await lookupPersonToMeetByMobile(digits);
+        if (isLookupStale(generation, generationRef)) return;
         applyResolved(person);
       } catch (err) {
+        if (isLookupStale(generation, generationRef)) return;
         setResolved(null);
         onChange({ personToMeet: '', personToMeetCustom: '', hostDepartment: '' });
         setError(err?.message || 'Lookup failed. Please try again.');
       } finally {
-        setLoading(false);
+        if (!isLookupStale(generation, generationRef)) setLoading(false);
       }
     }, LOOKUP_DEBOUNCE_MS);
   }
 
   function handleMobileChange(raw) {
-    const digits = raw.replace(/\D/g, '').slice(0, 10);
+    const digits = raw.replace(/\D/g, '').slice(0, MOBILE_LOOKUP_LENGTH);
     setMobile(digits);
     if (resolved) {
       setResolved(null);
       onChange({ personToMeet: '', personToMeetCustom: '', hostDepartment: '' });
     }
-    setError('');
     triggerLookup(digits);
   }
 
   function handleReset() {
+    cancelDebouncedLookup(generationRef, timerRef);
     setMobile('');
     setError('');
     setResolved(null);
+    setLoading(false);
     onChange({ personToMeet: '', personToMeetCustom: '', hostDepartment: '' });
   }
 
@@ -100,7 +112,7 @@ export default function PersonToMeetMobileLookup({
           inputMode="numeric"
           placeholder="10-digit mobile number"
           value={mobile}
-          maxLength={10}
+          maxLength={MOBILE_LOOKUP_LENGTH}
           disabled={disabled || !!resolved}
           onChange={(e) => handleMobileChange(e.target.value)}
         />
@@ -115,7 +127,9 @@ export default function PersonToMeetMobileLookup({
         </div>
       )}
 
-      {loading && null}
+      {loading && (
+        <p className="avm-hint" style={{ marginTop: 8 }}>Looking up in HRMS…</p>
+      )}
 
       {resolved && (
         <div className="aem-emp-card" style={{ marginTop: 8 }}>

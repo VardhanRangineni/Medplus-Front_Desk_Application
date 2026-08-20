@@ -6,6 +6,7 @@ import {
   IconClipboardList,
   IconMapPin,
   IconMonitor,
+  IconPhone,
 } from '../Icons/Icons';
 
 /**
@@ -13,13 +14,15 @@ import {
  *   PRIMARY_ADMIN  (Admin)       — all screens, all locations' data
  *   REGIONAL_ADMIN (Supervisor)  — all screens, their location's data only
  *   RECEPTIONIST                 — operational screens only, their location's data only
+ *   DEPT_HEAD                    — Dashboard + Check In / Out + Reports (view-only)
  */
 const ALL_NAV_ITEMS = [
-  { id: 'dashboard',       icon: <IconGrid size={20} />,            label: 'Dashboard',        roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST'] },
-  { id: 'home',            icon: <IconHome size={20} />,            label: 'Check In / Out',   roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST'] },
-  { id: 'reports',         icon: <IconBarChart size={20} />,        label: 'Reports',          roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST'] },
+  { id: 'dashboard',       icon: <IconGrid size={20} />,            label: 'Dashboard',        roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST', 'DEPT_HEAD'] },
+  { id: 'home',            icon: <IconHome size={20} />,            label: 'Check In / Out',   roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST', 'DEPT_HEAD'] },
+  { id: 'reports',         icon: <IconBarChart size={20} />,        label: 'Reports',          roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN', 'RECEPTIONIST', 'DEPT_HEAD'] },
   { id: 'staff-activity',  icon: <IconClipboardList size={20} />,   label: 'Staff Activity',   roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
   { id: 'user-management', icon: <IconUsers size={20} />,           label: 'User Management',  roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
+  { id: 'key-management',  icon: <IconPhone size={20} />,           label: 'Key Management',   roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
   { id: 'location-master', icon: <IconMapPin size={20} />,          label: 'Location Master',  roles: ['PRIMARY_ADMIN'] },
   { id: 'device-master',   icon: <IconMonitor size={20} />,         label: 'Device Master',    roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
 ];

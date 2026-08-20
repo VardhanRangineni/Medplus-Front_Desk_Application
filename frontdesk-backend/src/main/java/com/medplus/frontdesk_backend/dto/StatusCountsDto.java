@@ -23,4 +23,7 @@ public class StatusCountsDto {
 
     /** Number of entries that have been checked out. */
     private long checkedOut;
+
+    /** Number of entries that have been rejected. */
+    private long rejected;
 }

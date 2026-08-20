@@ -92,6 +92,8 @@ public class UserManagementController {
     @PreAuthorize("hasAnyRole('PRIMARY_ADMIN', 'REGIONAL_ADMIN')")
     public ResponseEntity<ApiResponse<PagedResponseDto<ManagedUserDto>>> getManagedUsers(
             @RequestParam(required = false) String q,
+            @RequestParam(required = false) Integer roleId,
+            @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0")  int page,
             @RequestParam(defaultValue = "20") int size,
             Authentication auth) {
@@ -99,7 +101,8 @@ public class UserManagementController {
         String locationId = authHelper.resolveEffectiveLocation(auth, null);
         UserRole callerRole = userRoleFromAuth(auth);
         PagedResponseDto<ManagedUserDto> result =
-                userManagementService.getManagedUsersPaged(q, locationId, page, size, callerRole, auth.getName());
+                userManagementService.getManagedUsersPaged(q, locationId, page, size, roleId, status,
+                        callerRole, auth.getName());
         return ResponseEntity.ok(ApiResponse.success("Users retrieved successfully.", result));
     }
 

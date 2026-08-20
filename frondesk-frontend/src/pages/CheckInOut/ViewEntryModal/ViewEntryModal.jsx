@@ -81,9 +81,11 @@ function MovementTimeline({ events, loading }) {
 
 function fmt(date) {
   if (!date) return '—';
-  return date.toLocaleDateString('en-IN', {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-IN', {
     day: '2-digit', month: 'short', year: 'numeric',
-  }) + ', ' + date.toLocaleTimeString('en-IN', {
+  }) + ', ' + d.toLocaleTimeString('en-IN', {
     hour: '2-digit', minute: '2-digit', hour12: true,
   });
 }
@@ -165,7 +167,7 @@ function VisitPassQrPanel({ visitPassToken, detailLoading }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function ViewEntryModal({ entry, onClose, onEdit }) {
+export default function ViewEntryModal({ entry, onClose, onEdit, canEdit }) {
   const [detail, setDetail] = useState(entry);
   const [detailLoading, setDetailLoading] = useState(true);
   const [movement, setMovement] = useState([]);
@@ -209,9 +211,18 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
   const lastScanTime = detail.lastScan ?? entry.lastScan ?? null;
 
   const isVisitor  = entry.type === 'VISITOR';
-  const isIn       = entry.status === 'checked-in';
+  const isIn       = entry.status === 'checked-in' || entry.status === 'approved';
+  const statusLabel = entry.status === 'pending-approval' ? 'Pending'
+    : entry.status === 'approved' ? 'Approved'
+    : entry.status === 'rejected' ? 'Rejected'
+    : entry.status === 'checked-in' ? 'Checked-in'
+    : 'Checked-out';
+  const statusVariant = entry.status === 'pending-approval' ? 'pending'
+    : entry.status === 'approved' ? 'approved'
+    : entry.status === 'rejected' ? 'rejected'
+    : entry.status === 'checked-in' ? 'in' : 'out';
   const visitPassToken = detail.visitPassToken ?? entry.visitPassToken ?? null;
-  const showQrPanel = isVisitor && isIn;
+  const showQrPanel = isVisitor && (entry.status === 'checked-in' || entry.status === 'approved');
 
   const handleOverlayClick = (e) => {
     if (e.target === e.currentTarget) onClose();
@@ -234,8 +245,8 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
             </span>
           </div>
           <div className="vem-header__right">
-            <span className={`vem-status-badge vem-status-badge--${isIn ? 'in' : 'out'}`}>
-              {isIn ? 'Checked-in' : 'Checked-out'}
+            <span className={`vem-status-badge vem-status-badge--${statusVariant}`}>
+              {statusLabel}
             </span>
             <button className="vem-close" onClick={onClose} aria-label="Close">
               <IconX size={16} />
@@ -247,6 +258,9 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
           <h2 className="vem-name" id="vem-title">{entry.name}</h2>
           <span className="vem-entry-id">{entry.id}</span>
         </div>
+        {(detail.groupId || entry.groupId) && (
+          <p className="vem-group-id">Group {detail.groupId || entry.groupId}</p>
+        )}
 
         <div className="vem-body">
             <div className={`vem-details${showQrPanel ? '' : ' vem-details--full'}`}>
@@ -267,18 +281,18 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
                     />
                   </>
                 ) : (
-                  <DetailRow
-                    icon={<IconUser size={13} />}
-                    label="Employee ID"
-                    value={detail.empId ?? entry.empId}
-                  />
-                )}
-                {!isVisitor && detail.department && (
-                  <DetailRow
-                    icon={<IconBuilding size={13} />}
-                    label="Department"
-                    value={detail.department}
-                  />
+                  <>
+                    <DetailRow
+                      icon={<IconUser size={13} />}
+                      label="Employee ID"
+                      value={detail.empId ?? entry.empId}
+                    />
+                    <DetailRow
+                      icon={<IconPhone size={13} />}
+                      label="Mobile"
+                      value={detail.mobile ?? entry.mobile}
+                    />
+                  </>
                 )}
               </div>
 
@@ -335,6 +349,49 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
                 )}
               </div>
 
+              {(entry.status === 'rejected' || detail.status === 'rejected'
+                || entry.status === 'approved' || detail.status === 'approved'
+                || detail.approvedAt || detail.rejectedAt
+                || entry.status === 'pending-approval' || detail.status === 'pending-approval') && (
+                <div className="vem-section">
+                  <p className="vem-section__title">Host Approval</p>
+                  <DetailRow
+                    icon={<IconPhone size={13} />}
+                    label="Registered at"
+                    value={fmt(detail.checkIn ?? entry.checkIn)}
+                  />
+                  {(detail.approvedAt || entry.approvedAt) && (
+                    <DetailRow
+                      icon={<IconUser size={13} />}
+                      label="Approved at"
+                      value={fmt(detail.approvedAt ?? entry.approvedAt)}
+                    />
+                  )}
+                  {(detail.rejectedAt || entry.rejectedAt) && (
+                    <DetailRow
+                      icon={<IconUser size={13} />}
+                      label="Rejected at"
+                      value={fmt(detail.rejectedAt ?? entry.rejectedAt)}
+                    />
+                  )}
+                  {(entry.status === 'pending-approval' || detail.status === 'pending-approval') && (
+                    <DetailRow
+                      icon={<IconUser size={13} />}
+                      label="Approval"
+                      value="Waiting for host"
+                    />
+                  )}
+                  {(entry.status === 'rejected' || detail.status === 'rejected') && (
+                    <div className="vem-reject-banner" role="status">
+                      <p className="vem-reject-banner__label">Rejection reason</p>
+                      <p className="vem-reject-banner__text">
+                        {detail.rejectionRemarks || entry.rejectionRemarks || 'No reason provided'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="vem-section">
                 <p className="vem-section__title">Entry Log</p>
                 <DetailRow
@@ -389,7 +446,7 @@ export default function ViewEntryModal({ entry, onClose, onEdit }) {
             Close
           </button>
           <div className="vem-footer__spacer" />
-          {isIn && (
+          {isIn && canEdit && (
             <button
               className="vem-btn vem-btn--edit"
               onClick={() => { onClose(); onEdit(entry); }}

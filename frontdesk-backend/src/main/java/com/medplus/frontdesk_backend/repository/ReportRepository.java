@@ -38,7 +38,7 @@ public class ReportRepository {
      * @param locationId scope to a single location, or {@code null} for all
      */
     public List<ReportDeptSummaryDto> findDeptSummary(
-            LocalDate from, LocalDate to, String locationId) {
+            LocalDate from, LocalDate to, String locationId, String department) {
 
         String sql = """
                 SELECT   department,
@@ -46,11 +46,12 @@ public class ReportRepository {
                 FROM     visitorlog
                 WHERE    DATE(checkInTime) BETWEEN :from AND :to
                   AND    (:locationId IS NULL OR locationId = :locationId)
+                  AND    (:department IS NULL OR department = :department)
                 GROUP BY department
                 ORDER BY visitCount DESC
                 """;
 
-        return jdbc.query(sql, params(from, to, locationId),
+        return jdbc.query(sql, params(from, to, locationId, department),
                 (rs, rowNum) -> ReportDeptSummaryDto.builder()
                         .department(rs.getString("department"))
                         .visitCount(rs.getLong("visitCount"))
@@ -63,7 +64,7 @@ public class ReportRepository {
      * Returns aggregated visitor / employee entry counts for the date range.
      */
     public ReportRatioDto findVisitorRatio(
-            LocalDate from, LocalDate to, String locationId) {
+            LocalDate from, LocalDate to, String locationId, String department) {
 
         String sql = """
                 SELECT SUM(CASE WHEN entryType = 'VISITOR'  THEN 1 ELSE 0 END) AS visitorCount,
@@ -72,9 +73,10 @@ public class ReportRepository {
                 FROM   visitorlog
                 WHERE  DATE(checkInTime) BETWEEN :from AND :to
                   AND  (:locationId IS NULL OR locationId = :locationId)
+                  AND  (:department IS NULL OR department = :department)
                 """;
 
-        ReportRatioDto result = jdbc.queryForObject(sql, params(from, to, locationId),
+        ReportRatioDto result = jdbc.queryForObject(sql, params(from, to, locationId, department),
                 (rs, rowNum) -> ReportRatioDto.builder()
                         .visitorCount(rs.getLong("visitorCount"))
                         .employeeCount(rs.getLong("employeeCount"))
@@ -92,7 +94,7 @@ public class ReportRepository {
      * Ordered longest average duration first.
      */
     public List<ReportAvgDurationDto> findAvgDuration(
-            LocalDate from, LocalDate to, String locationId) {
+            LocalDate from, LocalDate to, String locationId, String department) {
 
         String sql = """
                 SELECT   department,
@@ -102,11 +104,12 @@ public class ReportRepository {
                 WHERE    checkOutTime IS NOT NULL
                   AND    DATE(checkInTime) BETWEEN :from AND :to
                   AND    (:locationId IS NULL OR locationId = :locationId)
+                  AND    (:department IS NULL OR department = :department)
                 GROUP BY department
                 ORDER BY avgDurationMinutes DESC
                 """;
 
-        return jdbc.query(sql, params(from, to, locationId),
+        return jdbc.query(sql, params(from, to, locationId, department),
                 (rs, rowNum) -> ReportAvgDurationDto.builder()
                         .department(rs.getString("department"))
                         .avgDurationMinutes(rs.getDouble("avgDurationMinutes"))
@@ -114,43 +117,51 @@ public class ReportRepository {
                         .build());
     }
 
-    // ── Frequent Visitor Report ───────────────────────────────────────────────
+    // ── Frequent / repeated visits (visitor + employee) ───────────────────────
 
     /**
-     * Returns visitors (entryType = VISITOR) who have checked in at least
-     * {@code minVisits} times within the date range, ordered by visit count desc.
+     * People with at least {@code minVisits} check-ins in the range (VISITOR or EMPLOYEE).
+     * Identity: visitors by name+mobile; employees by name+empId.
      * Capped at 50 rows.
-     *
-     * @param minVisits minimum number of check-ins to qualify (default 2)
      */
     public List<ReportFrequentVisitorDto> findFrequentVisitors(
-            LocalDate from, LocalDate to, String locationId, int minVisits) {
+            LocalDate from, LocalDate to, String locationId, int minVisits, String department) {
 
         String sql = """
-                SELECT   name,
-                         mobile,
+                SELECT   entryType,
+                         name,
+                         MAX(mobile)                                           AS mobile,
+                         MAX(empId)                                            AS empId,
                          COUNT(*)                                              AS visitCount,
                          DATE_FORMAT(MAX(checkInTime), '%Y-%m-%dT%H:%i:%s')   AS lastVisit,
                          GROUP_CONCAT(DISTINCT department
                                       ORDER BY department
                                       SEPARATOR ', ')                         AS departments
                 FROM     visitorlog
-                WHERE    entryType = 'VISITOR'
-                  AND    DATE(checkInTime) BETWEEN :from AND :to
+                WHERE    DATE(checkInTime) BETWEEN :from AND :to
                   AND    (:locationId IS NULL OR locationId = :locationId)
-                GROUP BY name, mobile
+                  AND    (:department IS NULL OR department = :department)
+                  AND    entryType IN ('VISITOR', 'EMPLOYEE')
+                GROUP BY entryType,
+                         name,
+                         CASE
+                           WHEN entryType = 'EMPLOYEE' THEN IFNULL(empId, '')
+                           ELSE IFNULL(mobile, '')
+                         END
                 HAVING   COUNT(*) >= :minVisits
                 ORDER BY visitCount DESC, MAX(checkInTime) DESC
                 LIMIT    50
                 """;
 
-        MapSqlParameterSource p = params(from, to, locationId)
+        MapSqlParameterSource p = params(from, to, locationId, department)
                 .addValue("minVisits", minVisits);
 
         return jdbc.query(sql, p,
                 (rs, rowNum) -> ReportFrequentVisitorDto.builder()
+                        .entryType(rs.getString("entryType"))
                         .name(rs.getString("name"))
                         .mobile(rs.getString("mobile"))
+                        .empId(rs.getString("empId"))
                         .visitCount(rs.getLong("visitCount"))
                         .lastVisit(rs.getString("lastVisit"))
                         .departments(rs.getString("departments"))
@@ -160,7 +171,7 @@ public class ReportRepository {
     // ── Visit trend by hour of day ────────────────────────────────────────────
 
     public List<ReportVisitTrendPointDto> findVisitTrendByHour(
-            LocalDate from, LocalDate to, String locationId) {
+            LocalDate from, LocalDate to, String locationId, String department) {
 
         String sql = """
                 SELECT   HOUR(checkInTime) AS hourOfDay,
@@ -168,11 +179,12 @@ public class ReportRepository {
                 FROM     visitorlog
                 WHERE    DATE(checkInTime) BETWEEN :from AND :to
                   AND    (:locationId IS NULL OR locationId = :locationId)
+                  AND    (:department IS NULL OR department = :department)
                 GROUP BY HOUR(checkInTime)
                 ORDER BY hourOfDay
                 """;
 
-        var rows = jdbc.query(sql, params(from, to, locationId),
+        var rows = jdbc.query(sql, params(from, to, locationId, department),
                 (rs, rowNum) -> new int[] {
                         rs.getInt("hourOfDay"),
                         rs.getInt("visitCount")
@@ -195,16 +207,19 @@ public class ReportRepository {
     }
 
     /** Visitors currently checked in (today, still inside). */
-    public long findActiveVisitorsNow(String locationId) {
+    public long findActiveVisitorsNow(String locationId, String department) {
         String sql = """
                 SELECT COUNT(*)
                 FROM   visitorlog
                 WHERE  status = 'CHECKED_IN'
                   AND  DATE(checkInTime) = CURDATE()
                   AND  (:locationId IS NULL OR locationId = :locationId)
+                  AND  (:department IS NULL OR department = :department)
                 """;
         Long n = jdbc.queryForObject(sql,
-                new MapSqlParameterSource().addValue("locationId", locationId),
+                new MapSqlParameterSource()
+                        .addValue("locationId", locationId)
+                        .addValue("department", blankToNull(department)),
                 Long.class);
         return n == null ? 0L : n;
     }
@@ -300,6 +315,15 @@ public class ReportRepository {
             sql.append("  AND LOWER(IFNULL(v.name,'')) LIKE :visitorName\n");
             p.addValue("visitorName", like(filters.getVisitorName()));
         }
+        if (filters.getContactQuery() != null && !filters.getContactQuery().isBlank()) {
+            sql.append("""
+                  AND (
+                         LOWER(IFNULL(v.mobile,'')) LIKE :contactQuery
+                      OR LOWER(IFNULL(v.empId,''))  LIKE :contactQuery
+                  )
+                """);
+            p.addValue("contactQuery", like(filters.getContactQuery()));
+        }
         if (filters.getEntryType() != null && !filters.getEntryType().isBlank()) {
             sql.append("  AND v.entryType = :entryType\n");
             p.addValue("entryType", filters.getEntryType().trim().toUpperCase());
@@ -321,6 +345,10 @@ public class ReportRepository {
             };
             sql.append("  AND v.status = :status\n");
             p.addValue("status", dbStatus);
+        }
+        if (filters.getCardNumber() != null && !filters.getCardNumber().isBlank()) {
+            sql.append("  AND CAST(IFNULL(v.cardNumber, '') AS CHAR) LIKE :cardNumber\n");
+            p.addValue("cardNumber", "%" + filters.getCardNumber().trim() + "%");
         }
         if (filters.getWorkstationMac() != null && !filters.getWorkstationMac().isBlank()) {
             String macNorm = filters.getWorkstationMac().trim().toLowerCase()
@@ -363,9 +391,18 @@ public class ReportRepository {
     // ── Private helpers ───────────────────────────────────────────────────────
 
     private MapSqlParameterSource params(LocalDate from, LocalDate to, String locationId) {
+        return params(from, to, locationId, null);
+    }
+
+    private MapSqlParameterSource params(LocalDate from, LocalDate to, String locationId, String department) {
         return new MapSqlParameterSource()
                 .addValue("from",       from)
                 .addValue("to",         to)
-                .addValue("locationId", locationId);
+                .addValue("locationId", locationId)
+                .addValue("department", blankToNull(department));
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }

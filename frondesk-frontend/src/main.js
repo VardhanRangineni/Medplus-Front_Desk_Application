@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, net, dialog, nativeImage } = require('elect
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('os');
+const { autoUpdater } = require('electron-updater');
 
 if (require('electron-squirrel-startup')) {
   app.quit();
@@ -81,8 +82,8 @@ function getPreloadPath() {
 function resolveApiBaseUrl() {
   const fromBuild = process.env.FRONTDESK_API_URL?.trim();
   if (fromBuild) return fromBuild.replace(/\/$/, '');
-  // if (isDev) return 'http://localhost:9090';
- if (isDev) return 'https://tapping-overhang-gigabyte.ngrok-free.dev/';
+  if (isDev) return 'http://localhost:9090';
+//  if (isDev) return 'https://tapping-overhang-gigabyte.ngrok-free.dev/';
  return '';
 }
 
@@ -246,6 +247,206 @@ ipcMain.handle('clear-auth-session', () => {
   authSession = null;
   return true;
 });
+
+ipcMain.removeHandler('save-file-bytes');
+ipcMain.handle('save-file-bytes', async (_, { defaultPath, data, filters }) => {
+  try {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+    const { canceled, filePath } = await dialog.showSaveDialog(win ?? undefined, {
+      defaultPath: defaultPath || 'export',
+      filters: filters?.length ? filters : [{ name: 'All Files', extensions: ['*'] }],
+    });
+    if (canceled || !filePath) {
+      return { ok: false, canceled: true };
+    }
+    fs.writeFileSync(filePath, Buffer.from(data));
+    return { ok: true, filePath };
+  } catch (err) {
+    return { ok: false, error: err.message || 'Save failed.' };
+  }
+});
+
+/** Chunked export: write temp under os.tmpdir(), then move after save dialog. */
+function assertExportTempPath(tempPath) {
+  const resolved = path.resolve(tempPath);
+  const tmpRoot = path.resolve(os.tmpdir());
+  if (!resolved.startsWith(tmpRoot + path.sep) && resolved !== tmpRoot) {
+    throw new Error('Invalid export temp path.');
+  }
+  if (!path.basename(resolved).startsWith('mvms-export-')) {
+    throw new Error('Invalid export temp file.');
+  }
+  return resolved;
+}
+
+ipcMain.removeHandler('begin-temp-export');
+ipcMain.handle('begin-temp-export', () => {
+  const tempPath = path.join(
+    os.tmpdir(),
+    `mvms-export-${Date.now()}-${Math.random().toString(36).slice(2)}.bin`,
+  );
+  fs.writeFileSync(tempPath, Buffer.alloc(0));
+  return { tempPath };
+});
+
+ipcMain.removeHandler('append-temp-export');
+ipcMain.handle('append-temp-export', (_, tempPath, chunk) => {
+  const resolved = assertExportTempPath(tempPath);
+  fs.appendFileSync(resolved, Buffer.from(chunk));
+  return { ok: true };
+});
+
+ipcMain.removeHandler('cancel-temp-export');
+ipcMain.handle('cancel-temp-export', (_, tempPath) => {
+  try {
+    const resolved = assertExportTempPath(tempPath);
+    if (fs.existsSync(resolved)) fs.unlinkSync(resolved);
+  } catch {
+    /* ignore */
+  }
+  return { ok: true };
+});
+
+ipcMain.removeHandler('finish-temp-export');
+ipcMain.handle('finish-temp-export', async (_, { tempPath, defaultPath, filters }) => {
+  const resolved = assertExportTempPath(tempPath);
+  try {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+    const { canceled, filePath } = await dialog.showSaveDialog(win ?? undefined, {
+      defaultPath: defaultPath || 'export',
+      filters: filters?.length ? filters : [{ name: 'All Files', extensions: ['*'] }],
+    });
+    if (canceled || !filePath) {
+      try { fs.unlinkSync(resolved); } catch { /* ignore */ }
+      return { ok: false, canceled: true };
+    }
+    fs.copyFileSync(resolved, filePath);
+    try { fs.unlinkSync(resolved); } catch { /* ignore */ }
+    return { ok: true, filePath };
+  } catch (err) {
+    try { fs.unlinkSync(resolved); } catch { /* ignore */ }
+    return { ok: false, error: err.message || 'Save failed.' };
+  }
+});
+
+/* ── Auto-Update (electron-updater + GitHub Releases) ─────────────────────── */
+
+// State shared with renderer via IPC
+let updateState = {
+  checking: false,
+  available: false,
+  version: '',
+  downloadProgress: null,     // { percent, bytesPerSecond, transferred, total }
+  downloaded: false,
+  error: null,
+};
+
+// Only enable in production builds
+if (isPackaged) {
+  // Disable the built-in GitHub request header so electron-updater uses GH_TOKEN for auth
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.requestAdminRights = true;
+
+  autoUpdater.on('checking-for-update', () => {
+    logDebug('[MVMS-Update] Checking for updates…');
+    updateState = { ...updateState, checking: true, error: null };
+    broadcastUpdateState();
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    logDebug('[MVMS-Update] Update available:', info.version);
+    updateState = { ...updateState, checking: false, available: true, version: info.version ?? '' };
+    broadcastUpdateState();
+  });
+
+  autoUpdater.on('update-not-available', (info) => {
+    logDebug('[MVMS-Update] No update available (current:', info?.version, ')');
+    updateState = { ...updateState, checking: false, available: false, version: '' };
+    broadcastUpdateState();
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    const pg = {
+      percent: progress.percent,
+      bytesPerSecond: progress.bytesPerSecond,
+      transferred: progress.transferred,
+      total: progress.total,
+    };
+    logDebug(`[MVMS-Update] Download progress: ${progress.percent.toFixed(1)}%`);
+    updateState = { ...updateState, downloadProgress: pg };
+    broadcastUpdateState();
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    logDebug('[MVMS-Update] Update downloaded:', info.version);
+    updateState = {
+      ...updateState,
+      checking: false,
+      available: false,
+      downloadProgress: null,
+      downloaded: true,
+      version: info.version ?? '',
+    };
+    broadcastUpdateState();
+  });
+
+  autoUpdater.on('error', (err) => {
+    logDebug('[MVMS-Update] Error:', err?.message ?? err);
+    updateState = {
+      ...updateState,
+      checking: false,
+      error: err?.message ?? 'Update failed',
+    };
+    broadcastUpdateState();
+  });
+
+  // Check for updates on startup (after window is ready)
+  app.whenReady().then(() => {
+    // Small delay so the GitHub API call doesn't race with window creation
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch((err) => {
+        logDebug('[MVMS-Update] Startup check failed:', err?.message);
+      });
+    }, 5000);
+  });
+}
+
+function broadcastUpdateState() {
+  const wins = BrowserWindow.getAllWindows();
+  for (const win of wins) {
+    win.webContents.send('update-state-change', updateState);
+  }
+}
+
+// IPC: renderer asks main to check for updates
+ipcMain.removeHandler('check-for-updates');
+ipcMain.handle('check-for-updates', async () => {
+  if (!isPackaged) {
+    return { ok: false, error: 'Updates are only available in production builds.' };
+  }
+  try {
+    await autoUpdater.checkForUpdates();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message ?? 'Check failed' };
+  }
+});
+
+// IPC: renderer asks current state
+ipcMain.removeHandler('get-update-state');
+ipcMain.handle('get-update-state', () => updateState);
+
+// IPC: renderer requests install & restart
+ipcMain.removeHandler('restart-to-update');
+ipcMain.handle('restart-to-update', () => {
+  if (!isPackaged || !updateState.downloaded) {
+    return;
+  }
+  autoUpdater.quitAndInstall();
+});
+
+/* ── App Lifecycle ───────────────────────────────────────────────────────── */
 
 app.whenReady().then(() => {
   if (!ensureProductionConfig()) {

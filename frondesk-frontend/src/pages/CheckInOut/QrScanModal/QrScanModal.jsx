@@ -30,7 +30,7 @@ function isMovementPayload(raw) {
   const v = (raw ?? '').trim();
   if (!v) return false;
   if (/^VISITOR:/i.test(v)) return true;
-  return /^MED-V-\d{4}$/i.test(v);
+  return /^MED-(?:GV|V)-\d{4,12}$/i.test(v);
 }
 
 function normalizeToken(rawData) {

@@ -14,6 +14,7 @@ import {
   canFilterLocations,
   getAssignedLocationIds,
   buildLocationScope,
+  isDeptHead,
 } from '../../services/locationScope';
 // Eager import — default nav is Check In/Out; lazy chunk caused ChunkLoadError in dev.
 import CheckInOut from '../CheckInOut/CheckInOut';
@@ -41,6 +42,7 @@ const Reports          = lazyWithRetry(() => import('../Reports/Reports'), 'repo
 const StaffActivity    = lazyWithRetry(() => import('../StaffActivity/StaffActivity'), 'staff');
 const LocationMaster   = lazyWithRetry(() => import('../LocationMaster/LocationMaster'), 'locations');
 const DeviceMaster     = lazyWithRetry(() => import('../DeviceMaster/DeviceMaster'), 'devices');
+const KeyManagement    = lazyWithRetry(() => import('../KeyManagement/KeyManagement'), 'keymgmt');
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 
@@ -108,6 +110,7 @@ function StatCard({ title, values = {}, live = false }) {
 const RESTRICTED_ROUTES = {
   'user-management': ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
   'staff-activity':  ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
+  'key-management':  ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
   'location-master': ['PRIMARY_ADMIN'],
   'device-master':   ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
 };
@@ -146,6 +149,9 @@ function PageContent({ activeNav, setActiveNav, session, locationScope }) {
       break;
     case 'device-master':
       page = <DeviceMaster session={session} />;
+      break;
+    case 'key-management':
+      page = <KeyManagement />;
       break;
     default:
       return (
