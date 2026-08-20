@@ -364,8 +364,8 @@
   justify-content: center;
 
   box-shadow:
-    0 4px 20px rgba(59, 130, 246, 0.38),
-    0 1px  4px rgba(59, 130, 246, 0.22),
+    0 4px 20px rgba(194, 24, 29, 0.38),
+    0 1px  4px rgba(194, 24, 29, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.28),
     inset 0 -1px 0 rgba(0, 0, 0, 0.14);
 
@@ -378,13 +378,13 @@
 .login-submit:hover:not(:disabled) {
   background: linear-gradient(
     140deg,
-    rgba(96, 165, 250, 0.95) 0%,
-    rgba(59, 130, 246, 1) 100%
+    rgba(210, 35, 42, 0.95) 0%,
+    rgba(180, 20, 26, 1) 100%
   );
   transform: translateY(-1px);
   box-shadow:
-    0 8px 28px rgba(59, 130, 246, 0.48),
-    0 2px  8px rgba(59, 130, 246, 0.28),
+    0 8px 28px rgba(194, 24, 29, 0.48),
+    0 2px  8px rgba(194, 24, 29, 0.28),
     inset 0 1px 0 rgba(255, 255, 255, 0.32),
     inset 0 -1px 0 rgba(0, 0, 0, 0.16);
 }
@@ -392,7 +392,7 @@
 .login-submit:active:not(:disabled) {
   transform: translateY(0);
   box-shadow:
-    0 2px 12px rgba(59, 130, 246, 0.30),
+    0 2px 12px rgba(194, 24, 29, 0.30),
     inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
