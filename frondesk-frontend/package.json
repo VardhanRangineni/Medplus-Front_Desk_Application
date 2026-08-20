@@ -1,7 +1,7 @@
 {
   "name": "medplus-mvms",
   "productName": "MedPlus Visitor Management System",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "description": "MedPlus Visitor Management System (MVMS) — visitor and staff management",
   "main": ".webpack/main",
   "private": true,
