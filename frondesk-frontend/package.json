@@ -1,7 +1,7 @@
 {
   "name": "medplus-mvms",
   "productName": "MedPlus Visitor Management System",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MedPlus Visitor Management System (MVMS) — visitor and staff management",
   "main": ".webpack/main",
   "private": true,
@@ -28,8 +28,8 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "your-github-owner",
-      "repo": "your-github-repo"
+      "owner": "VardhanRangineni",
+      "repo": "Medplus-Front_Desk_Application"
     },
     "win": {
       "target": [

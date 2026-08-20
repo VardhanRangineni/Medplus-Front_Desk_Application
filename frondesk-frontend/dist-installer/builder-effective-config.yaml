@@ -5,6 +5,10 @@ appId: com.medplus.mvms
 productName: MedPlus Visitor Management System
 executableName: MedPlusMVMS
 copyright: Copyright © MedPlus
+publish:
+  provider: github
+  owner: VardhanRangineni
+  repo: Medplus-Front_Desk_Application
 win:
   target:
     - nsis

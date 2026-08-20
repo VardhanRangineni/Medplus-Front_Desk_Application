@@ -7,6 +7,8 @@ import {
 import logo  from '../../Assets/images/logo.png';
 import bgImg from '../../Assets/images/background 2.png';
 import { LOGIN_BRAND_PRIMARY, LOGIN_BRAND_SECONDARY } from '../../constants/branding';
+import pkg from '../../../package.json';
+const APP_VERSION = pkg.version ?? '1.0.0';
 import { getLoginErrorMessage } from '../../services/userFacingErrors';
 import LottieLoader from '../../components/LottieLoader/LottieLoader';
 
@@ -216,6 +218,7 @@ export default function LoginPage({ onLoginSuccess }) {
             <footer className="login-card__footer">
               <IconShield size={12} />
               <span>Locked to this workstation</span>
+              <span className="login-card__version">v{APP_VERSION}</span>
             </footer>
 
           </div>
