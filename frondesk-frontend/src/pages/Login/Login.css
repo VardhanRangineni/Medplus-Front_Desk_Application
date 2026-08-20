@@ -179,6 +179,10 @@
   position: relative;
   z-index: 1;
 }
+.login-card__subtitle--ota {
+  color: #b01318;
+  font-weight: 600;
+}
 
 /* ── Form ────────────────────────────────────────────────────────────────── */
 .login-form {

@@ -151,6 +151,7 @@ export default function LoginPage({ onLoginSuccess }) {
               </div>
               <h1 className="login-card__title">Welcome back.</h1>
               <p className="login-card__subtitle">Securely manage visitors, staff ins &amp; outs, and daily office activity with ease and reliability.</p>
+              <p className="login-card__subtitle login-card__subtitle--ota">Now with OTA updates — stays up to date automatically.</p>
             </header>
 
             <form className="login-form" onSubmit={handleSubmit} noValidate>
