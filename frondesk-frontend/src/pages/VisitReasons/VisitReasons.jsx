@@ -36,20 +36,6 @@ const TYPE_MAP = {
 
 const COL_COUNT = 3;
 
-function StatusToggle({ active, onToggle, label }) {
-  return (
-    <button type="button" className="umg-toggle" onClick={onToggle} aria-label={`Toggle ${label}`}>
-      {active
-        ? <IconToggleRight size={28} className="umg-toggle__on" />
-        : <IconToggleLeft size={28} className="umg-toggle__off" />
-      }
-      <span className={`umg-status${active ? ' umg-status--active' : ' umg-status--inactive'}`}>
-        {active ? 'Active' : 'Inactive'}
-      </span>
-    </button>
-  );
-}
-
 function AddReasonModal({ open, onClose, onCreated, typeLabel }) {
   const [reasonName, setReasonName] = useState('');
   const [error, setError] = useState('');
@@ -241,13 +227,11 @@ function ReasonList({ typeLabel, initLoading, pageLoading, reasons, loadError, o
       <table className="ci-table vr-table" aria-label={`${label} reasons`}>
         <colgroup>
           <col className="vr-col--name" />
-          <col className="vr-col--status" />
           <col className="vr-col--actions" />
         </colgroup>
         <thead>
           <tr>
             <th scope="col" className="vr-col--name">Reason Name</th>
-            <th scope="col" className="vr-col--status">Status</th>
             <th scope="col" className="vr-col--actions">Actions</th>
           </tr>
         </thead>
@@ -255,13 +239,6 @@ function ReasonList({ typeLabel, initLoading, pageLoading, reasons, loadError, o
           {list.map((r) => (
             <tr key={r.id}>
               <td className="vr-reason-name">{r.reasonName}</td>
-              <td>
-                <StatusToggle
-                  active={r.isActive}
-                  label={r.reasonName}
-                  onToggle={() => onToggle(r.id, r.isActive)}
-                />
-              </td>
               <td className="vr-actions">
                 <button
                   type="button"
@@ -372,17 +349,7 @@ export default function VisitReasons() {
 
   // ── Handlers ────────────────────────────────────────────────────────────
 
-  const handleToggle = async (id, currentActive) => {
-    const next = !currentActive;
-    setCurrentReasons((prev) => prev.map((r) => (r.id === id ? { ...r, isActive: next } : r)));
-    try {
-      await toggleVisitReasonStatus(id, next);
-      clearCache(TYPE_MAP[activeTab]);
-    } catch (err) {
-      setCurrentReasons((prev) => prev.map((r) => (r.id === id ? { ...r, isActive: currentActive } : r)));
-      setLoadError(err?.message ?? 'Failed to update status.');
-    }
-  };
+
 
   const handleDelete = async (reason) => {
     if (!confirm(`Delete "${reason.reasonName}"? This cannot be undone.`)) return;
@@ -469,7 +436,6 @@ export default function VisitReasons() {
           pageLoading={pageLoading}
           reasons={currentReasons}
           loadError={loadError}
-          onToggle={handleToggle}
           onDelete={handleDelete}
           onAdd={handleAdd}
           onEdit={handleEdit}

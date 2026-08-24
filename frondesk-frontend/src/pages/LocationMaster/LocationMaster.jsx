@@ -112,10 +112,10 @@ function StatusToggle({ active, onToggle, label }) {
   return (
     <button type="button" className="umg-toggle" onClick={onToggle} aria-label={`Toggle ${label}`}>
       {active
-        ? <IconToggleRight size={28} className="umg-toggle__on" />
-        : <IconToggleLeft size={28} className="umg-toggle__off" />
+        ? <IconToggleRight size={28} className="umg-status--on" />
+        : <IconToggleLeft size={28} className="umg-status--off" />
       }
-      <span className={`umg-status${active ? ' umg-status--active' : ' umg-status--inactive'}`}>
+      <span className={`umg-status${active ? ' umg-status--on' : ' umg-status--off'}`}>
         {active ? 'Active' : 'Inactive'}
       </span>
     </button>

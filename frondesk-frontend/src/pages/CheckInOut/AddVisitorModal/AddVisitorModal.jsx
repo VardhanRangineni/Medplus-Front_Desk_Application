@@ -423,7 +423,7 @@ function StepIdentity({
   );
 }
 
-function StepDetails({ state, dispatch }) {
+function StepDetails({ state, dispatch, entryType }) {
   const {
     email, govtIdNumber,
     personToMeet, personToMeetCustom, reasonForVisit,
@@ -497,7 +497,7 @@ function StepDetails({ state, dispatch }) {
 
       <Field label="Reason for Visit" required>
         <ReasonDropdown
-          type="VISITOR"
+          type={entryType}
           value={reasonForVisit}
           onChange={(val) => dispatch({ type: 'SET_FIELD', field: 'reasonForVisit', value: val })}
         />
@@ -950,7 +950,7 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
           )}
 
           {step === 1 && (
-            <StepDetails state={details} dispatch={dispatch} />
+            <StepDetails state={details} dispatch={dispatch} entryType={entryType} />
           )}
         </div>
 

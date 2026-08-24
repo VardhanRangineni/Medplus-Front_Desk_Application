@@ -36,6 +36,7 @@ export default function ReasonDropdown({ type = 'VISITOR', value = '', onChange,
   const [open, setOpen] = useState(false);
   const [selectedText, setSelectedText] = useState(value || '');
   const [otherText, setOtherText] = useState('');
+  const [isOtherSelected, setIsOtherSelected] = useState(false);
   const [highlightIdx, setHighlightIdx] = useState(-1);
 
   const containerRef = useRef(null);
@@ -102,10 +103,12 @@ export default function ReasonDropdown({ type = 'VISITOR', value = '', onChange,
     if (match) {
       setSelectedText(current);
       setOtherText('');
+      setIsOtherSelected(false);
     } else {
       // Custom / "Other" value
       setSelectedText(current);
       setOtherText(current);
+      setIsOtherSelected(true);
     }
   }, [value, options]);
 
@@ -168,6 +171,7 @@ export default function ReasonDropdown({ type = 'VISITOR', value = '', onChange,
 
   function selectOption(opt) {
     if (opt.key === OTHER_KEY) {
+      setIsOtherSelected(true);
       setSelectedText('');
       setOtherText('');
       onChange?.('');
@@ -178,6 +182,7 @@ export default function ReasonDropdown({ type = 'VISITOR', value = '', onChange,
       }, 50);
       return;
     }
+    setIsOtherSelected(false);
     setSelectedText(opt.text);
     setOtherText('');
     onChange?.(opt.text);
@@ -237,8 +242,8 @@ export default function ReasonDropdown({ type = 'VISITOR', value = '', onChange,
   }, [highlightIdx]);
 
   const allOpts = [...options, { key: OTHER_KEY, label: OTHER_LABEL, text: OTHER_LABEL }];
-  const currentOther = !options.some((o) => o.text === selectedText) && selectedText;
-  const hasValue = !!selectedText;
+  const currentOther = isOtherSelected || (!options.some((o) => o.text === selectedText) && !!selectedText);
+  const hasValue = !!selectedText || isOtherSelected;
 
   // Dropdown panel rendered via portal so it sits above modals
   const panelContent = open && panelRect ? (
@@ -298,7 +303,7 @@ export default function ReasonDropdown({ type = 'VISITOR', value = '', onChange,
         aria-label="Reason for visit"
       >
         <span className={`reason-dropdown__value${!hasValue ? ' reason-dropdown__value--placeholder' : ''}`}>
-          {loading ? 'Loading...' : (selectedText || 'Select a reason...')}
+          {loading ? 'Loading...' : (selectedText || (isOtherSelected ? 'Other' : 'Select a reason...'))}
         </span>
         <IconChevronDown size={14} className="reason-dropdown__chevron" />
       </button>

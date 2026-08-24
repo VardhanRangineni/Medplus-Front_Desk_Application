@@ -13,16 +13,11 @@
 }
 
 .vr-col--name {
-  width: 33.33%;
-}
-
-.vr-col--status {
-  width: 33.33%;
-  text-align: center;
+  width: 50%;
 }
 
 .vr-col--actions {
-  width: 33.33%;
+  width: 50%;
 }
 
 .vr-reason-name {
