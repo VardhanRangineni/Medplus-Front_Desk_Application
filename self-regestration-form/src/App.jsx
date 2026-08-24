@@ -8,6 +8,7 @@ import MobileOtpVerify from './components/MobileOtpVerify';
 import SuccessScreen from './components/SuccessScreen';
 import VerifyBox, { VerifySpinner } from './components/VerifyBox';
 import { PRESET_REASONS } from './constants/visitReasons';
+import { apiRequest } from './api/api';
 import {
   HRMS_MIN_ID_LENGTH,
   LOOKUP_DEBOUNCE_MS,
@@ -45,6 +46,8 @@ export default function App() {
   const [companyToggled, setCompanyToggled] = useState(false);
   const [company, setCompany] = useState('');
   const [reason, setReason] = useState('');
+  const [reasonDropdownValue, setReasonDropdownValue] = useState('');
+  const [reasonOptions, setReasonOptions] = useState(PRESET_REASONS);
   const [banner, setBanner] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(null);
@@ -60,6 +63,42 @@ export default function App() {
     cancelDebouncedLookup(empLookupGen, empTimerRef);
     cancelDebouncedLookup(ptmLookupGen, ptmTimerRef);
   }, []);
+
+  // Fetch visit reasons from API for dropdown (graceful fallback to PRESET_REASONS)
+  useEffect(() => {
+    let cancelled = false;
+    apiRequest('GET', '/api/visit-reasons/active?type=VISITOR')
+      .then((json) => {
+        if (cancelled) return;
+        const data = json?.data;
+        if (Array.isArray(data) && data.length > 0) {
+          setReasonOptions(data.map((r) => ({ key: String(r.id ?? r.reasonName), label: r.reasonName, text: r.reasonName })));
+        }
+      })
+      .catch(() => {
+        // Silently fall back to PRESET_REASONS
+      })
+      .finally(() => {
+        if (!cancelled) {
+          // Sync any existing reason value
+        }
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Sync external reason value to dropdown
+  useEffect(() => {
+    if (!reason) {
+      setReasonDropdownValue('');
+      return;
+    }
+    const match = reasonOptions.find((o) => o.text === reason);
+    if (match) {
+      setReasonDropdownValue(match.key);
+    } else {
+      setReasonDropdownValue('__other__');
+    }
+  }, [reason, reasonOptions]);
 
   function selectType(type) {
     setEntryType(type);
@@ -497,24 +536,61 @@ export default function App() {
 
                 <div className="field">
                   <label htmlFor="f-reason">Reason for visit <span className="req">*</span></label>
-                  <div className="reason-chips">
-                    {PRESET_REASONS.map((r) => (
-                      <button
-                        key={r.label}
-                        type="button"
-                        className="reason-chip"
-                        onClick={() => setReason(r.text)}
-                      >
-                        {r.label}
-                      </button>
-                    ))}
+                  <div className="reason-dropdown-wrap">
+                    <select
+                      id="f-reason-select"
+                      className="reason-dropdown__select"
+                      value={reasonDropdownValue}
+                      onChange={(e) => {
+                        const key = e.target.value;
+                        setReasonDropdownValue(key);
+                        if (key === '__other__') {
+                          // Keep existing reason text; user will type in textarea
+                          return;
+                        }
+                        const opt = reasonOptions.find((o) => o.key === key);
+                        if (opt) {
+                          setReason(opt.text);
+                        }
+                      }}
+                    >
+                      <option value="">Select a reason...</option>
+                      {reasonOptions.map((opt) => (
+                        <option key={opt.key} value={opt.key}>{opt.label}</option>
+                      ))}
+                      <option value="__other__">Other</option>
+                    </select>
+
+                    {reasonDropdownValue === '__other__' && (
+                      <textarea
+                        id="f-reason"
+                        className="reason-dropdown__other-textarea"
+                        placeholder="Type your reason..."
+                        rows={3}
+                        value={reason}
+                        onChange={(e) => setReason(e.target.value)}
+                        autoFocus
+                      />
+                    )}
+
+                    {reasonDropdownValue !== '__other__' && reason && (
+                      <textarea
+                        id="f-reason"
+                        className="reason-dropdown__other-textarea"
+                        placeholder="Or type your reason here..."
+                        rows={3}
+                        value={reason}
+                        onChange={(e) => {
+                          setReason(e.target.value);
+                          setReasonDropdownValue('__other__');
+                        }}
+                      />
+                    )}
+
+                    {!reason && reasonDropdownValue !== '__other__' && reasonDropdownValue !== '' && (
+                      <p className="hint">You can edit the reason below or type a custom one by selecting "Other".</p>
+                    )}
                   </div>
-                  <textarea
-                    id="f-reason"
-                    placeholder="e.g. Meeting, interview, courier delivery…"
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                  />
                 </div>
 
                 <button type="submit" className="submit-btn" disabled={submitting}>

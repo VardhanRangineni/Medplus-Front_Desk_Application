@@ -18,7 +18,7 @@ import {
   createGroupEmployeeEntries,
 } from './addEmployeeService';
 import PersonToMeetMobileLookup from '../PersonToMeetMobileLookup';
-import { PRESET_REASONS } from '../../../constants/visitReasons';
+import ReasonDropdown from '../../../components/ReasonDropdown/ReasonDropdown';
 import {
   HRMS_MIN_ID_LENGTH,
   LOOKUP_DEBOUNCE_MS,
@@ -96,24 +96,10 @@ function SharedHostReason({
         onChange={onPersonToMeetBulkChange}
       />
       <Field label="Reason for Visit" required>
-        <div className="avm-reason-chips">
-          {PRESET_REASONS.map((r) => (
-            <button
-              key={r.label}
-              type="button"
-              className="avm-reason-chip"
-              onClick={() => setReasonForVisit(r.text)}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
-        <textarea
-          className="avm-textarea"
-          placeholder="e.g. Project meeting"
-          rows={3}
+        <ReasonDropdown
+          type="EMPLOYEE"
           value={reasonForVisit}
-          onChange={(e) => setReasonForVisit(e.target.value)}
+          onChange={setReasonForVisit}
         />
       </Field>
     </>

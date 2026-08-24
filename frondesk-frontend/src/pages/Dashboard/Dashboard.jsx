@@ -43,6 +43,7 @@ const StaffActivity    = lazyWithRetry(() => import('../StaffActivity/StaffActiv
 const LocationMaster   = lazyWithRetry(() => import('../LocationMaster/LocationMaster'), 'locations');
 const DeviceMaster     = lazyWithRetry(() => import('../DeviceMaster/DeviceMaster'), 'devices');
 const KeyManagement    = lazyWithRetry(() => import('../KeyManagement/KeyManagement'), 'keymgmt');
+const VisitReasons     = lazyWithRetry(() => import('../VisitReasons/VisitReasons'), 'visitreasons');
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 
@@ -113,6 +114,7 @@ const RESTRICTED_ROUTES = {
   'key-management':  ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
   'location-master': ['PRIMARY_ADMIN'],
   'device-master':   ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
+  'visit-reasons':   ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
 };
 
 /* ── Page content router ─────────────────────────────────────────────────── */
@@ -152,6 +154,9 @@ function PageContent({ activeNav, setActiveNav, session, locationScope }) {
       break;
     case 'key-management':
       page = <KeyManagement />;
+      break;
+    case 'visit-reasons':
+      page = <VisitReasons session={session} />;
       break;
     default:
       return (

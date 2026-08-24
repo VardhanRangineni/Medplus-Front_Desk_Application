@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import './AddVisitorModal.css';
 import {
   IconX,
@@ -13,11 +13,19 @@ import {
 import {
   sendOtp,
   verifyOtp,
+  lookupKnownVisitors,
   createVisitorEntry,
   createGroupVisitorEntries,
 } from './addVisitorService';
+import {
+  scheduleDebouncedLookup,
+  cancelDebouncedLookup,
+  LOOKUP_DEBOUNCE_MS,
+  MOBILE_LOOKUP_LENGTH,
+} from '../../../utils/lookupDebounce';
 import PersonToMeetMobileLookup from '../PersonToMeetMobileLookup';
-import { PRESET_REASONS } from '../../../constants/visitReasons';
+import ReasonDropdown from '../../../components/ReasonDropdown/ReasonDropdown';
+import SearchSelect from '../../../components/SearchSelect/SearchSelect';
 
 const AADHAAR_REGEX = /^\d{12}$/;
 const OTP_RESEND_SECONDS = 30;
@@ -176,8 +184,14 @@ function useOtpControls(mobile, verified, onVerified) {
 
 function MobileOtpBlock({
   mobile, onMobileChange, verified, onVerified, onChangeNumber, disabled,
+  // Known visitor props
+  knownVisitors, selectedKnownVisitor, onSelectKnownVisitor,
+  lookingUp, detailsEdited, onResetEdited,
 }) {
   const otp = useOtpControls(mobile, verified, onVerified);
+
+  // Show OTP only when NOT verified AND (no known visitor selected OR details were edited)
+  const shouldShowOtp = !verified && (knownVisitors.length === 0 || detailsEdited);
 
   return (
     <>
@@ -193,7 +207,7 @@ function MobileOtpBlock({
             disabled={verified || disabled}
             onChange={(e) => onMobileChange(e.target.value.replace(/\D/g, '').slice(0, 10))}
           />
-          {!verified && (
+          {!verified && shouldShowOtp && (
             <button
               type="button"
               className={`avm-otp-btn${otp.otpSent && otp.countdown > 0 ? ' avm-otp-btn--waiting' : ''}`}
@@ -216,7 +230,7 @@ function MobileOtpBlock({
         </div>
       )}
 
-      {otp.otpSent && !verified && (
+      {otp.otpSent && !verified && shouldShowOtp && (
         <Field label="One-Time Password">
           <div className="avm-side-by-side">
             <input
@@ -246,6 +260,54 @@ function MobileOtpBlock({
           </div>
           {otp.otpError && <p className="avm-error" style={{ marginTop: 4 }}>{otp.otpError}</p>}
         </Field>
+      )}
+
+      {/* Known visitor indicator */}
+      {knownVisitors.length > 0 && !detailsEdited && (
+        <div className="avm-known-visitor">
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+            <circle cx="11" cy="11" r="11" fill="#28883d" />
+            <path d="M6 11.5L9.5 15L16 8" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <div className="avm-known-visitor__text">
+            <div className="avm-known-visitor__title">Known Visitor</div>
+            <div className="avm-known-visitor__sub">
+              OTP skipped — verified from past visit
+              {selectedKnownVisitor && selectedKnownVisitor.totalVisits > 1
+                ? ` (${selectedKnownVisitor.totalVisits} visits)`
+                : ''}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Known visitor selector dropdown when multiple records */}
+      {knownVisitors.length > 1 && !detailsEdited && (
+        <div className="avm-known-selector">
+          <label className="avm-label">Select Visitor Record</label>
+          <SearchSelect
+            value={selectedKnownVisitor ? String(selectedKnownVisitor.__idx) : ''}
+            onChange={(val) => {
+              const idx = parseInt(val, 10);
+              if (!isNaN(idx)) {
+                onSelectKnownVisitor(knownVisitors[idx]);
+              }
+            }}
+            options={knownVisitors.map((kv, idx) => ({
+              value: String(idx),
+              label: kv.name + (kv.companyName ? ` — ${kv.companyName}` : '') + ` (last: ${kv.lastVisitDate})`
+            }))}
+            disabled={disabled}
+            searchable={false}
+          />
+        </div>
+      )}
+
+      {/* Edit warning banner */}
+      {detailsEdited && knownVisitors.length > 0 && !verified && (
+        <div className="avm-edit-warning" role="alert">
+          Details edited — OTP verification required to proceed.
+        </div>
       )}
 
       {verified && (
@@ -280,6 +342,9 @@ function StepIdentity({
   mobile, onMobileChange, verified, onVerified, onChangeNumber,
   cardNumber, onCardNumberChange,
   members, onMemberChange, onAddMember, onRemoveMember,
+  // Known visitor props (individual only)
+  knownVisitors, selectedKnownVisitor, onSelectKnownVisitor,
+  lookingUp, detailsEdited, onResetEdited,
 }) {
   return (
     <div className="avm-step">
@@ -293,12 +358,25 @@ function StepIdentity({
         <p className="avm-otp-intro__sub">
           {isGroup
             ? 'Enter name, mobile, and card for each visitor. OTP must be verified for every number before continuing.'
-            : 'Enter the visitor name, mobile, and card number. An OTP will be sent to confirm identity.'}
+            : 'Enter the visitor mobile number first. Known visitors are auto-verified. New visitors require OTP.'}
         </p>
       </div>
 
       {!isGroup && (
         <>
+          <MobileOtpBlock
+            mobile={mobile}
+            onMobileChange={onMobileChange}
+            verified={verified}
+            onVerified={onVerified}
+            onChangeNumber={onChangeNumber}
+            knownVisitors={knownVisitors}
+            selectedKnownVisitor={selectedKnownVisitor}
+            onSelectKnownVisitor={onSelectKnownVisitor}
+            lookingUp={lookingUp}
+            detailsEdited={detailsEdited}
+            onResetEdited={onResetEdited}
+          />
           <Field label="Full Name" required>
             <InputWithIcon
               icon={<IconUser size={14} />}
@@ -306,16 +384,10 @@ function StepIdentity({
               placeholder="John Doe"
               value={fullName}
               onChange={(e) => onFullNameChange(e.target.value)}
-              disabled={verified}
+              // Note: intentionally NOT disabled — known visitors can edit pre-filled
+              // name; edit detection in handleFullNameChange will re-require OTP
             />
           </Field>
-          <MobileOtpBlock
-            mobile={mobile}
-            onMobileChange={onMobileChange}
-            verified={verified}
-            onVerified={onVerified}
-            onChangeNumber={onChangeNumber}
-          />
           <Field label="Visitor ID Card Number" required>
             <InputWithIcon
               icon={<IconCreditCard size={14} />}
@@ -462,26 +534,10 @@ function StepDetails({ state, dispatch }) {
       </Field>
 
       <Field label="Reason for Visit" required>
-        <div className="avm-reason-chips">
-          {PRESET_REASONS.map((r) => (
-            <button
-              key={r.label}
-              type="button"
-              className="avm-reason-chip"
-              onClick={() => dispatch({ type: 'SET_FIELD', field: 'reasonForVisit', value: r.text })}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
-        <textarea
-          className="avm-textarea"
-          placeholder="e.g. Scheduled meeting"
-          rows={3}
+        <ReasonDropdown
+          type="VISITOR"
           value={reasonForVisit}
-          onChange={(e) =>
-            dispatch({ type: 'SET_FIELD', field: 'reasonForVisit', value: e.target.value })
-          }
+          onChange={(val) => dispatch({ type: 'SET_FIELD', field: 'reasonForVisit', value: val })}
         />
       </Field>
     </div>
@@ -521,6 +577,12 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
+  // Known visitor state
+  const [knownVisitors, setKnownVisitors] = useState([]);
+  const [selectedKnownVisitor, setSelectedKnownVisitor] = useState(null);
+  const [lookingUp, setLookingUp] = useState(false);
+  const [detailsEdited, setDetailsEdited] = useState(false);
+
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; });
 
@@ -529,6 +591,59 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, []);
+
+  // Debounced known visitor lookup when mobile reaches 10 digits
+  const doLookup = useCallback(async (digits) => {
+    if (digits.length < MOBILE_LOOKUP_LENGTH) {
+      setKnownVisitors([]);
+      setSelectedKnownVisitor(null);
+      return;
+    }
+    setLookingUp(true);
+    try {
+      const results = await lookupKnownVisitors(digits);
+      setKnownVisitors(results);
+      if (results.length > 0) {
+        // Auto-select most recent (first in list), tag with index for dropdown
+        const selected = { ...results[0], __idx: 0 };
+        setSelectedKnownVisitor(selected);
+        // Pre-fill fields from the selected record
+        setFullName(selected.name || '');
+        // Mark as verified — skip OTP
+        setMobileVerified(true);
+        setDetailsEdited(false);
+      } else {
+        setSelectedKnownVisitor(null);
+        setDetailsEdited(false);
+      }
+    } catch (e) {
+      // Lookup failures are silent — fall back to normal OTP flow
+      setKnownVisitors([]);
+      setSelectedKnownVisitor(null);
+    } finally {
+      setLookingUp(false);
+    }
+  }, []);
+
+  const lookupGenerationRef = useRef(0);
+  const lookupTimerRef = useRef(null);
+
+  useEffect(() => {
+    if (isGroup || mobileVerified || knownVisitors.length > 0) return;
+    if (mobile.length === MOBILE_LOOKUP_LENGTH) {
+      scheduleDebouncedLookup(
+        lookupGenerationRef,
+        lookupTimerRef,
+        () => doLookup(mobile)
+      );
+    } else if (mobile.length >= MOBILE_LOOKUP_LENGTH - 2) {
+      // Cancel any pending lookup as user is still typing
+      cancelDebouncedLookup(lookupGenerationRef, lookupTimerRef);
+    }
+    return () => {
+      cancelDebouncedLookup(lookupGenerationRef, lookupTimerRef);
+    };
+  }, [mobile, isGroup, mobileVerified, doLookup]);
 
   function dispatch(action) {
     switch (action.type) {
@@ -556,10 +671,56 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
     setCardNumber('');
     setMembers([newMember()]);
     setDetails(initialDetails);
+    // Reset known visitor state
+    setKnownVisitors([]);
+    setSelectedKnownVisitor(null);
+    setDetailsEdited(false);
   }
 
   function handleMemberChange(key, patch) {
     setMembers((list) => list.map((m) => (m.key === key ? { ...m, ...patch } : m)));
+  }
+
+  // Handle name change — detect edit of pre-filled data
+  function handleFullNameChange(value) {
+    setFullName(value);
+    if (selectedKnownVisitor && !detailsEdited && value !== selectedKnownVisitor.name) {
+      setDetailsEdited(true);
+      setMobileVerified(false);
+    }
+  }
+
+  // Handle card number change
+  function handleCardNumberChange(value) {
+    setCardNumber(value);
+  }
+
+  // Handle selecting a known visitor from dropdown
+  function handleSelectKnownVisitor(kv) {
+    const idx = knownVisitors.indexOf(kv);
+    const selected = { ...kv, __idx: idx >= 0 ? idx : 0 };
+    setSelectedKnownVisitor(selected);
+    setFullName(selected.name || '');
+    setMobileVerified(true);
+    setDetailsEdited(false);
+  }
+
+  // Handle mobile change — reset known visitor state
+  function handleMobileChange(value) {
+    setMobile(value);
+    // Reset known visitor state when mobile changes
+    setKnownVisitors([]);
+    setSelectedKnownVisitor(null);
+    setMobileVerified(false);
+    setDetailsEdited(false);
+  }
+
+  function handleChangeNumber() {
+    setMobileVerified(false);
+    setMobile('');
+    setKnownVisitors([]);
+    setSelectedKnownVisitor(null);
+    setDetailsEdited(false);
   }
 
   const step0Valid = isGroup
@@ -570,8 +731,9 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
         && m.verified
         && String(m.cardNumber || '').trim() !== '')
     : fullName.trim() !== ''
-      && mobileVerified
-      && cardNumber.trim() !== '';
+      && mobile.length === 10
+      && cardNumber.trim() !== ''
+      && mobileVerified;
 
   const detailsValid = details.personToMeet.trim() !== ''
     && details.reasonForVisit.trim() !== ''
@@ -668,18 +830,27 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
             <StepIdentity
               isGroup={isGroup}
               fullName={fullName}
-              onFullNameChange={setFullName}
+              onFullNameChange={handleFullNameChange}
               mobile={mobile}
-              onMobileChange={setMobile}
+              onMobileChange={handleMobileChange}
               verified={mobileVerified}
-              onVerified={(m) => { setMobileVerified(true); setMobile(m); }}
-              onChangeNumber={() => { setMobileVerified(false); setMobile(''); }}
+              onVerified={(m) => {
+                setMobileVerified(true);
+                setMobile(m);
+              }}
+              onChangeNumber={handleChangeNumber}
               cardNumber={cardNumber}
-              onCardNumberChange={setCardNumber}
+              onCardNumberChange={handleCardNumberChange}
               members={members}
               onMemberChange={handleMemberChange}
               onAddMember={() => setMembers((list) => [...list, newMember()])}
               onRemoveMember={(key) => setMembers((list) => list.filter((m) => m.key !== key))}
+              knownVisitors={knownVisitors}
+              selectedKnownVisitor={selectedKnownVisitor}
+              onSelectKnownVisitor={handleSelectKnownVisitor}
+              lookingUp={lookingUp}
+              detailsEdited={detailsEdited}
+              onResetEdited={() => setDetailsEdited(false)}
             />
           )}
 

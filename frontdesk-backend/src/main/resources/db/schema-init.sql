@@ -144,7 +144,8 @@ CREATE TABLE IF NOT EXISTS `visitorlog` (
     `modifiedAt`     TIMESTAMP                          NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`visitorId`),
     KEY `idx_vlog_location_date` (`locationId`, `checkInTime`),
-    KEY `idx_vlog_groupId` (`groupId`)
+    KEY `idx_vlog_groupId` (`groupId`),
+    KEY `idx_vlog_mobile_location` (`mobile`(10), `locationId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ── pre-registration ───────────────────────────────────────────────────────
@@ -349,6 +350,37 @@ CREATE TABLE IF NOT EXISTS `visitor_scan_events` (
     KEY `idx_vse_location_time` (`locationId`, `scannedAt`),
     KEY `idx_vse_device_time` (`deviceId`, `scannedAt`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ── Visit Reasons master (predefined reasons for visitor/employee check-in) ─
+
+CREATE TABLE IF NOT EXISTS `visit_reasons` (
+    `id`            BIGINT       NOT NULL AUTO_INCREMENT,
+    `type`          ENUM('VISITOR','EMPLOYEE') NOT NULL COMMENT 'Visitor or Employee reason',
+    `reasonName`    VARCHAR(255) NOT NULL,
+    `status`        ENUM('ACTIVE','INACTIVE') NOT NULL DEFAULT 'ACTIVE',
+    `createdBy`     VARCHAR(100) NOT NULL,
+    `modifiedBy`    VARCHAR(100) DEFAULT NULL,
+    `createdAt`     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `modifiedAt`    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_visit_reasons_type_status` (`type`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+INSERT IGNORE INTO `visit_reasons` (`type`, `reasonName`, `createdBy`) VALUES
+('VISITOR', 'Exit - Visits the HR, ACCOUNTS & EDP department as a standard procedure', 'SYSTEM'),
+('VISITOR', 'Bills', 'SYSTEM'),
+('VISITOR', 'Meeting', 'SYSTEM'),
+('VISITOR', 'Meeting Scheduled', 'SYSTEM'),
+('VISITOR', 'Accounts', 'SYSTEM'),
+('VISITOR', 'Invoice', 'SYSTEM'),
+('VISITOR', 'Courier', 'SYSTEM'),
+('VISITOR', 'Interview', 'SYSTEM'),
+('EMPLOYEE', 'Exit - Visits the HR, ACCOUNTS & EDP department as a standard procedure', 'SYSTEM'),
+('EMPLOYEE', 'Project Update', 'SYSTEM'),
+('EMPLOYEE', 'Meeting', 'SYSTEM'),
+('EMPLOYEE', 'Accounts', 'SYSTEM'),
+('EMPLOYEE', 'HR Discussion', 'SYSTEM'),
+('EMPLOYEE', 'Medical', 'SYSTEM');
 
 -- ── Key Management contacts (approver phone numbers) ────────────────────────
 

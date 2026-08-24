@@ -108,13 +108,20 @@ public class AuthService {
                 .map(LegacyLocationResolver::resolve)
                 .distinct()
                 .toList();
+
+        // For receptionists, sessionDevice is always the result of authorizeWorkstation,
+        // which validates assigned-device or active device grants. So its location is
+        // authoritative — no need for the assignedLocationIds gate that exists for
+        // elevated roles (who bypass device auth and can land on any MAC-resolved device).
+        boolean sessionDeviceIsTrusted = !hasElevatedRole;
+
         final String sessionLocationId;
         final String sessionLocationName;
         if (sessionDevice != null) {
             String deviceLocId = sessionDevice.getLocationId();
             boolean deviceAllowed = assignedLocationIds.isEmpty()
                     || assignedLocationIds.stream().anyMatch(id -> id.equalsIgnoreCase(deviceLocId));
-            if (deviceAllowed) {
+            if (deviceAllowed || sessionDeviceIsTrusted) {
                 sessionLocationId = deviceLocId;
                 sessionLocationName = sessionDevice.getLocationName() != null
                         ? sessionDevice.getLocationName()

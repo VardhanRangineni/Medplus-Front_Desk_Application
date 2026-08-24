@@ -25,6 +25,7 @@ const ALL_NAV_ITEMS = [
   { id: 'key-management',  icon: <IconPhone size={20} />,           label: 'Key Management',   roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
   { id: 'location-master', icon: <IconMapPin size={20} />,          label: 'Location Master',  roles: ['PRIMARY_ADMIN'] },
   { id: 'device-master',   icon: <IconMonitor size={20} />,         label: 'Device Master',    roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
+  { id: 'visit-reasons',   icon: <IconClipboardList size={20} />,   label: 'Visit Reasons',    roles: ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'] },
 ];
 
 /**

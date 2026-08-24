@@ -107,6 +107,22 @@ export async function lookupPersonToMeetByMobile(mobile) {
   };
 }
 
+/**
+ * Looks up past visitor records for a known mobile number at the caller's location.
+ * Endpoint: GET /api/visitors/known-visitors?mobile=
+ *
+ * Returns an array of KnownVisitorLookupDto records (empty = unknown visitor).
+ * Each record: { name, companyName, cardNumber, reasonForVisit, lastVisitDate, totalVisits }
+ *
+ * @param   {string} mobile  10-digit mobile number
+ * @returns {Promise<Array>}  Array of past visitor records
+ */
+export async function lookupKnownVisitors(mobile) {
+  const digits = String(mobile || '').replace(/\D/g, '');
+  const data = await api('GET', `/api/visitors/known-visitors?mobile=${encodeURIComponent(digits)}`);
+  return Array.isArray(data) ? data : [];
+}
+
 // ─── Visitor entry CRUD ───────────────────────────────────────────────────────
 
 /**

@@ -3,6 +3,7 @@ package com.medplus.frontdesk_backend.controller;
 import com.medplus.frontdesk_backend.dto.ApiResponse;
 import com.medplus.frontdesk_backend.dto.EmployeeLookupResponseDto;
 import com.medplus.frontdesk_backend.dto.GroupVisitorRequestDto;
+import com.medplus.frontdesk_backend.dto.KnownVisitorLookupDto;
 import com.medplus.frontdesk_backend.dto.GroupVisitorResponseDto;
 import com.medplus.frontdesk_backend.dto.PagedResponseDto;
 import com.medplus.frontdesk_backend.dto.PersonToMeetDto;
@@ -424,6 +425,39 @@ public class VisitorController {
             return ResponseEntity.status(ex.getStatusCode())
                     .body(ApiResponse.error(ex.getReason()));
         }
+    }
+
+    // ── GET /api/visitors/known-visitors ──────────────────────────────────────
+
+    /**
+     * Looks up past visitor records for a given mobile number at the caller's location.
+     * Used by the "Known Visitor" flow to pre-fill details and skip OTP verification.
+     *
+     * Returns distinct visitor names (from CHECKED_OUT records) with their most recent
+     * visit details. Only considers completed visits (status = CHECKED_OUT).
+     *
+     * Query params:
+     *   mobile — 10-digit mobile number
+     *
+     * Response: ApiResponse&lt;List&lt;KnownVisitorLookupDto&gt;&gt;
+     */
+    @GetMapping("/known-visitors")
+    public ResponseEntity<ApiResponse<List<KnownVisitorLookupDto>>> lookupKnownVisitors(
+            @RequestParam String mobile,
+            @RequestHeader(value = WorkstationMacUtil.HEADER_NAME, required = false) String workstationMac,
+            Authentication auth) {
+
+        String digits = mobile != null ? mobile.replaceAll("\\D", "") : null;
+        if (digits == null || digits.length() < 10) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("A valid 10-digit mobile number is required."));
+        }
+
+        List<KnownVisitorLookupDto> results = visitorService.lookupKnownVisitors(
+                digits, auth.getName(), workstationMac, auth);
+        return ResponseEntity.ok(ApiResponse.success(
+                results.isEmpty() ? "No past visits found." : "Known visitors found.",
+                results));
     }
 
     // ── GET /api/visitors/persons-at-location ─────────────────────────────────

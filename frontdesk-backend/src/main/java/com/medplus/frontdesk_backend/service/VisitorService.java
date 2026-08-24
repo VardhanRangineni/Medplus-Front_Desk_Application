@@ -5,6 +5,7 @@ import com.medplus.frontdesk_backend.dto.EmployeeLookupResponseDto;
 import com.medplus.frontdesk_backend.dto.GroupVisitorMemberDto;
 import com.medplus.frontdesk_backend.dto.GroupVisitorRequestDto;
 import com.medplus.frontdesk_backend.dto.GroupVisitorResponseDto;
+import com.medplus.frontdesk_backend.dto.KnownVisitorLookupDto;
 import com.medplus.frontdesk_backend.dto.PagedResponseDto;
 import com.medplus.frontdesk_backend.dto.PersonToMeetDto;
 import com.medplus.frontdesk_backend.dto.StatusCountsDto;
@@ -745,6 +746,22 @@ public class VisitorService {
     public List<PersonToMeetDto> getPersonsAtLocation(String callerEmployeeId, String workstationMac) {
         String locationId = operationalLocationService.resolveForUser(callerEmployeeId, workstationMac);
         return visitorRepository.findAllPersonsAtLocation(locationId);
+    }
+
+    /**
+     * Looks up past visitor records for a known mobile number at the caller's location.
+     * Returns distinct visitor names (from CHECKED_OUT records) with their most recent
+     * visit details. Used by the "Known Visitor" flow to pre-fill and skip OTP.
+     */
+    public List<KnownVisitorLookupDto> lookupKnownVisitors(String mobile,
+                                                           String callerEmployeeId,
+                                                           String workstationMac,
+                                                           Authentication auth) {
+        String locationId = operationalLocationService.resolveForUser(callerEmployeeId, workstationMac);
+        log.info("Known visitor lookup: mobile={}, locationId={}, caller={}", mobile, locationId, auth.getName());
+        List<KnownVisitorLookupDto> results = visitorRepository.findKnownVisitorsByMobile(mobile, locationId);
+        log.info("Known visitor lookup result: count={}", results.size());
+        return results;
     }
 
     /**

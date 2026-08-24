@@ -1,6 +1,7 @@
 package com.medplus.frontdesk_backend.repository;
 
 import com.medplus.frontdesk_backend.dto.DashboardStatsDto;
+import com.medplus.frontdesk_backend.dto.KnownVisitorLookupDto;
 import com.medplus.frontdesk_backend.dto.PersonToMeetDto;
 import com.medplus.frontdesk_backend.dto.StatusCountsDto;
 import com.medplus.frontdesk_backend.dto.VisitorFlowPointDto;
@@ -973,6 +974,80 @@ public class VisitorRepository {
 
         List<String> rows = jdbc.queryForList(sql, params, String.class);
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    // ── Known visitor lookup ───────────────────────────────────────────────────
+
+    /**
+     * Finds distinct past visitor names for a given mobile number at a specific location.
+     * For each distinct name, returns the most recent record's details.
+     * Only considers CHECKED_OUT visitors (completed visits).
+     *
+     * @param mobile     10-digit mobile (digits only)
+     * @param locationId location to scope the search
+     * @return list of records ordered by most recent check-in first
+     */
+    public List<KnownVisitorLookupDto> findKnownVisitorsByMobile(String mobile, String locationId) {
+        if (mobile == null || mobile.isBlank()) return List.of();
+
+        // Subquery gets the latest checkInTime per distinct name at this location.
+        // Outer query fetches the full row for that latest visit.
+        String sql = """
+                SELECT t1.name, t1.companyName, t1.cardNumber, t1.reasonForVisit,
+                       t1.checkInTime AS lastVisitDate,
+                       (SELECT COUNT(*) FROM visitorlog v
+                        WHERE v.mobile = :mobile AND v.locationId = :locationId
+                          AND v.name COLLATE utf8mb4_general_ci = t1.name
+                          AND v.status = 'CHECKED_OUT'
+                          AND v.entryType = 'VISITOR') AS totalVisits
+                FROM visitorlog t1
+                INNER JOIN (
+                    SELECT name, MAX(checkInTime) AS maxCheckIn
+                    FROM visitorlog
+                    WHERE mobile = :mobile AND locationId = :locationId
+                      AND status = 'CHECKED_OUT'
+                      AND entryType = 'VISITOR'
+                    GROUP BY name
+                ) t2 ON t1.name COLLATE utf8mb4_general_ci = t2.name
+                     AND t1.checkInTime = t2.maxCheckIn
+                WHERE t1.mobile = :mobile AND t1.locationId = :locationId
+                  AND t1.status = 'CHECKED_OUT'
+                  AND t1.entryType = 'VISITOR'
+                ORDER BY t1.checkInTime DESC
+                LIMIT 10
+                """;
+
+        return jdbc.query(sql, new MapSqlParameterSource()
+                .addValue("mobile", mobile)
+                .addValue("locationId", locationId),
+            (rs, rowNum) -> KnownVisitorLookupDto.builder()
+                    .name(rs.getString("name"))
+                    .companyName(safeGetString(rs, "companyName"))
+                    .cardNumber(rs.getObject("cardNumber", Integer.class))
+                    .reasonForVisit(safeGetString(rs, "reasonForVisit"))
+                    .lastVisitDate(formatLocalDateTimeForDisplay(
+                            rs.getTimestamp("lastVisitDate") != null
+                                    ? rs.getTimestamp("lastVisitDate").toLocalDateTime() : null))
+                    .totalVisits(rs.getLong("totalVisits"))
+                    .build());
+    }
+
+    /**
+     * Counts total CHECKED_OUT visitorlog entries for a mobile at a location.
+     */
+    public long countPastVisits(String mobile, String locationId) {
+        Long count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM visitorlog WHERE mobile = :mobile AND locationId = :locationId AND status = 'CHECKED_OUT'",
+                new MapSqlParameterSource()
+                        .addValue("mobile", mobile)
+                        .addValue("locationId", locationId),
+                Long.class);
+        return count == null ? 0L : count;
+    }
+
+    private static String formatLocalDateTimeForDisplay(LocalDateTime dt) {
+        if (dt == null) return null;
+        return dt.format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a"));
     }
 
     // ── Dashboard queries ─────────────────────────────────────────────────────

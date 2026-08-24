@@ -1,0 +1,84 @@
+/* Visit Reasons admin page styles */
+
+.vr-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 0;
+}
+
+.vr-table {
+  width: 100%;
+  min-width: 0 !important;  /* override .ci-table min-width: 1480px */
+}
+
+.vr-col--name {
+  width: 33.33%;
+}
+
+.vr-col--status {
+  width: 33.33%;
+  text-align: center;
+}
+
+.vr-col--actions {
+  width: 33.33%;
+}
+
+.vr-reason-name {
+  color: #1e293b;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.vr-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+/* ── Action icon buttons ─────────────────────────────────────────── */
+
+.vr-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1.5px solid rgba(0, 0, 0, 0.10);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.03);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.vr-action-btn--edit {
+  color: #64748b;
+}
+
+.vr-action-btn--edit:hover {
+  background: rgba(194, 24, 29, 0.06);
+  border-color: rgba(194, 24, 29, 0.25);
+  color: #c2181d;
+}
+
+.vr-action-btn--delete {
+  color: #94a3b8;
+}
+
+.vr-action-btn--delete:hover {
+  background: rgba(220, 38, 38, 0.06);
+  border-color: rgba(220, 38, 38, 0.25);
+  color: #dc2626;
+}
+
+/* Status toggle alignment */
+.vr-table .umg-toggle {
+  margin: 0 auto;
+}
+
+/* Small modal variant */
+.umg-modal--small {
+  max-width: 420px;
+}
