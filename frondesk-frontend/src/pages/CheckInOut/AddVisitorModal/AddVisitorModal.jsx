@@ -185,8 +185,8 @@ function useOtpControls(mobile, verified, onVerified) {
 function MobileOtpBlock({
   mobile, onMobileChange, verified, onVerified, onChangeNumber, disabled,
   // Known visitor props
-  knownVisitors, selectedKnownVisitor, onSelectKnownVisitor,
-  lookingUp, detailsEdited, onResetEdited,
+  knownVisitors = [], selectedKnownVisitor = null, onSelectKnownVisitor,
+  lookingUp = false, detailsEdited = false, onResetEdited,
 }) {
   const otp = useOtpControls(mobile, verified, onVerified);
 
@@ -404,52 +404,14 @@ function StepIdentity({
       {isGroup && (
         <div className="avm-member-list">
           {members.map((m, idx) => (
-            <div key={m.key} className="avm-member-card">
-              <div className="avm-member-card__head">
-                <span className="avm-member-card__title">Visitor {idx + 1}</span>
-                {members.length > 1 && (
-                  <button
-                    type="button"
-                    className="avm-member-card__remove"
-                    onClick={() => onRemoveMember(m.key)}
-                    aria-label={`Remove visitor ${idx + 1}`}
-                    disabled={m.verified}
-                    title="Remove"
-                  >
-                    <IconTrash size={14} />
-                  </button>
-                )}
-              </div>
-              <Field label="Full Name" required>
-                <InputWithIcon
-                  icon={<IconUser size={14} />}
-                  type="text"
-                  placeholder="John Doe"
-                  value={m.fullName}
-                  disabled={m.verified}
-                  onChange={(e) => onMemberChange(m.key, { fullName: e.target.value })}
-                />
-              </Field>
-              <MobileOtpBlock
-                mobile={m.mobile}
-                onMobileChange={(v) => onMemberChange(m.key, { mobile: v, verified: false })}
-                verified={m.verified}
-                onVerified={() => onMemberChange(m.key, { verified: true })}
-                onChangeNumber={() => onMemberChange(m.key, { verified: false, mobile: '' })}
-              />
-              <Field label="Visitor ID Card Number" required>
-                <InputWithIcon
-                  icon={<IconCreditCard size={14} />}
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="Enter printed card number"
-                  value={m.cardNumber}
-                  onChange={(e) => onMemberChange(m.key, {
-                    cardNumber: e.target.value.replace(/\D/g, ''),
-                  })}
-                />
-              </Field>
-            </div>
+            <GroupMemberCard
+              key={m.key}
+              m={m}
+              idx={idx}
+              membersLength={members.length}
+              onRemoveMember={onRemoveMember}
+              onMemberChange={onMemberChange}
+            />
           ))}
           <button type="button" className="avm-add-member" onClick={onAddMember}>
             <IconPlus size={14} />
@@ -563,6 +525,139 @@ const initialDetails = {
 let memberKeySeq = 1;
 function newMember() {
   return { key: `m-${memberKeySeq++}`, fullName: '', mobile: '', cardNumber: '', verified: false };
+}
+
+function GroupMemberCard({ m, idx, membersLength, onRemoveMember, onMemberChange }) {
+  const [knownVisitors, setKnownVisitors] = useState([]);
+  const [selectedKnownVisitor, setSelectedKnownVisitor] = useState(null);
+  const [lookingUp, setLookingUp] = useState(false);
+  const [detailsEdited, setDetailsEdited] = useState(false);
+
+  const lookupGenerationRef = useRef(0);
+  const lookupTimerRef = useRef(null);
+
+  const doLookup = useCallback(async (digits) => {
+    if (digits.length < MOBILE_LOOKUP_LENGTH) {
+      setKnownVisitors([]);
+      setSelectedKnownVisitor(null);
+      setDetailsEdited(false);
+      return;
+    }
+    setLookingUp(true);
+    try {
+      const results = await lookupKnownVisitors(digits);
+      setKnownVisitors(results);
+      if (results.length > 0) {
+        const selected = { ...results[0], __idx: 0 };
+        setSelectedKnownVisitor(selected);
+        onMemberChange(m.key, { fullName: selected.name || '', verified: true });
+        setDetailsEdited(false);
+      } else {
+        setSelectedKnownVisitor(null);
+        setDetailsEdited(false);
+      }
+    } catch (e) {
+      setKnownVisitors([]);
+      setSelectedKnownVisitor(null);
+    } finally {
+      setLookingUp(false);
+    }
+  }, [m.key, onMemberChange]);
+
+  useEffect(() => {
+    if (m.verified || knownVisitors.length > 0) return;
+    if (m.mobile.length === MOBILE_LOOKUP_LENGTH) {
+      scheduleDebouncedLookup(
+        lookupGenerationRef,
+        lookupTimerRef,
+        () => doLookup(m.mobile)
+      );
+    } else if (m.mobile.length >= MOBILE_LOOKUP_LENGTH - 2) {
+      cancelDebouncedLookup(lookupGenerationRef, lookupTimerRef);
+    }
+  }, [m.mobile, m.verified, knownVisitors.length, doLookup]);
+
+  useEffect(() => {
+    return () => cancelDebouncedLookup(lookupGenerationRef, lookupTimerRef);
+  }, []);
+
+  function handleSelectKnownVisitor(kv) {
+    const idxKV = knownVisitors.indexOf(kv);
+    const selected = { ...kv, __idx: idxKV >= 0 ? idxKV : 0 };
+    setSelectedKnownVisitor(selected);
+    onMemberChange(m.key, { fullName: selected.name || '', verified: true });
+    setDetailsEdited(false);
+  }
+
+  function handleFullNameChange(value) {
+    onMemberChange(m.key, { fullName: value });
+    if (selectedKnownVisitor && !detailsEdited && value !== selectedKnownVisitor.name) {
+      setDetailsEdited(true);
+      onMemberChange(m.key, { verified: false });
+    }
+  }
+
+  return (
+    <div className="avm-member-card">
+      <div className="avm-member-card__head">
+        <span className="avm-member-card__title">Visitor {idx + 1}</span>
+        {membersLength > 1 && (
+          <button
+            type="button"
+            className="avm-member-card__remove"
+            onClick={() => onRemoveMember(m.key)}
+            aria-label={`Remove visitor ${idx + 1}`}
+            disabled={m.verified}
+            title="Remove"
+          >
+            <IconTrash size={14} />
+          </button>
+        )}
+      </div>
+
+      <MobileOtpBlock
+        mobile={m.mobile}
+        onMobileChange={(v) => {
+          onMemberChange(m.key, { mobile: v, verified: false });
+          setKnownVisitors([]);
+          setSelectedKnownVisitor(null);
+          setDetailsEdited(false);
+        }}
+        verified={m.verified}
+        onVerified={() => onMemberChange(m.key, { verified: true })}
+        onChangeNumber={() => onMemberChange(m.key, { verified: false, mobile: '' })}
+        knownVisitors={knownVisitors}
+        selectedKnownVisitor={selectedKnownVisitor}
+        onSelectKnownVisitor={handleSelectKnownVisitor}
+        lookingUp={lookingUp}
+        detailsEdited={detailsEdited}
+        onResetEdited={() => setDetailsEdited(false)}
+      />
+
+      <Field label="Full Name" required>
+        <InputWithIcon
+          icon={<IconUser size={14} />}
+          type="text"
+          placeholder="John Doe"
+          value={m.fullName}
+          onChange={(e) => handleFullNameChange(e.target.value)}
+        />
+      </Field>
+
+      <Field label="Visitor ID Card Number" required>
+        <InputWithIcon
+          icon={<IconCreditCard size={14} />}
+          type="text"
+          inputMode="numeric"
+          placeholder="Enter printed card number"
+          value={m.cardNumber}
+          onChange={(e) => onMemberChange(m.key, {
+            cardNumber: e.target.value.replace(/\D/g, ''),
+          })}
+        />
+      </Field>
+    </div>
+  );
 }
 
 export default function AddVisitorModal({ onClose, onSuccess }) {
