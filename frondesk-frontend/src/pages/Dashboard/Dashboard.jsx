@@ -1,49 +1,13 @@
-import { useState, useEffect, lazy, Suspense, useMemo } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useOutletContext } from 'react-router-dom';
 import './Dashboard.css';
-import AppHeader      from '../../components/AppHeader/AppHeader';
-import AppSidebar     from '../../components/AppSidebar/AppSidebar';
-import AppPageLoader  from '../../components/AppPageLoader/AppPageLoader';
-import LottieLoader   from '../../components/LottieLoader/LottieLoader';
 import { IconPlus, IconMapPin } from '../../components/Icons/Icons';
+import LottieLoader   from '../../components/LottieLoader/LottieLoader';
 import { getDashboardStats, getRecentVisitors } from './dashboardService';
-import {
-  defaultAdminLocationId,
-  hasAnyRole,
-  canCheckIn,
-  canFilterAllLocations,
-  canFilterLocations,
-  getAssignedLocationIds,
-  buildLocationScope,
-  isDeptHead,
-} from '../../services/locationScope';
-// Eager import — default nav is Check In/Out; lazy chunk caused ChunkLoadError in dev.
-import CheckInOut from '../CheckInOut/CheckInOut';
+import { canCheckIn } from '../../services/locationScope';
 
-/** Retry once on stale webpack chunks after `rs` or dev-server hiccups. */
-function lazyWithRetry(importFn, chunkLabel) {
-  return lazy(() => importFn().catch((err) => {
-    const isChunk = err?.name === 'ChunkLoadError' || /loading chunk/i.test(String(err?.message));
-    if (isChunk && typeof sessionStorage !== 'undefined') {
-      const key = `mvms_chunk_retry_${chunkLabel}`;
-      if (!sessionStorage.getItem(key)) {
-        sessionStorage.setItem(key, '1');
-        window.location.reload();
-        return new Promise(() => {});
-      }
-      sessionStorage.removeItem(key);
-    }
-    throw err;
-  }));
-}
-
-const VisitorFlowChart = lazyWithRetry(() => import('./DashboardChart'), 'chart');
-const UserManagement   = lazyWithRetry(() => import('../UserManagement/UserManagement'), 'users');
-const Reports          = lazyWithRetry(() => import('../Reports/Reports'), 'reports');
-const StaffActivity    = lazyWithRetry(() => import('../StaffActivity/StaffActivity'), 'staff');
-const LocationMaster   = lazyWithRetry(() => import('../LocationMaster/LocationMaster'), 'locations');
-const DeviceMaster     = lazyWithRetry(() => import('../DeviceMaster/DeviceMaster'), 'devices');
-const KeyManagement    = lazyWithRetry(() => import('../KeyManagement/KeyManagement'), 'keymgmt');
-const VisitReasons     = lazyWithRetry(() => import('../VisitReasons/VisitReasons'), 'visitreasons');
+const VisitorFlowChart = lazy(() => import('./DashboardChart'));
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 
@@ -56,7 +20,7 @@ function getGreeting() {
 
 function formatCheckIn(date) {
   if (!date) return '—';
-  return date.toLocaleString('en-IN', {
+  return date.toLocaleDateString('en-IN', {
     month: 'short', day: 'numeric', year: 'numeric',
     hour: 'numeric', minute: '2-digit', hour12: true,
   });
@@ -100,84 +64,18 @@ function StatCard({ title, values = {}, live = false }) {
   );
 }
 
-/* ── Role-based route guard ──────────────────────────────────────────────── */
-
-/**
- * Maps a nav-item id to the roles that are allowed to access it.
- * Matches the roles array defined in AppSidebar's ALL_NAV_ITEMS.
- * A RECEPTIONIST that tries to navigate to a restricted page is silently
- * redirected back to the dashboard home.
- */
-const RESTRICTED_ROUTES = {
-  'user-management': ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
-  'staff-activity':  ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
-  'key-management':  ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
-  'location-master': ['PRIMARY_ADMIN'],
-  'device-master':   ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
-  'visit-reasons':   ['PRIMARY_ADMIN', 'REGIONAL_ADMIN'],
-};
-
-/* ── Page content router ─────────────────────────────────────────────────── */
-
-function PageContent({ activeNav, setActiveNav, session, locationScope }) {
-  const allowedRoles = RESTRICTED_ROUTES[activeNav];
-  if (allowedRoles && !hasAnyRole(session, allowedRoles)) {
-    return (
-      <div className="app-page-shell" key="dashboard">
-        <DashboardHome session={session} onNavigate={setActiveNav} locationScope={locationScope} />
-      </div>
-    );
-  }
-
-  let page;
-  switch (activeNav) {
-    case 'home':
-      return (
-        <div className="app-page-shell" key="home">
-          <CheckInOut session={session} locationScope={locationScope} />
-        </div>
-      );
-    case 'user-management':
-      page = <UserManagement session={session} />;
-      break;
-    case 'reports':
-      page = <Reports session={session} locationScope={locationScope} />;
-      break;
-    case 'staff-activity':
-      page = <StaffActivity session={session} locationScope={locationScope} />;
-      break;
-    case 'location-master':
-      page = <LocationMaster session={session} />;
-      break;
-    case 'device-master':
-      page = <DeviceMaster session={session} />;
-      break;
-    case 'key-management':
-      page = <KeyManagement />;
-      break;
-    case 'visit-reasons':
-      page = <VisitReasons session={session} />;
-      break;
-    default:
-      return (
-        <div className="app-page-shell" key="dashboard">
-          <DashboardHome session={session} onNavigate={setActiveNav} locationScope={locationScope} />
-        </div>
-      );
-  }
-
-  return (
-    <div className="app-page-shell" key={activeNav}>
-      <Suspense fallback={<AppPageLoader />}>
-        {page}
-      </Suspense>
-    </div>
-  );
-}
-
 /* ── Dashboard home content ─────────────────────────────────────────────── */
 
-function DashboardHome({ session, onNavigate, locationScope }) {
+/**
+ * DashboardHome — the default route at /dashboard.
+ * Stats, visitor flow chart, recent visitors table.
+ *
+ * Receives { session, locationScope } from <Outlet context> in AppShell.
+ */
+export default function DashboardHome() {
+  const { session, locationScope } = useOutletContext();
+  const navigate = useNavigate();
+
   const displayName = (session?.fullName || session?.employeeId || 'User').trim();
 
   const [stats,    setStats]    = useState(null);
@@ -266,13 +164,13 @@ function DashboardHome({ session, onNavigate, locationScope }) {
           <h2 className="db-summary__greeting">{getGreeting()},<br />{displayName}</h2>
           <p className="db-summary__sub">
             {loading
-              ? 'Loading summary\u2026'
+              ? 'Loading summary…'
               : pending > 0
                 ? <>You have <strong>{pending}</strong> pending sign-out{pending !== 1 ? 's' : ''} today.</>
                 : 'All visitors have signed out today.'
             }
           </p>
-          <button className="db-summary__btn" onClick={() => onNavigate('home')}>
+          <button className="db-summary__btn" onClick={() => navigate('/dashboard/home')}>
             <IconPlus size={14} />
             {canCheckIn(session) ? 'Register Visitor' : 'View Check In / Out'}
           </button>
@@ -285,10 +183,10 @@ function DashboardHome({ session, onNavigate, locationScope }) {
               <p className="db-chart-card__title">Visitor Flow</p>
               <p className="db-chart-card__sub">
                 {loading
-                  ? 'Loading\u2026'
+                  ? 'Loading…'
                   : peakPoint
-                    ? `Today \u00b7 Peak at ${peakPoint.label} (${peakPoint.all} visitor${peakPoint.all !== 1 ? 's' : ''})`
-                    : 'Today \u00b7 No visitors yet'
+                    ? `Today · Peak at ${peakPoint.label} (${peakPoint.all} visitor${peakPoint.all !== 1 ? 's' : ''})`
+                    : 'Today · No visitors yet'
                 }
               </p>
             </div>
@@ -312,7 +210,7 @@ function DashboardHome({ session, onNavigate, locationScope }) {
       <div className="db-table-card">
         <div className="db-table-card__header">
           <span className="db-table-card__title">Recent Visitors</span>
-          <button className="db-table-card__viewall" onClick={() => onNavigate('home')}>View all</button>
+          <button className="db-table-card__viewall" onClick={() => navigate('/dashboard/home')}>View all</button>
         </div>
 
         <div className="db-table-wrap">
@@ -368,46 +266,5 @@ function DashboardHome({ session, onNavigate, locationScope }) {
       </div>
 
     </main>
-  );
-}
-
-/* ── App shell — shared header + sidebar, routes content ─────────────────── */
-
-export default function Dashboard({ session, onLogout }) {
-  const [activeNav, setActiveNav] = useState('dashboard');
-  const showLocationFilter = canFilterLocations(session);
-  const allowAllLocations = canFilterAllLocations(session);
-  const allowedLocationIds = allowAllLocations ? null : getAssignedLocationIds(session);
-  const [locationId, setLocationId] = useState(() => defaultAdminLocationId(session));
-  const locationScope = useMemo(
-    () => buildLocationScope(locationId, session),
-    [locationId, session],
-  );
-
-  return (
-    <div className="app-root">
-      <AppHeader
-        session={session}
-        showLocationFilter={showLocationFilter}
-        locationId={locationId}
-        onLocationChange={setLocationId}
-        allowedLocationIds={allowedLocationIds}
-        allowAllLocations={allowAllLocations}
-      />
-      <div className="app-body">
-        <AppSidebar
-          session={session}
-          activeNav={activeNav}
-          onNavChange={setActiveNav}
-          onLogout={onLogout}
-        />
-        <PageContent
-          activeNav={activeNav}
-          setActiveNav={setActiveNav}
-          session={session}
-          locationScope={locationScope}
-        />
-      </div>
-    </div>
   );
 }

@@ -118,8 +118,15 @@ public class VisitorService {
         // Always store the person-to-meet (host) department — for both visitors and employees.
         String entryDepartment = person.getDepartment();
 
-        String mobile = req.getMobile() != null ? req.getMobile().trim() : null;
+        // Guard: employee cannot check in to meet themselves
         String empId = req.getEmpId() != null ? req.getEmpId().trim() : null;
+        if (entryType == EntryType.EMPLOYEE && hasText(empId) && empId.equals(person.getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "You cannot check in an employee to meet themselves. " +
+                    "Please select a different person to meet.");
+        }
+
+        String mobile = req.getMobile() != null ? req.getMobile().trim() : null;
         // Keep a contact number on employee check-ins for the view/record trail.
         if (entryType == EntryType.EMPLOYEE && !hasText(mobile) && hasText(empId)) {
             mobile = hrmsService.lookupByEmployeeId(empId)
@@ -259,6 +266,32 @@ public class VisitorService {
         EntryType entryType = parseEntryType(req.getEntryType());
         PersonToMeetDto person = resolvePersonToMeet(req.getPersonToMeetId());
         String entryDepartment = person.getDepartment();
+
+        // Guard: for employee group visits, ensure no member is checking in to meet themselves
+        if (entryType == EntryType.EMPLOYEE) {
+            for (GroupVisitorMemberDto member : req.getMembers()) {
+                if (member != null && hasText(member.getEmpId()) && member.getEmpId().trim().equals(person.getId())) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT,
+                            "Employee ID '" + member.getEmpId().trim() + "' cannot check in to meet themselves. " +
+                            "Please select a different person to meet.");
+                }
+            }
+        }
+
+        // Guard: for employee group visits, ensure no duplicate employee IDs within the group
+        if (entryType == EntryType.EMPLOYEE) {
+            Set<String> empIdsInGroup = new HashSet<>();
+            for (GroupVisitorMemberDto member : req.getMembers()) {
+                if (member != null && hasText(member.getEmpId())) {
+                    String trimmed = member.getEmpId().trim();
+                    if (!empIdsInGroup.add(trimmed)) {
+                        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                "Employee ID '" + trimmed + "' is listed more than once in the group. " +
+                                "Please remove duplicate entries.");
+                    }
+                }
+            }
+        }
 
         var deviceOpt = operationalLocationService.resolveDeskDevice(createdBy, workstationMac);
         String locationId = deviceOpt

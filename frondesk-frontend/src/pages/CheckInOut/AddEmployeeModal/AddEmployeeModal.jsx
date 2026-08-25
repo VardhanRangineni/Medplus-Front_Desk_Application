@@ -2,9 +2,10 @@
  * AddEmployeeModal — employee check-in flow (individual + group).
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import '../AddVisitorModal/AddVisitorModal.css';
 import './AddEmployeeModal.css';
+import { useToast } from '../../../components/AppToast/AppToast';
 import {
   IconX,
   IconIdCard,
@@ -48,6 +49,31 @@ function InputWithIcon({ icon, ...props }) {
     <div className="avm-input-wrap">
       <span className="avm-input-icon">{icon}</span>
       <input className="avm-input" {...props} />
+    </div>
+  );
+}
+
+/**
+ * WarningCard — prominent inline warning displayed in the form body.
+ * Renders a yellow/amber card with a warning icon.
+ */
+function WarningCard({ message, onDismiss }) {
+  return (
+    <div className="aem-warning-card">
+      <span className="aem-warning-card__icon" aria-hidden="true">⚠️</span>
+      <div className="aem-warning-card__body">
+        <p className="aem-warning-card__text">{message}</p>
+      </div>
+      {onDismiss && (
+        <button
+          type="button"
+          className="aem-warning-card__dismiss"
+          onClick={onDismiss}
+          aria-label="Dismiss warning"
+        >
+          ✕
+        </button>
+      )}
     </div>
   );
 }
@@ -142,7 +168,8 @@ function newEmpMember() {
   };
 }
 
-export default function AddEmployeeModal({ onClose, onBack, onSuccess }) {
+export default function AddEmployeeModal({ onClose, onBack, onSuccess, locationScope }) {
+  const toast = useToast();
   const [isGroup, setIsGroup] = useState(false);
   const [step, setStep] = useState(0);
 
@@ -163,6 +190,9 @@ export default function AddEmployeeModal({ onClose, onBack, onSuccess }) {
   const [reasonForVisit, setReasonForVisit] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
+
+  // Track which warnings have already been toasted (so we don't spam)
+  const warnedRef = useRef(new Set());
 
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
@@ -350,11 +380,119 @@ export default function AddEmployeeModal({ onClose, onBack, onSuccess }) {
   const groupDetailsValid = personToMeet.trim() !== ''
     && reasonForVisit.trim() !== '';
 
+  // ── Real-time reactive validation warnings ───────────────────────
+
+  // Individual: self-meeting warning
+  const selfMeetingWarning = useMemo(() => {
+    if (isGroup) return null;
+    if (!employee || !personToMeet.trim()) return null;
+    const result = checkEmployeeSelfMeeting(employee, personToMeet);
+    if (!result.found) return null;
+    return `${result.empName} cannot meet themselves. Please select a different person to meet.`;
+  }, [isGroup, employee, personToMeet]);
+
+  // Group step 0: duplicate employee warning
+  const groupDuplicateWarning = useMemo(() => {
+    if (!isGroup || step !== 0) return null;
+    const result = checkGroupDuplicateEmployees(members);
+    if (!result.found) return null;
+    return `${result.empName} has been added more than once. Please remove the duplicate.`;
+  }, [isGroup, step, members]);
+
+  // Group step 1: self-meeting warning (any member matches person-to-meet)
+  const groupSelfMeetingWarning = useMemo(() => {
+    if (!isGroup || step !== 1) return null;
+    if (!personToMeet.trim()) return null;
+    for (const m of members) {
+      if (!m.employee) continue;
+      const result = checkEmployeeSelfMeeting(m.employee, personToMeet);
+      if (result.found) {
+        return `${result.empName} cannot meet themselves. Please select a different person to meet.`;
+      }
+    }
+    return null;
+  }, [isGroup, step, members, personToMeet]);
+
+  // Fire toast notifications when warnings appear
+  const activeWarning = isGroup
+    ? (groupDuplicateWarning || groupSelfMeetingWarning)
+    : selfMeetingWarning;
+
+  useEffect(() => {
+    if (!activeWarning) {
+      warnedRef.current.clear();
+      return;
+    }
+    const key = activeWarning.substring(0, 30);
+    if (!warnedRef.current.has(key)) {
+      warnedRef.current.add(key);
+      toast.showToast({
+        title: 'Validation Warning',
+        message: activeWarning,
+        variant: 'warning',
+        duration: 6000,
+      });
+    }
+  }, [activeWarning, toast]);
+
+  /**
+   * Checks if an employee is trying to meet themselves.
+   * The personToMeet field stores the resolved person's HRMS id.
+   * Compare against the employee's id and hrmsId.
+   */
+  function checkEmployeeSelfMeeting(emp, ptmId) {
+    if (!emp || !ptmId) return { found: false };
+    const ptmTrimmed = ptmId.trim().toLowerCase();
+    if (emp.id.trim().toLowerCase() === ptmTrimmed) {
+      return { found: true, empName: emp.name };
+    }
+    if (emp.hrmsId && emp.hrmsId.trim().toLowerCase() === ptmTrimmed) {
+      return { found: true, empName: emp.name };
+    }
+    return { found: false };
+  }
+
+  /**
+   * Checks if the same employee appears multiple times in the group members list.
+   */
+  function checkGroupDuplicateEmployees(memberList) {
+    const seen = new Set();
+    for (const m of memberList) {
+      if (!m.employee) continue;
+      const key = m.employee.id.trim().toLowerCase();
+      if (seen.has(key)) {
+        return { found: true, empName: m.employee.name };
+      }
+      seen.add(key);
+    }
+    return { found: false };
+  }
+
   async function handleSubmit() {
     setSubmitting(true);
     setSubmitError('');
     try {
       if (isGroup) {
+        // Check for duplicate employees in the group
+        const dupEmp = checkGroupDuplicateEmployees(members);
+        if (dupEmp.found) {
+          setSubmitError(
+            `${dupEmp.empName} has been added more than once. Please remove the duplicate.`
+          );
+          setSubmitting(false);
+          return;
+        }
+        // Check each member against the person-to-meet (self-meeting)
+        for (const m of members) {
+          const selfMeet = checkEmployeeSelfMeeting(m.employee, personToMeet);
+          if (selfMeet.found) {
+            setSubmitError(
+              `${selfMeet.empName} cannot meet themselves. Please select a different person to meet.`
+            );
+            setSubmitting(false);
+            return;
+          }
+        }
         const result = await createGroupEmployeeEntries({
           personToMeet,
           personToMeetCustom,
@@ -371,6 +509,15 @@ export default function AddEmployeeModal({ onClose, onBack, onSuccess }) {
           onClose();
         }
       } else {
+        // Check employee cannot meet themselves
+        const selfMeet = checkEmployeeSelfMeeting(employee, personToMeet);
+        if (selfMeet.found) {
+          setSubmitError(
+            `${selfMeet.empName} cannot meet themselves. Please select a different person to meet.`
+          );
+          setSubmitting(false);
+          return;
+        }
         const result = await createEmployeeEntry({
           visitType: 'INDIVIDUAL',
           empId: employee?.id ?? lookupId,
@@ -456,13 +603,18 @@ export default function AddEmployeeModal({ onClose, onBack, onSuccess }) {
               <EmployeeCard employee={employee} onReset={handleResetEmployee} />
 
               {employee && (
-                <SharedHostReason
-                  personToMeet={personToMeet}
-                  personToMeetCustom={personToMeetCustom}
-                  onPersonToMeetBulkChange={handlePersonToMeetBulkChange}
-                  reasonForVisit={reasonForVisit}
-                  setReasonForVisit={setReasonForVisit}
-                />
+                <>
+                  <SharedHostReason
+                    personToMeet={personToMeet}
+                    personToMeetCustom={personToMeetCustom}
+                    onPersonToMeetBulkChange={handlePersonToMeetBulkChange}
+                    reasonForVisit={reasonForVisit}
+                    setReasonForVisit={setReasonForVisit}
+                  />
+                  {selfMeetingWarning && (
+                    <WarningCard message={selfMeetingWarning} />
+                  )}
+                </>
               )}
             </div>
           )}
@@ -513,6 +665,9 @@ export default function AddEmployeeModal({ onClose, onBack, onSuccess }) {
                   <IconPlus size={14} />
                   Add employee
                 </button>
+                {groupDuplicateWarning && (
+                  <WarningCard message={groupDuplicateWarning} />
+                )}
               </div>
             </div>
           )}
@@ -534,6 +689,9 @@ export default function AddEmployeeModal({ onClose, onBack, onSuccess }) {
                 reasonForVisit={reasonForVisit}
                 setReasonForVisit={setReasonForVisit}
               />
+              {groupSelfMeetingWarning && (
+                <WarningCard message={groupSelfMeetingWarning} />
+              )}
             </div>
           )}
         </div>
@@ -574,6 +732,7 @@ export default function AddEmployeeModal({ onClose, onBack, onSuccess }) {
               onClick={handleSubmit}
               disabled={
                 submitting
+                || activeWarning != null
                 || (isGroup
                   ? (!groupDetailsValid || !groupMembersValid)
                   : (!individualValid || hrmsLoading))

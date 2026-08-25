@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './AddVisitorModal.css';
+import { useToast } from '../../../components/AppToast/AppToast';
 import {
   IconX,
   IconUser,
@@ -17,6 +18,7 @@ import {
   createVisitorEntry,
   createGroupVisitorEntries,
 } from './addVisitorService';
+import { getEntries } from '../checkInOutService';
 import {
   scheduleDebouncedLookup,
   cancelDebouncedLookup,
@@ -50,6 +52,20 @@ function InputWithIcon({ icon, inputRef, ...props }) {
     <div className="avm-input-wrap">
       <span className="avm-input-icon">{icon}</span>
       <input className="avm-input" ref={inputRef} {...props} />
+    </div>
+  );
+}
+
+/**
+ * WarningCard — prominent inline warning displayed in the form body.
+ */
+function WarningCard({ message }) {
+  return (
+    <div className="avm-warning-card">
+      <span className="avm-warning-card__icon" aria-hidden="true">⚠️</span>
+      <div className="avm-warning-card__body">
+        <p className="avm-warning-card__text">{message}</p>
+      </div>
     </div>
   );
 }
@@ -660,7 +676,8 @@ function GroupMemberCard({ m, idx, membersLength, onRemoveMember, onMemberChange
   );
 }
 
-export default function AddVisitorModal({ onClose, onSuccess }) {
+export default function AddVisitorModal({ onClose, onSuccess, locationScope }) {
+  const toast = useToast();
   const [isGroup, setIsGroup] = useState(false);
   const [step, setStep] = useState(0);
   const [fullName, setFullName] = useState('');
@@ -671,6 +688,7 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
   const [details, setDetails] = useState(initialDetails);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  const [duplicateWarning, setDuplicateWarning] = useState(null);
 
   // Known visitor state
   const [knownVisitors, setKnownVisitors] = useState([]);
@@ -834,6 +852,40 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
     && details.reasonForVisit.trim() !== ''
     && (details.govtIdNumber === '' || AADHAAR_REGEX.test(details.govtIdNumber));
 
+  /**
+   * Checks if a visitor with the same name + mobile is already checked in.
+   * Returns { found: true, locationName: string } or { found: false }.
+   */
+  async function checkVisitorDuplicate(name, mobile) {
+    if (!locationScope) return { found: false };
+    try {
+      const { entries } = await getEntries({
+        page: 0,
+        size: 200,
+        status: 'checked-in',
+        entryType: 'VISITOR',
+        locationId: locationScope.locationId,
+        allLocations: locationScope.allLocations,
+      });
+      const normalized = entries.map((e) => ({
+        ...e,
+        _name: (e.name || '').trim().toLowerCase(),
+        _mobile: String(e.mobile || '').replace(/\D/g, ''),
+      }));
+      const searchName = name.trim().toLowerCase();
+      const searchMobile = String(mobile).replace(/\D/g, '');
+      const dup = normalized.find(
+        (e) => e._name === searchName && e._mobile === searchMobile
+      );
+      if (dup) {
+        return { found: true, locationName: dup.locationName || dup.locationId || 'this location' };
+      }
+    } catch (err) {
+      console.warn('Could not check visitor duplicates:', err);
+    }
+    return { found: false };
+  }
+
   async function handleSubmit() {
     setSubmitting(true);
     setSubmitError('');
@@ -850,6 +902,23 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
       };
 
       if (isGroup) {
+        // Check each group member for duplicates
+        for (const m of members) {
+          const dup = await checkVisitorDuplicate(m.fullName, m.mobile);
+          if (dup.found) {
+            const msg = `${m.fullName.trim()} is already checked in at ${dup.locationName}.`;
+            setDuplicateWarning(msg);
+            setSubmitError(msg);
+            toast.showToast({
+              title: 'Duplicate Visitor',
+              message: msg,
+              variant: 'warning',
+              duration: 6000,
+            });
+            setSubmitting(false);
+            return;
+          }
+        }
         const result = await createGroupVisitorEntries({
           ...shared,
           members: members.map((m) => ({
@@ -863,6 +932,21 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
           onClose();
         }
       } else {
+        // Check individual visitor for duplicates
+        const dup = await checkVisitorDuplicate(fullName, mobile);
+        if (dup.found) {
+          const msg = `${fullName.trim()} is already checked in at ${dup.locationName}.`;
+          setDuplicateWarning(msg);
+          setSubmitError(msg);
+          toast.showToast({
+            title: 'Duplicate Visitor',
+            message: msg,
+            variant: 'warning',
+            duration: 6000,
+          });
+          setSubmitting(false);
+          return;
+        }
         const result = await createVisitorEntry({
           ...shared,
           visitType: 'INDIVIDUAL',
@@ -950,7 +1034,12 @@ export default function AddVisitorModal({ onClose, onSuccess }) {
           )}
 
           {step === 1 && (
-            <StepDetails state={details} dispatch={dispatch} />
+            <>
+              <StepDetails state={details} dispatch={dispatch} />
+              {duplicateWarning && (
+                <WarningCard message={duplicateWarning} />
+              )}
+            </>
           )}
         </div>
 

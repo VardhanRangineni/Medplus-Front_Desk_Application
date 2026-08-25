@@ -1,0 +1,8 @@
+/* AppShell has no styles of its own — it uses:
+ *   .app-root / .app-body    → globals.css (shared layout shell)
+ *   .app-header              → AppHeader.css
+ *   .app-sidebar             → AppSidebar.css
+ *   .app-page-shell          → globals.css (page enter animation)
+ *
+ * This file exists as a placeholder for future shell-level styles.
+ */

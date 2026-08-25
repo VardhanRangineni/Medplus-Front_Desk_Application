@@ -986,6 +986,7 @@ function CheckInOutPage({ session, locationScope }) {
         <AddVisitorModal
           onClose={handleCloseAddVisitor}
           onSuccess={handleVisitorSuccess}
+          locationScope={locationScope}
         />
       )}
 
@@ -994,6 +995,7 @@ function CheckInOutPage({ session, locationScope }) {
           onClose={handleCloseAddEmployee}
           onBack={handleEmployeeBack}
           onSuccess={handleEmployeeSuccess}
+          locationScope={locationScope}
         />
       )}
 
