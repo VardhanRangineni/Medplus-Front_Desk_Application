@@ -1,8 +1,8 @@
-version: 1.1.2
+version: 1.1.3
 files:
-  - url: MedPlus-Visitor-Management-System-Setup-1.1.2.exe
-    sha512: LauUsxx5h0WBp23+ElqcI9cM3rMkM1/2bqKtttXP3AdTA1E3ppPdhJcaLiHM2/Y7ZIfLo1IHo4rG1oMmwiTofA==
-    size: 124552933
-path: MedPlus-Visitor-Management-System-Setup-1.1.2.exe
-sha512: LauUsxx5h0WBp23+ElqcI9cM3rMkM1/2bqKtttXP3AdTA1E3ppPdhJcaLiHM2/Y7ZIfLo1IHo4rG1oMmwiTofA==
-releaseDate: '2026-08-24T10:23:18.337Z'
+  - url: MedPlus-Visitor-Management-System-Setup-1.1.3.exe
+    sha512: QditVPbXpVq/X4yB1xVEiicOSUO+mowT4j1e2JSirwl7/A+yz+ZRPYgcpIpi/tz8SXbPZPb6ET9Gtant2VsWrw==
+    size: 124553188
+path: MedPlus-Visitor-Management-System-Setup-1.1.3.exe
+sha512: QditVPbXpVq/X4yB1xVEiicOSUO+mowT4j1e2JSirwl7/A+yz+ZRPYgcpIpi/tz8SXbPZPb6ET9Gtant2VsWrw==
+releaseDate: '2026-08-24T10:54:32.879Z'
