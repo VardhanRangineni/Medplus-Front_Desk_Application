@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   submitWalkIn,
   verifyEmployee,
@@ -58,6 +58,9 @@ export default function App() {
   const ptmLookupGen = useRef(0);
 
   const isVisitor = entryType === ENTRY_VISITOR;
+  const [reasonDropdownOpen, setReasonDropdownOpen] = useState(false);
+  const [reasonDropdownUp, setReasonDropdownUp] = useState(false);
+  const reasonWrapRef = useRef(null);
 
   useEffect(() => () => {
     cancelDebouncedLookup(empLookupGen, empTimerRef);
@@ -67,7 +70,8 @@ export default function App() {
   // Fetch visit reasons from API for dropdown (graceful fallback to PRESET_REASONS)
   useEffect(() => {
     let cancelled = false;
-    apiRequest('GET', '/api/visit-reasons/active?type=VISITOR')
+    const type = isVisitor ? 'VISITOR' : 'EMPLOYEE';
+    apiRequest('GET', `/api/visit-reasons/active?type=${type}`)
       .then((json) => {
         if (cancelled) return;
         const data = json?.data;
@@ -84,21 +88,18 @@ export default function App() {
         }
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [isVisitor]);
 
-  // Sync external reason value to dropdown
+  // Sync external reason value to dropdown on initial load
   useEffect(() => {
-    if (!reason) {
-      setReasonDropdownValue('');
-      return;
-    }
+    if (!reason || reasonOptions.length === 0) return;
     const match = reasonOptions.find((o) => o.text === reason);
     if (match) {
       setReasonDropdownValue(match.key);
-    } else {
+    } else if (reason.trim()) {
       setReasonDropdownValue('__other__');
     }
-  }, [reason, reasonOptions]);
+  }, [reasonOptions]);
 
   function selectType(type) {
     setEntryType(type);
@@ -111,6 +112,8 @@ export default function App() {
     setPtmVerifyState(null);
     setPtmVerified(false);
     setVerifiedPtm(null);
+    setReason('');
+    setReasonDropdownValue('');
     if (type === ENTRY_EMPLOYEE && companyToggled) {
       setCompanyToggled(false);
       setCompany('');
@@ -199,6 +202,35 @@ export default function App() {
     }
     schedulePtmVerify(digits);
   }
+
+  const selectedReasonLabel = reasonDropdownValue
+    ? reasonOptions.find((o) => o.key === reasonDropdownValue)?.label ?? 'Other'
+    : '';
+
+  const handleReasonSelect = useCallback(
+    (key) => {
+      setReasonDropdownValue(key);
+      setReasonDropdownOpen(false);
+      if (key === '__other__') {
+        setReason('');
+        return;
+      }
+      const opt = reasonOptions.find((o) => o.key === key);
+      if (opt) setReason(opt.text);
+    },
+    [reasonOptions],
+  );
+
+  useEffect(() => {
+    if (!reasonDropdownOpen) return;
+    const handler = (e) => {
+      if (reasonWrapRef.current && !reasonWrapRef.current.contains(e.target)) {
+        setReasonDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [reasonDropdownOpen]);
 
   function toggleCompany() {
     setCompanyToggled((on) => {
@@ -536,34 +568,64 @@ export default function App() {
 
                 <div className="field">
                   <label htmlFor="f-reason">Reason for visit <span className="req">*</span></label>
-                  <div className="reason-dropdown-wrap">
-                    <select
-                      id="f-reason-select"
-                      className="reason-dropdown__select"
-                      value={reasonDropdownValue}
-                      onChange={(e) => {
-                        const key = e.target.value;
-                        setReasonDropdownValue(key);
-                        if (key === '__other__') {
-                          // Keep existing reason text; user will type in textarea
-                          return;
+                  <div
+                    className={`reason-dropdown-wrap${reasonDropdownOpen ? ' open' : ''}${reasonDropdownUp ? ' is-up' : ''}`}
+                    ref={reasonWrapRef}
+                  >
+                    <button
+                      type="button"
+                      id="f-reason"
+                      className="reason-dropdown__trigger"
+                      aria-haspopup="listbox"
+                      aria-expanded={reasonDropdownOpen}
+                      onClick={() => {
+                        if (!reasonDropdownOpen) {
+                          const trigger = reasonWrapRef.current?.querySelector('.reason-dropdown__trigger');
+                          if (trigger) {
+                            const rect = trigger.getBoundingClientRect();
+                            const spaceBelow = window.innerHeight - rect.bottom;
+                            setReasonDropdownUp(spaceBelow < 200);
+                          }
                         }
-                        const opt = reasonOptions.find((o) => o.key === key);
-                        if (opt) {
-                          setReason(opt.text);
-                        }
+                        setReasonDropdownOpen((v) => !v);
                       }}
                     >
-                      <option value="">Select a reason...</option>
-                      {reasonOptions.map((opt) => (
-                        <option key={opt.key} value={opt.key}>{opt.label}</option>
-                      ))}
-                      <option value="__other__">Other</option>
-                    </select>
+                      <span className={`reason-dropdown__text${!selectedReasonLabel ? ' placeholder' : ''}`}>
+                        {selectedReasonLabel || 'Select a reason...'}
+                      </span>
+                      <span className="reason-dropdown__chevron" aria-hidden="true">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M6 9l6 6 6-6"/>
+                        </svg>
+                      </span>
+                    </button>
+
+                    {reasonDropdownOpen && (
+                      <ul className="reason-dropdown__list" role="listbox">
+                        <li
+                          className={`reason-dropdown__item${reasonDropdownValue === '__other__' ? ' active' : ''}`}
+                          role="option"
+                          aria-selected={reasonDropdownValue === '__other__'}
+                          onClick={() => handleReasonSelect('__other__')}
+                        >
+                          Other
+                        </li>
+                        {reasonDropdownValue !== '__other__' && reasonOptions.map((opt) => (
+                          <li
+                            key={opt.key}
+                            className={`reason-dropdown__item${reasonDropdownValue === opt.key ? ' active' : ''}`}
+                            role="option"
+                            aria-selected={reasonDropdownValue === opt.key}
+                            onClick={() => handleReasonSelect(opt.key)}
+                          >
+                            {opt.label}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
 
                     {reasonDropdownValue === '__other__' && (
                       <textarea
-                        id="f-reason"
                         className="reason-dropdown__other-textarea"
                         placeholder="Type your reason..."
                         rows={3}
@@ -571,24 +633,6 @@ export default function App() {
                         onChange={(e) => setReason(e.target.value)}
                         autoFocus
                       />
-                    )}
-
-                    {reasonDropdownValue !== '__other__' && reason && (
-                      <textarea
-                        id="f-reason"
-                        className="reason-dropdown__other-textarea"
-                        placeholder="Or type your reason here..."
-                        rows={3}
-                        value={reason}
-                        onChange={(e) => {
-                          setReason(e.target.value);
-                          setReasonDropdownValue('__other__');
-                        }}
-                      />
-                    )}
-
-                    {!reason && reasonDropdownValue !== '__other__' && reasonDropdownValue !== '' && (
-                      <p className="hint">You can edit the reason below or type a custom one by selecting "Other".</p>
                     )}
                   </div>
                 </div>

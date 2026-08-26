@@ -363,6 +363,7 @@ CREATE TABLE IF NOT EXISTS `visit_reasons` (
     `createdAt`     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `modifiedAt`    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_visit_reasons_type_name` (`type`, `reasonName`),
     KEY `idx_visit_reasons_type_status` (`type`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 

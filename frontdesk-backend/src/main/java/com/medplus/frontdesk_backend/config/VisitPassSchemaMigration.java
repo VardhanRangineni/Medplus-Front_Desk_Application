@@ -24,6 +24,32 @@ public class VisitPassSchemaMigration implements ApplicationRunner {
         addColumnIfMissing("visitCardSentAt", "TIMESTAMP DEFAULT NULL");
         addColumnIfMissing("visitCardSmsStatus", "VARCHAR(20) DEFAULT NULL");
         addColumnIfMissing("visitCardSmsError", "VARCHAR(255) DEFAULT NULL");
+        addVisitReasonsUniqueKey();
+    }
+
+    private void addVisitReasonsUniqueKey() {
+        Integer count = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM information_schema.statistics
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'visit_reasons'
+                  AND index_name = 'uk_visit_reasons_type_name'
+                """,
+                Integer.class);
+        if (count != null && count > 0) return;
+        log.info("[VisitReasons] Deduplicating and adding unique key on (type, reasonName).");
+        // Delete duplicate rows, keeping the smallest id per (type, reasonName)
+        jdbc.update("""
+                DELETE vr FROM visit_reasons vr
+                WHERE vr.id NOT IN (
+                    SELECT min_id FROM (
+                        SELECT MIN(id) AS min_id
+                        FROM visit_reasons
+                        GROUP BY `type`, reasonName
+                    ) kept
+                )
+                """);
+        jdbc.execute("ALTER TABLE visit_reasons ADD UNIQUE KEY uk_visit_reasons_type_name (`type`, `reasonName`)");
     }
 
     private void addColumnIfMissing(String column, String definition) {

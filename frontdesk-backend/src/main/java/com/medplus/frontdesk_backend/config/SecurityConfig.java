@@ -62,6 +62,7 @@ public class SecurityConfig {
                         .requestMatchers("/register.html").permitAll()
                         .requestMatchers("/api/pre-register/public/**").permitAll()
                         .requestMatchers("/api/key-management/public/**").permitAll()
+                        .requestMatchers("/api/visit-reasons/active").permitAll()
                         .anyRequest().authenticated()
                 )
                 .authenticationProvider(authenticationProvider())
