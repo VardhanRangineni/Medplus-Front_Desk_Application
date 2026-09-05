@@ -1,7 +1,7 @@
 {
   "name": "self-regestration-form",
   "private": true,
-  "version": "1.1.6",
+  "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
