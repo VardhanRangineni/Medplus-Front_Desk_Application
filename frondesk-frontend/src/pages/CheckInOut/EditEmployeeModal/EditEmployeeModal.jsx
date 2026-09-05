@@ -19,7 +19,7 @@ import {
 import { getEntryDetail } from '../checkInOutService';
 import { updateEmployeeEntry } from '../AddEmployeeModal/addEmployeeService';
 import PersonToMeetMobileLookup from '../PersonToMeetMobileLookup';
-import { PRESET_REASONS } from '../../../constants/visitReasons';
+import ReasonDropdown from '../../../components/ReasonDropdown/ReasonDropdown';
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
 
@@ -181,24 +181,10 @@ export default function EditEmployeeModal({ entry, onClose, onSuccess }) {
 
             {/* Reason */}
             <Field label="Reason for Visit" required>
-              <div className="avm-reason-chips">
-                {PRESET_REASONS.map((r) => (
-                  <button
-                    key={r.label}
-                    type="button"
-                    className="avm-reason-chip"
-                    onClick={() => setField('reasonForVisit', r.text)}
-                  >
-                    {r.label}
-                  </button>
-                ))}
-              </div>
-              <textarea
-                className="avm-textarea"
-                placeholder="e.g. Project meeting"
-                rows={3}
+              <ReasonDropdown
+                type="EMPLOYEE"
                 value={form.reasonForVisit}
-                onChange={(e) => setField('reasonForVisit', e.target.value)}
+                onChange={(val) => setField('reasonForVisit', val)}
               />
             </Field>
 

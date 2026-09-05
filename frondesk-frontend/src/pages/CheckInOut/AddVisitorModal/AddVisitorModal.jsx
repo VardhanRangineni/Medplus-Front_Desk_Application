@@ -722,6 +722,18 @@ export default function AddVisitorModal({ onClose, onSuccess, locationScope }) {
         setSelectedKnownVisitor(selected);
         // Pre-fill fields from the selected record
         setFullName(selected.name || '');
+        // Pre-fill company if the past record had one
+        if (selected.companyName) {
+          setDetails((s) => ({
+            ...s,
+            representsCompany: true,
+            companyName: selected.companyName || '',
+          }));
+        }
+        // Pre-fill reason if the past record had one
+        if (selected.reasonForVisit) {
+          setDetails((s) => ({ ...s, reasonForVisit: selected.reasonForVisit }));
+        }
         // Mark as verified — skip OTP
         setMobileVerified(true);
         setDetailsEdited(false);
@@ -814,6 +826,20 @@ export default function AddVisitorModal({ onClose, onSuccess, locationScope }) {
     const selected = { ...kv, __idx: idx >= 0 ? idx : 0 };
     setSelectedKnownVisitor(selected);
     setFullName(selected.name || '');
+    // Pre-fill company if the past record had one
+    if (selected.companyName) {
+      setDetails((s) => ({
+        ...s,
+        representsCompany: true,
+        companyName: selected.companyName || '',
+      }));
+    } else {
+      setDetails((s) => ({ ...s, representsCompany: false, companyName: '' }));
+    }
+    // Pre-fill reason if the past record had one
+    if (selected.reasonForVisit) {
+      setDetails((s) => ({ ...s, reasonForVisit: selected.reasonForVisit }));
+    }
     setMobileVerified(true);
     setDetailsEdited(false);
   }

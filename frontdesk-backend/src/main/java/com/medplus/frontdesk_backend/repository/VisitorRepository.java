@@ -1002,12 +1002,12 @@ public class VisitorRepository {
                           AND v.entryType = 'VISITOR') AS totalVisits
                 FROM visitorlog t1
                 INNER JOIN (
-                    SELECT name, MAX(checkInTime) AS maxCheckIn
+                    SELECT name COLLATE utf8mb4_general_ci AS name, MAX(checkInTime) AS maxCheckIn
                     FROM visitorlog
                     WHERE mobile = :mobile AND locationId = :locationId
                       AND status = 'CHECKED_OUT'
                       AND entryType = 'VISITOR'
-                    GROUP BY name
+                    GROUP BY name COLLATE utf8mb4_general_ci
                 ) t2 ON t1.name COLLATE utf8mb4_general_ci = t2.name
                      AND t1.checkInTime = t2.maxCheckIn
                 WHERE t1.mobile = :mobile AND t1.locationId = :locationId
